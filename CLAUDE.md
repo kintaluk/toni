@@ -17,6 +17,7 @@ The repo is at an early scaffold stage. Work is specified brief by brief in root
 5. Keep the standard push-to-main deny rule active. This repo does not touch Supabase, so no Supabase-specific permission rules are needed.
 6. New-build work requires plan mode: write and get the plan approved before writing code, per each brief's own instruction.
 7. Do not push or commit to GitHub until the person running the session says the relevant brief step has been reviewed; work stays local until then.
+8. Parallel's Search API must be actively called at runtime by the deployed/submitted project, not only by a one-off dev-time script whose output then sits in a cache. This is a hackathon eligibility requirement for the Parallel track, not a style preference: referencing Parallel in code that the submitted product never actually executes does not count. As of Brief 1, `src/search_reviews.py` and `src/extract_reviews.py` are dev-time spike scripts (their output, `logs/`, is gitignored), and `src/score_rubric.py` makes no Parallel calls of its own, it only reads the cached extract log. Brief 2 onward must not simply widen this same batch-backfill pattern to more films; the eventual agent (Brief 4) needs to call `client.search()`/`client.extract()` live as part of an actual user session, with caching layered on top as an optimisation, not as the only mechanism. Treat this as a required input to Brief 2's plan, not an optional nice-to-have.
 
 ## Stack
 
