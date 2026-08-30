@@ -1,80 +1,231 @@
 # TONI
 
-**Tonight’s Own Next Indulgence**
+**Tonight’s Options, Narrowed Intelligently**
 
-TONI is an agentic cinema discovery project designed to make choosing what to watch easier.
+**Your personal guide to what’s worth watching next.**
 
-Instead of giving users an endless catalogue, TONI builds a picture of their taste, checks what they can actually watch, considers trusted reviews and context, then returns a ranked shortlist with clear reasons.
+TONI is an agentic cinema discovery product that helps people decide what to watch with less effort.
+
+Instead of showing an endless catalogue, TONI learns enough about the viewer’s taste and current mood, checks what is available to them, evaluates relevant films using reviews and official information, and returns a focused shortlist with clear reasons for each recommendation.
+
+TONI’s job is simple:
+
+**Do the homework. Give me a clear steer. Tell me why. Leave the choice with me.**
 
 ## The problem
 
-Streaming platforms have made more content available, but choosing what to watch has become harder.
+Streaming has created abundance, but not necessarily easier decisions.
 
-Recommendations are usually tied to a single platform, influenced by commercial priorities, or based on limited signals. Users are left jumping between streaming services, review sites and search results before making a decision.
+People can spend too long scrolling, checking multiple platforms, comparing reviews, or abandoning the choice altogether.
 
-TONI is designed around the decision itself: **what should I watch tonight?**
+TONI reduces the gap between:
 
-## What TONI does
+> “There are thousands of things I could watch”
 
-The prototype is being developed to explore whether an agentic system can:
+and:
 
-* build and refine an individual taste profile
-* understand the context of what someone wants to watch
-* check availability across relevant streaming services
-* gather and interpret useful review signals
-* compare suitable films and television
-* produce a small, ranked shortlist
-* explain why each recommendation fits
+> “This is probably the right one for me tonight.”
 
-The aim is not to produce more recommendations. It is to produce fewer, better ones.
+**Core promise: Personal fit + less effort.**
 
-## Current scope
+## How TONI works
 
-TONI is currently an experimental prototype being developed as part of an agentic AI hackathon.
+The intended experience has five parts.
 
-The initial focus is on validating the core recommendation experience and the underlying agent workflow.
+### 1. Taste intake
 
-The project is intentionally narrow at this stage. Features, integrations and technical architecture may change as the prototype develops.
+TONI asks a short set of useful questions about things such as:
 
-## Product principles
+- genre
+- pacing
+- mood
+- tone
+- recent likes and dislikes
+
+### 2. Availability
+
+Recommendations should reflect what the viewer can actually watch on their chosen services or in cinemas.
+
+### 3. Evidence-led evaluation
+
+Relevant titles are assessed consistently using reviews and official information.
+
+TONI does not create a single arbitrary score or pretend that critical opinion is always unanimous.
+
+### 4. Personal matching
+
+The evidence is reconciled against the viewer’s taste and current mood.
+
+The same film can rank differently for different people.
+
+### 5. Focused output
+
+TONI returns a ranked shortlist and explains why each option fits.
+
+The aim is not to produce more recommendations.
+
+It is to produce fewer, better ones.
+
+## Recommendation principles
 
 TONI should:
 
-* reduce choice rather than increase it
-* explain recommendations clearly
-* take personal taste seriously
-* consider what is actually available to watch
-* use external signals without blindly following popularity
-* keep the user in control of the final decision
-* feel useful to mainstream viewers while rewarding deeper film knowledge
+- put personal fit first
+- reduce choice rather than increase it
+- explain recommendations clearly
+- use reviews and official information as evidence
+- distinguish between mixed evidence and limited evidence
+- avoid manufacturing numerical confidence scores
+- remain spoiler-free by default
+- occasionally stretch beyond a viewer’s usual taste when there is a strong reason
+- explain when and why it is making that stretch
+- leave the final decision with the viewer
 
-## Repository
+## What makes TONI different
 
-This repository contains the technical implementation of the TONI prototype.
+TONI is not a review aggregator and it is not another infinite catalogue.
 
-Product research, strategy, development decisions and other working documents are maintained separately from the codebase.
+Its core difference is:
 
-## Status
+**Personalised decision support with transparent, evidence-based reasoning.**
+
+Traditional viewing guides answered:
+
+**What’s on?**
+
+TONI answers:
+
+**What’s worth watching for me?**
+
+## Audience
+
+### Primary
+
+Film-aware but time-poor viewers.
+
+They understand their own taste, but do not want to research every viewing decision.
+
+### Secondary
+
+Choice-overloaded mainstream streamers.
+
+They want a useful recommendation quickly, with deeper reasoning available when they want it.
+
+### Tertiary
+
+Film enthusiasts and cinephiles.
+
+They may want deeper reasoning, source detail, critical disagreement and more adventurous discovery.
+
+## Brand
+
+TONI is intended to feel:
+
+- warm, not clinical
+- lightly witty, not jokey
+- film-aware, not snobbish
+- confident, but reasoned
+- specific rather than generic
+- helpful without becoming over-chatty
+- honest about the strength and limits of the evidence
+- respectful of the user’s taste
+
+TONI should sound comfortable making a recommendation without pretending to have personal taste or first-hand viewing experience.
+
+## Why TONI
+
+The name gives the product a warm, human identity without making it sound like a chatbot, review site or recommendation engine.
+
+The working expansion is:
+
+**Tonight’s Options, Narrowed Intelligently**
+
+- **Tonight’s**: the immediate viewing decision
+- **Options**: the range of possible films and programmes
+- **Narrowed**: reducing choice and effort
+- **Intelligently**: using taste, evidence and availability to make the shortlist relevant
+
+The expansion is optional brand lore. TONI should work as a name in its own right.
+
+## Hackathon scope
+
+TONI is currently being developed as an agentic AI hackathon project.
+
+The hackathon version is:
+
+- film-first
+- focused on proving the end-to-end reasoning loop
+- deliberately limited in catalogue size
+- designed to demonstrate personalised recommendations
+- intended to show that the same evidence can lead to different recommendations for different viewers
+
+The original concept contains four main technical subsystems:
+
+1. Taste intake
+2. Rubric-based film evaluation
+3. Personal matching
+4. Availability filtering
+
+A small, credible set of films is preferable to broad but brittle coverage.
+
+## Current open decisions
+
+The following are still being defined:
+
+- the final recommendation rubric
+- whether availability is live, curated, or hybrid
+- the ideal product journey
+- which parts of that journey form the hackathon MVP
+- the final visual identity
+- the final demo scenario
+- detailed technical implementation
+
+Technical choices made during the hackathon should not automatically be treated as permanent product architecture.
+
+## Future development
+
+Possible later developments include:
+
+- television and broader viewing formats
+- longer-term taste memory
+- more conversational follow-up
+- more adventurous discovery
+- a TONI visual companion or avatar
+
+These are outside the current hackathon scope.
+
+## Repository status
 
 **Early prototype / hackathon development**
 
-Technical architecture, dependencies and setup instructions will be added as the build develops.
+This repository contains the technical implementation of TONI.
 
-## Development
+Product strategy, research and decision records are maintained separately in the project documentation.
 
-This repo is being built brief by brief for the Agentic Cinema hackathon (Parallel track). Root-level files named `agentic-cinema-brief-N.md` are the authoritative, step-by-step spec for each phase; `CLAUDE.md` holds the durable project rules that outlive any single brief (rubric contract, copyright constraints, secrets handling, repo visibility).
+The project remains private during development and will only become public where required for hackathon submission.
 
-Stack: Python 3.11+, run inside a `.venv` virtual environment.
+## Source of truth
 
-```
-.venv/Scripts/python.exe -m pip install -r requirements.txt
-.venv/Scripts/python.exe src/verify_env.py
-```
+TONI’s product strategy, brand, scope and confirmed product decisions are maintained in the TONI project documentation in Google Drive.
 
-See `CLAUDE.md` for the current command set, which is updated as real lint, test and run commands are introduced.
+This repository is the source of truth for the technical implementation.
 
-## Name
+Technical decisions that materially affect architecture, integrations, data, security or deployment should be recorded in [`DECISIONS.md`](./DECISIONS.md).
 
-**TONI** stands for **Tonight’s Own Next Indulgence**.
+If the code, README, `DECISIONS.md` and project documentation conflict:
 
-The name reflects the core idea behind the product: helping someone make a confident, personal choice about what to watch next.
+- confirmed product and brand decisions in the TONI Foundation take precedence
+- confirmed technical decisions in `DECISIONS.md` take precedence for implementation
+- unresolved questions should not be silently treated as confirmed decisions
+
+Hackathon implementation choices should not automatically be treated as permanent product architecture.
+
+## Legal
+
+TONI has passed an initial naming scan without an obvious film or television category conflict.
+
+It has not been formally legally cleared.
+
+Any use beyond the hackathon should include appropriate trademark, domain, app-store and social-handle checks.
+
+© 2026 KINTAL Ltd. All rights reserved.
