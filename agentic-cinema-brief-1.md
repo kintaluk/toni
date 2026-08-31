@@ -1,5 +1,5 @@
 Agentic Cinema Brief 1: Repo scaffold and review pipeline spike
-For Claude Code. 25 August 2026.
+For Gemini CLI. 25 August 2026.
 
 **In one sentence:** we need to know whether Parallel's search and extract, fed into a
 Gemini rubric-scoring prompt, produces grounded, non-invented scores for a real film
@@ -22,7 +22,7 @@ Environment:
   it, don't silently downgrade either.
 - Secrets: `PARALLEL_API_KEY` and Google Cloud credentials go in a local `.env` file.
   Add `.env` to `.gitignore` before the first commit, not after.
-- No CLAUDE.md exists yet for this repo. Run `/init` first.
+- No GEMINI.md exists yet for this repo. Run `/init` first.
 - Plan mode is mandatory, this is a new build. Approve the plan before any code is
   written.
 - `settings.json`: keep the standard push-to-main deny rule active. No Supabase ask
@@ -36,7 +36,7 @@ Do: create the repo structure (`src/`, `tests/`, `.env.example`, `.gitignore`, a
 README stub that states the repo is a work in progress and not yet public). Install
 both packages listed above and confirm they import cleanly.
 File: repo root, `requirements.txt`
-Claude Code must not change: nothing exists yet to change.
+Gemini CLI must not change: nothing exists yet to change.
 If blocked: a dependency conflict between the ADK package and `parallel-web`, stop and
 report the exact conflicting version constraints rather than picking one.
 Verify: run a short script that imports both packages and prints the first 4
@@ -58,7 +58,7 @@ dataclass), not as prose the model has to reconstruct each run:
 6. Rewatch value
 7. Critical consensus vs divergence
 File: `src/rubric.py`, `src/test_film.py`
-Claude Code must not change: the rubric dimension names or count. These are fixed per
+Gemini CLI must not change: the rubric dimension names or count. These are fixed per
 the concept brief.
 If blocked: none expected, this is static data entry.
 Verify: print the rubric structure and the test film's title to confirm both load.
@@ -71,7 +71,7 @@ Do: using the Parallel Python SDK (`from parallel import Parallel`), call
 reviews of the test film, not fan forum posts or plot summaries. Log the full raw
 response (URLs and excerpts) to a local file, don't just print and discard it.
 File: `src/search_reviews.py`
-Claude Code must not change: don't call `client.search()` more than once per test run
+Gemini CLI must not change: don't call `client.search()` more than once per test run
 at this stage. We're checking quality, not tuning against live cost yet.
 If blocked: if results come back thin or off-topic, try a second, more specific
 objective before proceeding. Don't move to Step 4 on weak source material.
@@ -83,7 +83,7 @@ Effort: default
 Do: for the best 3 to 5 URLs from Step 3, call Parallel's Extract API for clean page
 content. Log extracted text per source, tagged with its source URL.
 File: `src/extract_reviews.py`
-Claude Code must not change: don't extract more than 5 sources for this test film.
+Gemini CLI must not change: don't extract more than 5 sources for this test film.
 If blocked: if a source fails (paywall, bot-blocked), log it as failed and continue
 with the remaining sources rather than stopping the whole run.
 Verify: paste a short excerpt of each successfully extracted source into the session.
@@ -97,7 +97,7 @@ rationale must reference which source(s) it drew from, paraphrased, never quoted
 length, per the copyright constraint in the concept brief. Run it against the test
 film's extracted content from Step 4.
 File: `src/score_rubric.py`
-Claude Code must not change: don't let the model invent a dimension outside the fixed
+Gemini CLI must not change: don't let the model invent a dimension outside the fixed
 list from Step 2.
 If blocked: if the output can't trace its scores back to specific extracted content,
 that's a signal the prompt needs tightening, not a signal to proceed anyway.
