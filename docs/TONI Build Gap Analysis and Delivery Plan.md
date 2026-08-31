@@ -66,7 +66,7 @@ Required change
 
 Product contract
 
-README and CLAUDE.md still describe open decisions and freeze the old rubric.
+README and GEMINI.md still describe open decisions and freeze the old rubric.
 
 Reconcile the repository with Tasks 01-03 before further feature work.
 
@@ -238,7 +238,7 @@ No further polishing of the superseded seven-dimension rubric.
 
 2
 
-Update README.md, CLAUDE.md and DECISIONS.md to reflect Tasks 01-03 and mark the old rubric as spike-only.
+Update README.md, GEMINI.md and DECISIONS.md to reflect Tasks 01-03 and mark the old rubric as spike-only.
 
 No repository instruction contradicts the product source of truth.
 
@@ -370,9 +370,9 @@ Action
 
 Coding-assistant eligibility
 
-Official rules ban non-Google AI tooling in projects, while organiser guidance says this includes coding tools. The repo records Claude Code use.
+Official rules require Google AI tooling in projects, and organiser guidance includes coding tools. Standardize exclusively on Google AI tooling.
 
-Ask the organisers in writing now. Do not conceal or rewrite history. Use Gemini CLI or Code Assist for further implementation pending clarification.
+Ensure all repository instructions, briefs, and development workflows strictly use Gemini CLI and Google AI tooling.
 
 No three eligible films
 
@@ -424,7 +424,7 @@ Tina completes Task 04 before the front-end build expands.
 
 Tina submits the Google Cloud credit request immediately if it has not already been submitted.
 
-Tina asks the organisers whether Claude Code and other non-Google coding assistants are permitted under the AI-tooling restriction.
+Tina and Nate confirm standardisation on Gemini CLI and Google AI coding tools across all repository workflows.
 
 Nate records Brief 1 as a qualified PASS and begins the repository reconciliation, not Brief 1 iteration.
 
