@@ -151,6 +151,10 @@ class Recommendation(BaseModel):
     concise_reason: str = Field(
         description="Warm, natural-language explanation of why this specific film fits tonight's context."
     )
+    evidence_sources: List[str] = Field(
+        default_factory=list,
+        description="Source URLs retrieved dynamically from Parallel."
+    )
 
 
 class RecommendationResponse(BaseModel):

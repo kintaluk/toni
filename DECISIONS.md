@@ -55,6 +55,13 @@ Its purpose is to preserve why decisions were made, not just what the current co
 * **Decision:** The hackathon MVP strictly excludes TV/television, group viewing, theatrical listings, and general-purpose chat. It requires an anonymous-first flow allowing a user to obtain recommendations before prompting for saving or sign-in.
 * **Why:** Limits MVP scope to ensure a polished, visually and technically complete experience within the tight hackathon timeframe.
 
+### DEC-007: FastAPI HTTP Service, Web Demo UI & Runtime Evidence Wiring
+* **Date:** 2026-08-31
+* **Status:** Confirmed / Hackathon-only
+* **Area:** Architecture & Interface
+* **Decision:** Wrap the backend recommendation pipeline with a lightweight FastAPI service and provide an interactive single-page web demo UI (`/`). Wire `get_film_evidence()` directly into recommendation generation to ensure Parallel Search and Extract APIs are actively invoked at runtime for every session, attaching verified source URLs to recommendation cards.
+* **Why:** Enables frontend integration with Tina's interface, simplifies cloud deployment to Google Cloud Run, and guarantees strict compliance with the Parallel track hackathon eligibility requirements.
+
 ---
 
 ## Decision Template (For Reference)
