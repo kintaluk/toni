@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TONI — Tonight's Options, Narrowed Intelligently</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #0B0F17;
+      color: #F3F4F6;
+    }
+    .cinema-gradient {
+      background: radial-gradient(circle at 50% 0%, rgba(20, 184, 166, 0.15), transparent 70%),
+                  radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.1), transparent 60%);
+    }
+    .card-glass {
+      background: rgba(17, 24, 39, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+  </style>
+</head>
+<body class="min-h-screen cinema-gradient antialiased flex flex-col justify-between">
+
+  <!-- TOP NAVIGATION -->
+  <header class="border-b border-gray-800/80 bg-gray-950/60 backdrop-blur-md sticky top-0 z-50">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-teal-500 to-indigo-500 flex items-center justify-center text-white font-extrabold text-lg shadow-lg shadow-teal-500/20">
+          T
+        </div>
+        <div>
+          <h1 class="text-xl font-extrabold tracking-tight text-white flex items-center gap-2">
+            TONI
+            <span class="text-xs uppercase tracking-wider px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400 border border-teal-500/20 font-semibold">Hackathon MVP</span>
+          </h1>
+          <p class="text-xs text-gray-400">Tonight’s Options, Narrowed Intelligently</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2">
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-300 border border-purple-500/20">
+          <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
+          Parallel Search & Extract + Gemini
+        </span>
+        <a href="/docs" target="_blank" class="text-xs text-gray-400 hover:text-white transition px-2 py-1 rounded border border-gray-800 hover:border-gray-700">API Docs</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="max-w-6xl mx-auto px-4 py-8 flex-1 w-full">
+
+    <!-- HERO SECTION -->
+    <div class="text-center max-w-3xl mx-auto mb-10">
+      <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-white mb-3">
+        Your Personal Guide to <span class="bg-gradient-to-r from-teal-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">What’s Worth Watching Next.</span>
+      </h2>
+      <p class="text-gray-400 text-sm sm:text-base leading-relaxed">
+        TONI does the homework: verifies your streaming access, gathers live critic reviews via Parallel, evaluates 6-dimension Film Profiles with Gemini, and delivers a tight, reasoned shortlist.
+      </p>
+    </div>
+
+    <!-- PERSONA PRESETS -->
+    <div class="card-glass rounded-2xl p-5 mb-8 border border-gray-800">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-bold uppercase tracking-wider text-gray-400 flex items-center gap-2">
+          <svg class="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          Quick Demo Personas (One-Click Test Cases)
+        </h3>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3" id="personas-container">
+        <!-- Loaded dynamically -->
+      </div>
+    </div>
+
+    <!-- CUSTOM INTAKE FORM -->
+    <div class="card-glass rounded-2xl p-6 mb-8 border border-gray-800">
+      <h3 class="text-lg font-bold text-white mb-5 flex items-center gap-2 border-b border-gray-800 pb-3">
+        <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+        Custom Intake Questionnaire
+      </h3>
+
+      <form id="intake-form" class="space-y-6">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <!-- 1. Country -->
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Viewing Market</label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="cursor-pointer">
+                <input type="radio" name="country" value="UK" checked class="peer sr-only">
+                <div class="p-3 text-center rounded-xl border border-gray-700 bg-gray-900/60 peer-checked:border-teal-500 peer-checked:bg-teal-500/10 peer-checked:text-teal-300 font-semibold transition">
+                  🇬🇧 UK Market
+                </div>
+              </label>
+              <label class="cursor-pointer">
+                <input type="radio" name="country" value="US" class="peer sr-only">
+                <div class="p-3 text-center rounded-xl border border-gray-700 bg-gray-900/60 peer-checked:border-teal-500 peer-checked:bg-teal-500/10 peer-checked:text-teal-300 font-semibold transition">
+                  🇺🇸 US Market
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- 2. Allow Rent/Buy -->
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Rent / Buy Options</label>
+            <div class="flex items-center justify-between p-3 rounded-xl border border-gray-700 bg-gray-900/60">
+              <span class="text-sm text-gray-300">Allow extra-cost rental & purchase?</span>
+              <input type="checkbox" id="allow-rent-buy" checked class="w-5 h-5 text-teal-600 rounded bg-gray-800 border-gray-700 focus:ring-teal-500">
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Streaming Services -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Your Streaming Subscriptions</label>
+          <div class="flex flex-wrap gap-2" id="services-chips">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- 4. Pacing & Attention Demandingness -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-2">
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Pacing Preference</label>
+            <select id="pacing-select" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-teal-500">
+              <option value="brisk">Brisk (Fast, lively, engaging)</option>
+              <option value="measured" selected>Measured (Moderate, balanced)</option>
+              <option value="slow">Slow (Slow-burning, cinematic space)</option>
+            </select>
+          </div>
+
+          <div>
+            <div class="flex justify-between items-center mb-2">
+              <label class="text-xs font-semibold uppercase tracking-wider text-gray-400">Attention / Effort Budget</label>
+              <span id="demandingness-val" class="text-xs font-bold text-teal-400">3.0 / 5 (Balanced)</span>
+            </div>
+            <input type="range" id="demandingness-slider" min="1" max="5" step="0.5" value="3.0" class="w-full accent-teal-500 bg-gray-800 h-2 rounded-lg cursor-pointer">
+            <div class="flex justify-between text-[11px] text-gray-500 mt-1">
+              <span>Light / Mindless</span>
+              <span>Balanced</span>
+              <span>Demanding / Arthouse</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Mood / Tone & Exclusions -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Desired Tone / Vibe</label>
+            <select id="tone-select" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-teal-500">
+              <option value="">Any Tone / General Fit</option>
+              <option value="funny">Funny & Witty</option>
+              <option value="magical">Magical & Wondrous</option>
+              <option value="intense">Intense & Gritty</option>
+              <option value="mind-bending">Mind-bending & Intellectual</option>
+              <option value="tense">Tense & Thrilling</option>
+              <option value="warm">Warm & Heartfelt</option>
+              <option value="bleak">Bleak & Atmospheric</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Exclude Specific Genre</label>
+            <select id="exclude-genre-select" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-teal-500">
+              <option value="">None (Don't exclude any genres)</option>
+              <option value="Horror">Exclude Horror</option>
+              <option value="Crime">Exclude Crime</option>
+              <option value="Sci-Fi">Exclude Sci-Fi</option>
+              <option value="Comedy">Exclude Comedy</option>
+              <option value="Drama">Exclude Drama</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- SUBMIT BUTTON -->
+        <div class="pt-3">
+          <button type="submit" id="submit-btn" class="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-teal-500 to-indigo-600 text-white font-bold text-base shadow-lg shadow-teal-500/25 hover:from-teal-400 hover:to-indigo-500 transition transform active:scale-[0.99] flex items-center justify-center gap-2">
+            <svg class="w-5 h-5 animate-spin hidden" id="spinner" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+            <span id="btn-text">Generate My Personal Shortlist Tonight</span>
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- REASONING PROGRESS STATE -->
+    <div id="reasoning-state" class="hidden card-glass rounded-2xl p-6 mb-8 border border-teal-500/30 text-center animate-pulse">
+      <div class="flex justify-center mb-3">
+        <div class="w-10 h-10 rounded-full bg-teal-500/20 text-teal-400 flex items-center justify-center">
+          <svg class="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+        </div>
+      </div>
+      <h4 class="text-base font-bold text-white mb-1" id="reasoning-title">Evaluating Live Movie Candidates...</h4>
+      <p class="text-xs text-gray-400" id="reasoning-desc">Checking streaming availability across your active services...</p>
+    </div>
+
+    <!-- RECOMMENDATIONS OUTPUT -->
+    <div id="results-section" class="hidden space-y-8">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-4">
+        <div>
+          <h3 class="text-2xl font-extrabold text-white tracking-tight">Your TONI Shortlist for Tonight</h3>
+          <p class="text-xs text-gray-400 mt-0.5">Top 3 recommendations tailored to your taste, mood, and streaming availability.</p>
+        </div>
+        <span class="px-3 py-1 bg-teal-500/10 text-teal-400 border border-teal-500/20 text-xs font-semibold rounded-full">
+          3 Curated Roles
+        </span>
+      </div>
+
+      <!-- TOP 3 WATCHCARDS -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6" id="top3-cards">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <!-- EXPANDED WATCHLIST -->
+      <div id="expanded-watchlist" class="card-glass rounded-2xl p-6 border border-gray-800 hidden">
+        <h4 class="text-sm font-bold uppercase tracking-wider text-gray-400 mb-4 flex items-center gap-2">
+          <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+          Also Worth Considering Tonight (Expanded Watchlist)
+        </h4>
+        <div class="space-y-3" id="additional-list">
+          <!-- Rendered dynamically -->
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="border-t border-gray-900 bg-gray-950 py-6 text-center text-xs text-gray-500">
+    <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+      <p>© 2026 TONI by KINTAL. Agentic Cinema Hackathon (Parallel Track).</p>
+      <p class="flex items-center gap-2">
+        <span>Parallel Web Systems SDK</span> • <span>Gemini 2.5 Pro</span> • <span>Watchmode / TMDB</span>
+      </p>
+    </div>
+  </footer>
+
+  <!-- SCRIPT -->
+  <script>
+    const SERVICES_UK = ["Netflix", "Prime Video", "Disney+", "BBC iPlayer", "Channel 4", "ITVX", "Paramount+"];
+    const SERVICES_US = ["Netflix", "Prime Video", "Disney+", "Max", "Hulu", "Paramount+", "Pluto TV", "Peacock"];
+
+    let selectedServices = ["Netflix"];
+
+    // Initialize Providers Chips
+    function updateServiceChips() {
+      const country = document.querySelector('input[name="country"]:checked').value;
+      const list = country === "UK" ? SERVICES_UK : SERVICES_US;
+      const container = document.getElementById("services-chips");
+      container.innerHTML = "";
+
+      list.forEach(service => {
+        const isChecked = selectedServices.includes(service);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = `px-3.5 py-1.5 rounded-full text-xs font-semibold transition border ${
+          isChecked 
+            ? "bg-teal-500/20 text-teal-300 border-teal-500/50 shadow-sm shadow-teal-500/10" 
+            : "bg-gray-900/60 text-gray-400 border-gray-700 hover:border-gray-600"
+        }`;
+        btn.innerText = service;
+        btn.onclick = () => {
+          if (selectedServices.includes(service)) {
+            selectedServices = selectedServices.filter(s => s !== service);
+          } else {
+            selectedServices.push(service);
+          }
+          updateServiceChips();
+        };
+        container.appendChild(btn);
+      });
+    }
+
+    // Load Personas
+    async function loadPersonas() {
+      try {
+        const res = await fetch("/api/personas");
+        const data = await res.json();
+        const container = document.getElementById("personas-container");
+        container.innerHTML = "";
+
+        data.personas.forEach(p => {
+          const div = document.createElement("div");
+          div.className = "p-3.5 rounded-xl border border-gray-700 bg-gray-900/40 hover:border-teal-500/50 cursor-pointer transition flex flex-col justify-between";
+          div.innerHTML = `
+            <div>
+              <div class="text-xs font-bold text-white">${p.name}</div>
+              <div class="text-[11px] text-gray-400 mt-1 leading-snug">${p.description}</div>
+            </div>
+            <button class="mt-3 text-[11px] font-bold text-teal-400 hover:text-teal-300 flex items-center gap-1">
+              Run this simulation →
+            </button>
+          `;
+          div.onclick = () => runPipeline(p.context);
+          container.appendChild(div);
+        });
+      } catch (err) {
+        console.error("Failed to load personas:", err);
+      }
+    }
+
+    // Slider listener
+    const slider = document.getElementById("demandingness-slider");
+    const sliderVal = document.getElementById("demandingness-val");
+    slider.oninput = (e) => {
+      const val = parseFloat(e.target.value);
+      const label = val <= 2.0 ? "Light" : (val >= 4.0 ? "Demanding" : "Balanced");
+      sliderVal.innerText = `${val.toFixed(1)} / 5 (${label})`;
+    };
+
+    // Country radio change listener
+    document.querySelectorAll('input[name="country"]').forEach(r => {
+      r.addEventListener("change", () => {
+        selectedServices = ["Netflix"];
+        updateServiceChips();
+      });
+    });
+
+    // Form Submit
+    document.getElementById("intake-form").onsubmit = async (e) => {
+      e.preventDefault();
+      const country = document.querySelector('input[name="country"]:checked').value;
+      const allowRentBuy = document.getElementById("allow-rent-buy").checked;
+      const pacing = document.getElementById("pacing-select").value;
+      const demandingness = parseFloat(document.getElementById("demandingness-slider").value);
+      const tone = document.getElementById("tone-select").value;
+      const excludeGenre = document.getElementById("exclude-genre-select").value;
+
+      const tonight_signals = [
+        { name: "pacing", value: pacing, signal_type: "soft_session_preference" },
+        { name: "demandingness", value: demandingness, signal_type: "soft_session_preference" }
+      ];
+      if (tone) {
+        tonight_signals.push({ name: "tone", value: tone, signal_type: "soft_session_preference" });
+      }
+      if (excludeGenre) {
+        tonight_signals.push({ name: "exclude-genre", value: [excludeGenre], signal_type: "hard_constraint" });
+      }
+
+      const context = {
+        country: country,
+        service_access: selectedServices.length ? selectedServices : ["Netflix"],
+        allow_rent_buy: allowRentBuy,
+        intake_depth: "get_to_know_me",
+        tonight_signals: tonight_signals,
+        persistent_taste: []
+      };
+
+      await runPipeline(context);
+    };
+
+    // Run Recommendation Pipeline
+    async function runPipeline(context) {
+      const reasoningState = document.getElementById("reasoning-state");
+      const resultsSection = document.getElementById("results-section");
+      const submitBtn = document.getElementById("submit-btn");
+      const spinner = document.getElementById("spinner");
+      const btnText = document.getElementById("btn-text");
+
+      reasoningState.classList.remove("hidden");
+      resultsSection.classList.add("hidden");
+      submitBtn.disabled = true;
+      spinner.classList.remove("hidden");
+      btnText.innerText = "Analyzing Live Evidence with Parallel & Gemini...";
+
+      try {
+        const response = await fetch("/api/recommend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(context)
+        });
+
+        const data = await response.json();
+        renderResults(data.recommendations || []);
+      } catch (err) {
+        alert("Error running recommendation pipeline: " + err.message);
+      } finally {
+        reasoningState.classList.add("hidden");
+        submitBtn.disabled = false;
+        spinner.classList.add("hidden");
+        btnText.innerText = "Generate My Personal Shortlist Tonight";
+      }
+    }
+
+    // Render Recommendations
+    function renderResults(recs) {
+      const resultsSection = document.getElementById("results-section");
+      const top3Container = document.getElementById("top3-cards");
+      const additionalList = document.getElementById("additional-list");
+      const expandedWatchlist = document.getElementById("expanded-watchlist");
+
+      top3Container.innerHTML = "";
+      additionalList.innerHTML = "";
+
+      if (!recs.length) {
+        top3Container.innerHTML = `
+          <div class="col-span-3 text-center py-10 text-gray-400">
+            No films could match your streaming services or constraints. Please widen your subscriptions or enable rent/buy.
+          </div>
+        `;
+        resultsSection.classList.remove("hidden");
+        return;
+      }
+
+      const top3 = recs.filter(r => r.role !== "ranked_additional");
+      const additional = recs.filter(r => r.role === "ranked_additional");
+
+      top3.forEach(rec => {
+        let roleBadge = "";
+        let borderClass = "";
+
+        if (rec.role === "best_fit") {
+          roleBadge = `<span class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">BEST FIT</span>`;
+          borderClass = "border-emerald-500/40 shadow-lg shadow-emerald-500/5";
+        } else if (rec.role === "strong_alternative") {
+          roleBadge = `<span class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-sky-500/20 text-sky-300 border border-sky-500/40">STRONG ALTERNATIVE</span>`;
+          borderClass = "border-sky-500/40 shadow-lg shadow-sky-500/5";
+        } else {
+          roleBadge = `<span class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-purple-500/20 text-purple-300 border border-purple-500/40">WORTH A STRETCH</span>`;
+          borderClass = "border-purple-500/40 shadow-lg shadow-purple-500/5";
+        }
+
+        const sources = rec.evidence_sources && rec.evidence_sources.length ? rec.evidence_sources : [];
+        const sourcesHtml = sources.length 
+          ? `<div class="mt-3 pt-3 border-t border-gray-800 text-[11px] text-gray-400">
+              <span class="font-semibold text-gray-300">Parallel Verified Reviews:</span>
+              <ul class="list-disc list-inside mt-1 space-y-0.5 text-teal-400">
+                ${sources.slice(0, 3).map(s => `<li class="truncate"><a href="${s}" target="_blank" class="hover:underline">${s}</a></li>`).join("")}
+              </ul>
+            </div>`
+          : "";
+
+        const card = document.createElement("div");
+        card.className = `card-glass rounded-2xl p-5 flex flex-col justify-between border ${borderClass}`;
+        card.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              ${roleBadge}
+              <span class="text-xs font-bold text-gray-400">${rec.personal_fit_score}/100 Fit Score</span>
+            </div>
+            <h4 class="text-xl font-extrabold text-white">${rec.metadata.title}</h4>
+            <div class="text-xs text-gray-400 mt-1">${rec.metadata.year} • Dir. ${rec.metadata.director} • ${rec.metadata.runtime_minutes}m • ${rec.metadata.age_rating}</div>
+            
+            <div class="flex flex-wrap gap-1.5 mt-2.5">
+              ${rec.metadata.genres.map(g => `<span class="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-300 font-medium">${g}</span>`).join("")}
+            </div>
+
+            <div class="mt-4 p-3 rounded-xl bg-gray-900/80 border border-gray-800">
+              <div class="text-[11px] font-bold uppercase tracking-wider text-amber-400">Why Tonight:</div>
+              <p class="text-xs text-gray-300 mt-1 leading-relaxed">${rec.concise_reason}</p>
+            </div>
+
+            ${rec.stretch_signal ? `
+              <div class="mt-2.5 p-3 rounded-xl bg-purple-950/40 border border-purple-800/50">
+                <div class="text-[11px] font-bold uppercase tracking-wider text-purple-300">Stretch Rationale:</div>
+                <p class="text-xs text-purple-200 mt-1 leading-relaxed">${rec.stretch_signal}</p>
+              </div>
+            ` : ""}
+          </div>
+
+          <div class="mt-4">
+            <div class="flex items-center justify-between text-xs text-gray-400 py-1.5 border-t border-gray-800/80">
+              <span>Streaming:</span>
+              <span class="font-medium text-white">${rec.availability.matched_services.join(", ") || "Rent/Buy"}</span>
+            </div>
+            <div class="flex items-center justify-between text-xs text-gray-400 py-1.5 border-t border-gray-800/80">
+              <span>Evidence State:</span>
+              <span class="font-medium text-teal-300 capitalize">${rec.evidence_state.replace('_', ' ')}</span>
+            </div>
+            ${sourcesHtml}
+          </div>
+        `;
+        top3Container.appendChild(card);
+      });
+
+      if (additional.length) {
+        expandedWatchlist.classList.remove("hidden");
+        additional.forEach((rec, idx) => {
+          const item = document.createElement("div");
+          item.className = "flex items-center justify-between p-3 rounded-xl bg-gray-900/60 border border-gray-800 text-xs";
+          item.innerHTML = `
+            <div class="flex items-center space-x-3">
+              <span class="w-6 h-6 rounded-full bg-gray-800 text-gray-400 flex items-center justify-center font-bold text-[11px]">${idx + 4}</span>
+              <div>
+                <span class="font-bold text-white">${rec.metadata.title}</span>
+                <span class="text-gray-400">(${rec.metadata.year}) — ${rec.metadata.genres.join(", ")}</span>
+              </div>
+            </div>
+            <div class="flex items-center space-x-4">
+              <span class="text-teal-400 font-semibold">${rec.availability.matched_services.join(", ") || "Rent/Buy"}</span>
+              <span class="text-gray-400 font-bold">${rec.personal_fit_score}/100</span>
+            </div>
+          `;
+          additionalList.appendChild(item);
+        });
+      } else {
+        expandedWatchlist.classList.add("hidden");
+      }
+
+      resultsSection.classList.remove("hidden");
+      resultsSection.scrollIntoView({ behavior: "smooth" });
+    }
+
+    // Init
+    updateServiceChips();
+    loadPersonas();
+  </script>
+</body>
+</html>

@@ -145,8 +145,18 @@ Run the environment verification tool and tests:
 # Verify imports and keys
 .venv\Scripts\python.exe src/verify_env.py
 
-# Run the test suite (Pydantic contracts & availability checks)
+# Run the test suite (24 unit & integration tests)
 .venv\Scripts\python.exe -m pytest
+```
+
+### Running TONI
+
+```powershell
+# Option A: Start the FastAPI HTTP Server & Interactive Web Demo UI (http://localhost:8000)
+.venv\Scripts\python.exe -m uvicorn src.api:app --reload --port 8000
+
+# Option B: Run the Interactive Terminal CLI Simulation
+.venv\Scripts\python.exe src/main.py
 ```
 
 ---

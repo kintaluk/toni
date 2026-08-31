@@ -24,6 +24,7 @@ from contracts import (
     SignalType,
 )
 from availability import get_film_availability, AvailabilityStatus
+from evidence import get_film_evidence
 
 
 # --- CANONICAL FILM SEED POOL ---
@@ -354,7 +355,7 @@ def generate_stretch_signal(profile: FilmProfile, context: UserContext) -> Optio
     return None
 
 
-def rank_movies(context: UserContext) -> RecommendationResponse:
+def rank_movies(context: UserContext, force_live_evidence: bool = False) -> RecommendationResponse:
     """Ties the entire TONI pipeline together:
 
     1. Checks live availability for all seed pool movies.
@@ -362,7 +363,8 @@ def rank_movies(context: UserContext) -> RecommendationResponse:
     3. Calculates Personal Fit Scores.
     4. Evaluates stretch suitability.
     5. Assigns presentation roles (Best Fit, Strong Alternative, Worth a Stretch).
-    6. Returns up to 7 sorted, validated recommendations.
+    6. Attaches runtime Parallel Search/Extract review evidence and URLs.
+    7. Returns up to 7 sorted, validated recommendations.
     """
     eligible_recommendations: List[Recommendation] = []
 
@@ -476,5 +478,21 @@ def rank_movies(context: UserContext) -> RecommendationResponse:
             continue
         rec.role = OutputRole.RANKED_ADDITIONAL
         final_recommendations.append(rec)
+
+    # --- 5. ATTACH RUNTIME PARALLEL SEARCH & EXTRACT EVIDENCE ---
+    for rec in final_recommendations:
+        try:
+            evidence = get_film_evidence(
+                title=rec.metadata.title,
+                year=rec.metadata.year,
+                director=rec.metadata.director,
+                force_live=force_live_evidence,
+            )
+            if evidence:
+                rec.evidence_sources = [
+                    item["url"] for item in evidence if isinstance(item, dict) and "url" in item
+                ]
+        except Exception:
+            pass
 
     return RecommendationResponse(recommendations=final_recommendations)
