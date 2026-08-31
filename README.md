@@ -22,7 +22,7 @@ The prototype is being developed to explore whether an agentic system can:
 * understand the context of what someone wants to watch
 * check availability across relevant streaming services
 * gather and interpret useful review signals
-* compare suitable films and television
+* compare suitable films
 * produce a small, ranked shortlist
 * explain why each recommendation fits
 
