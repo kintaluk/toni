@@ -145,7 +145,7 @@ Run the environment verification tool and tests:
 # Verify imports and keys
 .venv\Scripts\python.exe src/verify_env.py
 
-# Run the test suite (24 unit & integration tests)
+# Run the test suite (36 unit & integration tests)
 .venv\Scripts\python.exe -m pytest
 ```
 

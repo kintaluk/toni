@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
@@ -70,8 +71,6 @@ def build_queries(title: str, year: int, director: str) -> List[str]:
     ]
 
 
-import urllib.parse
-
 def filter_search_results(results: List[Any]) -> List[str]:
     """Filter search result URLs to exclude aggregators, ticket listings, and blocked domains."""
     valid_urls = []
@@ -118,7 +117,7 @@ def log_trace(
     error_count: int,
     errors: List[str]
 ) -> None:
-    """Append a JSON line tracking search metrics, latency, and costs to logs/parallel_traces.jsonl."""
+    """Append a JSON line tracking search metrics, latency, and costs to logs/parallel_traces.jsonl and stdout."""
     TRACE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     trace_data = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -132,8 +131,14 @@ def log_trace(
         "errors": errors,
         "estimated_credits": 1 + (success_count + error_count)  # 1 search + 1 per extracted URL
     }
-    with open(TRACE_LOG_PATH, "a", encoding="utf-8") as f:
-        f.write(json.dumps(trace_data) + "\n")
+    # Write to local ephemeral log file
+    try:
+        with open(TRACE_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(trace_data) + "\n")
+    except Exception:
+        pass
+    # Print to stdout so Cloud Logging captures it
+    print(f"[TRACE] {json.dumps(trace_data)}", flush=True)
 
 
 def load_from_cache(title: str, year: int) -> Optional[List[Dict[str, Any]]]:
@@ -164,7 +169,7 @@ def load_from_cache(title: str, year: int) -> Optional[List[Dict[str, Any]]]:
 
 
 def save_to_cache(title: str, year: int, data: List[Dict[str, Any]]) -> None:
-    """Save extracted evidence to logs/evidence_cache.json with a timestamp."""
+    """Save extracted evidence to logs/evidence_cache.json with a timestamp, bounding the cache to 50 items."""
     CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     cache = {}
     if CACHE_PATH.exists():
@@ -177,6 +182,16 @@ def save_to_cache(title: str, year: int, data: List[Dict[str, Any]]) -> None:
         "timestamp": time.time(),
         "data": data
     }
+    
+    # Bound the cache size to 50 entries
+    if len(cache) > 50:
+        sorted_keys = sorted(
+            cache.keys(),
+            key=lambda k: cache[k].get("timestamp", 0) if isinstance(cache[k], dict) else 0
+        )
+        for old_key in sorted_keys[:(len(cache) - 50)]:
+            del cache[old_key]
+            
     CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
 
 

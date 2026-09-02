@@ -203,7 +203,7 @@ def recommend_movies(
     """Generate personalized movie recommendations.
     
     Orchestrates live streaming availability, Parallel review search/extract,
-    6-dimension Gemini profiling, and dynamic fit scoring.
+    and dynamic fit scoring using canonical Film Profiles.
     """
     try:
         response = rank_movies(context, force_live_evidence=force_live_evidence)

@@ -1,6 +1,13 @@
 import os
+import sys
+from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
+
+# Ensure src is in sys.path
+SRC_PATH = str(Path(__file__).resolve().parent.parent / "src")
+if SRC_PATH not in sys.path:
+    sys.path.insert(0, SRC_PATH)
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
