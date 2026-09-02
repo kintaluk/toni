@@ -156,7 +156,7 @@ def run_pipeline(context: UserContext) -> None:
     print(f"  {BOLD}Step C:{RESET} Retrieving critical reviews and evidence from Parallel...")
     time.sleep(0.6)
     
-    print(f"  {BOLD}Step D:{RESET} Constructing six-dimension Film Profiles and Evidence States via Gemini...")
+    print(f"  {BOLD}Step D:{RESET} Mapping canonical six-dimension Film Profiles and Evidence States...")
     time.sleep(0.5)
     
     print(f"  {BOLD}Step E:{RESET} Running personal fit scoring, weights, and stretch analysis...")

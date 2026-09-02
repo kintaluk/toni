@@ -125,8 +125,33 @@
           </div>
         </div>
 
-        <!-- 4. Pacing & Attention Demandingness -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-2">
+        <!-- Intake Depth Selector -->
+        <div class="border-t border-gray-800 pt-4">
+          <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Intake Depth / Detail Level</label>
+          <div class="grid grid-cols-3 gap-3">
+            <label class="cursor-pointer">
+              <input type="radio" name="intake_depth" value="just_give_me_something" checked class="peer sr-only">
+              <div class="p-3 text-center rounded-xl border border-gray-700 bg-gray-900/60 peer-checked:border-teal-500 peer-checked:bg-teal-500/10 peer-checked:text-teal-300 text-xs font-semibold transition">
+                ⚡ Quick Fit
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="intake_depth" value="a_couple_of_questions" class="peer sr-only">
+              <div class="p-3 text-center rounded-xl border border-gray-700 bg-gray-900/60 peer-checked:border-teal-500 peer-checked:bg-teal-500/10 peer-checked:text-teal-300 text-xs font-semibold transition">
+                📋 A Few Details
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="intake_depth" value="get_to_know_me" class="peer sr-only">
+              <div class="p-3 text-center rounded-xl border border-gray-700 bg-gray-900/60 peer-checked:border-teal-500 peer-checked:bg-teal-500/10 peer-checked:text-teal-300 text-xs font-semibold transition">
+                🧠 Deep Scan
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- 4. Pacing & Tone (Core Questionnaire - Always Visible) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 border-t border-gray-800 pt-4">
           <div>
             <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Pacing Preference</label>
             <select id="pacing-select" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-teal-500">
@@ -136,22 +161,6 @@
             </select>
           </div>
 
-          <div>
-            <div class="flex justify-between items-center mb-2">
-              <label class="text-xs font-semibold uppercase tracking-wider text-gray-400">Attention / Effort Budget</label>
-              <span id="demandingness-val" class="text-xs font-bold text-teal-400">3.0 / 5 (Balanced)</span>
-            </div>
-            <input type="range" id="demandingness-slider" min="1" max="5" step="0.5" value="3.0" class="w-full accent-teal-500 bg-gray-800 h-2 rounded-lg cursor-pointer">
-            <div class="flex justify-between text-[11px] text-gray-500 mt-1">
-              <span>Light / Mindless</span>
-              <span>Balanced</span>
-              <span>Demanding / Arthouse</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 5. Mood / Tone & Exclusions -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <div>
             <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Desired Tone / Vibe</label>
             <select id="tone-select" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-teal-500">
@@ -165,18 +174,33 @@
               <option value="bleak">Bleak & Atmospheric</option>
             </select>
           </div>
+        </div>
 
-          <div>
-            <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Exclude Specific Genre</label>
-            <select id="exclude-genre-select" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-teal-500">
-              <option value="">None (Don't exclude any genres)</option>
-              <option value="Horror">Exclude Horror</option>
-              <option value="Crime">Exclude Crime</option>
-              <option value="Sci-Fi">Exclude Sci-Fi</option>
-              <option value="Comedy">Exclude Comedy</option>
-              <option value="Drama">Exclude Drama</option>
-            </select>
+        <!-- 5. Attention / Effort Budget (Visible for A Couple Of Questions and Get To Know Me) -->
+        <div id="demandingness-section" class="hidden border-t border-gray-800 pt-4">
+          <div class="flex justify-between items-center mb-2">
+            <label class="text-xs font-semibold uppercase tracking-wider text-gray-400">Attention / Effort Budget</label>
+            <span id="demandingness-val" class="text-xs font-bold text-teal-400">3.0 / 5 (Balanced)</span>
           </div>
+          <input type="range" id="demandingness-slider" min="1" max="5" step="0.5" value="3.0" class="w-full accent-teal-500 bg-gray-800 h-2 rounded-lg cursor-pointer">
+          <div class="flex justify-between text-[11px] text-gray-500 mt-1">
+            <span>Light / Mindless</span>
+            <span>Balanced</span>
+            <span>Demanding / Arthouse</span>
+          </div>
+        </div>
+
+        <!-- 6. Genre Exclusions (Visible ONLY for Get To Know Me) -->
+        <div id="exclude-section" class="hidden border-t border-gray-800 pt-4">
+          <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Exclude Specific Genre</label>
+          <select id="exclude-genre-select" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-teal-500">
+            <option value="">None (Don't exclude any genres)</option>
+            <option value="Horror">Exclude Horror</option>
+            <option value="Crime">Exclude Crime</option>
+            <option value="Sci-Fi">Exclude Sci-Fi</option>
+            <option value="Comedy">Exclude Comedy</option>
+            <option value="Drama">Exclude Drama</option>
+          </select>
         </div>
 
         <!-- SUBMIT BUTTON -->
@@ -265,19 +289,35 @@
       return "#";
     }
 
-    const SERVICES_UK = ["Netflix", "Prime Video", "Disney+", "BBC iPlayer", "Channel 4", "ITVX", "Paramount+"];
-    const SERVICES_US = ["Netflix", "Prime Video", "Disney+", "Max", "Hulu", "Paramount+", "Pluto TV", "Peacock"];
-
     let selectedServices = [];
+    let cachedProviders = {};
 
-    // Initialize Providers Chips
-    function updateServiceChips() {
+    // Initialize Providers Chips dynamically from API (spaced display names)
+    async function updateServiceChips() {
       const country = document.querySelector('input[name="country"]:checked').value;
-      const list = country === "UK" ? SERVICES_UK : SERVICES_US;
       const container = document.getElementById("services-chips");
+      
+      if (!cachedProviders[country]) {
+        try {
+          container.innerHTML = `<span class="text-xs text-gray-500 animate-pulse">Loading providers...</span>`;
+          const res = await fetch(`/api/providers?country=${country}`);
+          const data = await res.json();
+          cachedProviders[country] = data.providers || [];
+        } catch (err) {
+          console.error("Failed to fetch providers:", err);
+          // Fallback if API fails
+          cachedProviders[country] = (country === "UK" 
+            ? [{"name": "Netflix"}, {"name": "Prime Video"}, {"name": "Disney+"}, {"name": "BBC iPlayer"}, {"name": "ITVX"}, {"name": "Channel 4"}, {"name": "My5"}, {"name": "Paramount+"}, {"name": "Apple TV+"}]
+            : [{"name": "Netflix"}, {"name": "Prime Video"}, {"name": "Disney+"}, {"name": "Max"}, {"name": "Hulu"}, {"name": "Paramount+"}, {"name": "Pluto TV"}, {"name": "Apple TV+"}]
+          );
+        }
+      }
+      
+      const providers = cachedProviders[country];
       container.innerHTML = "";
 
-      list.forEach(service => {
+      providers.forEach(p => {
+        const service = p.name;
         const isChecked = selectedServices.includes(service);
         const btn = document.createElement("button");
         btn.type = "button";
@@ -303,6 +343,24 @@
         };
         container.appendChild(btn);
       });
+    }
+
+    // Toggle fields based on chosen Intake Depth
+    function updateIntakeDepthFields() {
+      const depth = document.querySelector('input[name="intake_depth"]:checked').value;
+      const demSection = document.getElementById("demandingness-section");
+      const exclSection = document.getElementById("exclude-section");
+      
+      if (depth === "just_give_me_something") {
+        demSection.classList.add("hidden");
+        exclSection.classList.add("hidden");
+      } else if (depth === "a_couple_of_questions") {
+        demSection.classList.remove("hidden");
+        exclSection.classList.add("hidden");
+      } else if (depth === "get_to_know_me") {
+        demSection.classList.remove("hidden");
+        exclSection.classList.remove("hidden");
+      }
     }
 
     // Load Personas
@@ -350,20 +408,36 @@
       });
     });
 
+    // Intake Depth listeners
+    document.querySelectorAll('input[name="intake_depth"]').forEach(r => {
+      r.addEventListener("change", updateIntakeDepthFields);
+    });
+
     // Form Submit
     document.getElementById("intake-form").onsubmit = async (e) => {
       e.preventDefault();
       const country = document.querySelector('input[name="country"]:checked').value;
       const allowRentBuy = document.getElementById("allow-rent-buy").checked;
+      const intakeDepth = document.querySelector('input[name="intake_depth"]:checked').value;
       const pacing = document.getElementById("pacing-select").value;
-      const demandingness = parseFloat(document.getElementById("demandingness-slider").value);
       const tone = document.getElementById("tone-select").value;
-      const excludeGenre = document.getElementById("exclude-genre-select").value;
+      
+      let demandingness = 3.0;
+      let excludeGenre = "";
+      
+      if (intakeDepth !== "just_give_me_something") {
+        demandingness = parseFloat(document.getElementById("demandingness-slider").value);
+      }
+      if (intakeDepth === "get_to_know_me") {
+        excludeGenre = document.getElementById("exclude-genre-select").value;
+      }
 
       const tonight_signals = [
-        { name: "pacing", value: pacing, signal_type: "soft_session_preference" },
-        { name: "demandingness", value: demandingness, signal_type: "soft_session_preference" }
+        { name: "pacing", value: pacing, signal_type: "soft_session_preference" }
       ];
+      if (intakeDepth !== "just_give_me_something") {
+        tonight_signals.push({ name: "demandingness", value: demandingness, signal_type: "soft_session_preference" });
+      }
       if (tone) {
         tonight_signals.push({ name: "tone", value: tone, signal_type: "soft_session_preference" });
       }
@@ -380,7 +454,7 @@
         country: country,
         service_access: selectedServices,
         allow_rent_buy: allowRentBuy,
-        intake_depth: "get_to_know_me",
+        intake_depth: intakeDepth,
         tonight_signals: tonight_signals,
         persistent_taste: []
       };
@@ -400,7 +474,7 @@
       resultsSection.classList.add("hidden");
       submitBtn.disabled = true;
       spinner.classList.remove("hidden");
-      btnText.innerText = "Analyzing Live Evidence with Parallel & Gemini...";
+      btnText.innerText = "Analyzing Live Evidence with Parallel...";
 
       try {
         const response = await fetch("/api/recommend", {

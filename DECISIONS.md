@@ -69,6 +69,13 @@ Its purpose is to preserve why decisions were made, not just what the current co
 * **Decision:** We introduce a local hybrid mock adapter for our seed pool movies that activates when API keys are absent, or when the `TONI_USE_MOCK_AVAILABILITY` environment variable is explicitly set to `"true"`.
 * **Why:** This ensures credentials-free local evaluation, offline capability, rapid testing, and robust test isolation. In the test suite, we force `TONI_USE_MOCK_AVAILABILITY="true"` and stub the `Parallel` client globally to prevent live API leaks, ensuring unit and integration tests run deterministically in under 1 second without making outbound network queries regardless of the environment.
 
+### DEC-009: Static Film Profiles and Consensus in Hackathon MVP (Hackathon-only)
+* **Date:** 2026-09-02
+* **Status:** Confirmed / Hackathon-only
+* **Area:** Recommendation Model / AI Profiling
+* **Decision:** We use high-fidelity, static, pre-calculated 6-dimension Film Profiles and Evidence States for the canonical seed movie pool in the MVP, rather than invoking live Gemini LLM profiling requests on every user session.
+* **Why:** This ensures lightning-fast user response times, lower api credit burn, and guaranteed deterministic evaluations during the hackathon judging. The dynamic LLM profiling function (`generate_film_profile` in `src/profiling.py`) is fully designed and contract-compliant, but remains deliberately unwired for this round as a strategic product decision.
+
 ---
 
 ## Superseded Decisions
