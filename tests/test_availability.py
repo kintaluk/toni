@@ -141,3 +141,123 @@ def test_mock_availability_year_mismatch(monkeypatch):
     res = get_film_availability("Inception", 1999, context)
     assert res.status == AvailabilityStatus.UNVERIFIED
     assert res.provider == "None"
+
+
+def test_live_watchmode_branch(monkeypatch):
+    monkeypatch.setenv("TONI_USE_MOCK_AVAILABILITY", "false")
+    monkeypatch.setenv("WATCHMODE_API_KEY", "dummy_key")
+    monkeypatch.delenv("TMDB_API_KEY", raising=False)  # Ensure TMDB is disabled
+    
+    called_urls = []
+    
+    def mock_make_request(url, headers=None):
+        called_urls.append(url)
+        if "search" in url:
+            return 200, {
+                "title_results": [
+                    {"name": "Live Movie", "year": 2026, "id": 12345}
+                ]
+            }
+        elif "sources" in url:
+            return 200, [
+                {"region": "US", "name": "Netflix", "type": "sub"},
+                {"region": "US", "name": "Prime Video", "type": "purchase"},
+                {"region": "GB", "name": "Disney+", "type": "sub"},  # Region mismatch for US user
+            ]
+        return 404, {}
+        
+    monkeypatch.setattr("src.availability.make_request", mock_make_request)
+    
+    # Test case 1: Subscription match (US, has Netflix, allow_rent_buy=False)
+    context_sub = UserContext(
+        country="US",
+        service_access=["Netflix"],
+        allow_rent_buy=False,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+    )
+    res_sub = get_film_availability("Live Movie", 2026, context_sub)
+    assert res_sub.status == AvailabilityStatus.AVAILABLE
+    assert res_sub.provider == "Watchmode"
+    assert "Netflix" in res_sub.matched_services
+    assert "Prime Video" not in res_sub.matched_services
+    assert "Disney+" not in res_sub.matched_services
+
+    # Test case 2: Rent/buy match (US, has no services, allow_rent_buy=True)
+    context_rent = UserContext(
+        country="US",
+        service_access=[],
+        allow_rent_buy=True,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+    )
+    res_rent = get_film_availability("Live Movie", 2026, context_rent)
+    assert res_rent.status == AvailabilityStatus.AVAILABLE
+    assert "Prime Video" in res_rent.matched_services
+    assert "Netflix" not in res_rent.matched_services
+
+    # Test case 3: Rent/buy disabled (US, has no services, allow_rent_buy=False)
+    context_rent_disabled = UserContext(
+        country="US",
+        service_access=[],
+        allow_rent_buy=False,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+    )
+    res_rent_disabled = get_film_availability("Live Movie", 2026, context_rent_disabled)
+    assert res_rent_disabled.status == AvailabilityStatus.UNAVAILABLE
+    assert len(res_rent_disabled.matched_services) == 0
+
+
+def test_live_tmdb_branch(monkeypatch):
+    monkeypatch.setenv("TONI_USE_MOCK_AVAILABILITY", "false")
+    monkeypatch.setenv("TMDB_API_KEY", "dummy_key")
+    monkeypatch.delenv("WATCHMODE_API_KEY", raising=False)  # Ensure Watchmode is disabled
+    
+    def mock_make_request(url, headers=None):
+        if "search/movie" in url:
+            return 200, {
+                "results": [
+                    {"title": "Live Movie", "release_date": "2026-05-05", "id": 999}
+                ]
+            }
+        elif "watch/providers" in url:
+            return 200, {
+                "results": {
+                    "US": {
+                        "flatrate": [{"provider_name": "Netflix"}],
+                        "rent": [{"provider_name": "Apple TV"}],
+                        "buy": [{"provider_name": "Google Play"}],
+                    },
+                    "GB": {
+                        "flatrate": [{"provider_name": "Disney+"}]
+                    }
+                }
+            }
+        return 404, {}
+        
+    monkeypatch.setattr("src.availability.make_request", mock_make_request)
+    
+    # Test case 1: TMDB Flatrate match (US, has Netflix, allow_rent_buy=False)
+    context_sub = UserContext(
+        country="US",
+        service_access=["Netflix"],
+        allow_rent_buy=False,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+    )
+    res_sub = get_film_availability("Live Movie", 2026, context_sub)
+    assert res_sub.status == AvailabilityStatus.AVAILABLE
+    assert res_sub.provider == "TMDB"
+    assert "Netflix" in res_sub.matched_services
+    assert "Apple TV" not in res_sub.matched_services
+
+    # Test case 2: TMDB rent/buy match (US, has no services, allow_rent_buy=True)
+    context_rent = UserContext(
+        country="US",
+        service_access=[],
+        allow_rent_buy=True,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+    )
+    res_rent = get_film_availability("Live Movie", 2026, context_rent)
+    assert res_rent.status == AvailabilityStatus.AVAILABLE
+    assert "Apple TV" in res_rent.matched_services
+    assert "Google Play" in res_rent.matched_services
+    assert "Netflix" not in res_rent.matched_services
+

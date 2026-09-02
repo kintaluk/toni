@@ -43,8 +43,11 @@ def setup_test_environment():
     mock_parallel_class = MagicMock(return_value=mock_client)
     
     patcher = patch("src.evidence.Parallel", mock_parallel_class)
+    patcher2 = patch("evidence.Parallel", mock_parallel_class)
     patcher.start()
+    patcher2.start()
     
     yield
     
     patcher.stop()
+    patcher2.stop()

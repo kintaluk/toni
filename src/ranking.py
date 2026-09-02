@@ -285,10 +285,12 @@ def calculate_personal_fit_score(profile: FilmProfile, metadata: FilmMetadata, c
         elif name == "tone":
             user_has_tones = True
             user_tones = [val] if isinstance(val, str) else list(val)
+            tone_bonus = 0
             for tone in user_tones:
                 if tone.lower().strip() in [t.lower() for t in profile.tone_and_emotional_character]:
-                    score += 25
+                    tone_bonus += 25
                     tone_matched = True
+            score += min(30, tone_bonus)
 
         # 4. Preferred Genres
         elif name == "preferred_genres":

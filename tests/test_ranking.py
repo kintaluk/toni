@@ -151,3 +151,55 @@ def test_invalid_demandingness_value_does_not_crash():
 
     res = rank_movies(context, force_live_evidence=False)
     assert len(res.recommendations) > 0
+
+
+from unittest.mock import MagicMock, patch
+
+@patch("evidence.Parallel")
+def test_ranking_force_live_evidence_reaches_parallel(mock_parallel_class, monkeypatch):
+    monkeypatch.setenv("PARALLEL_API_KEY", "dummy_key")
+    
+    mock_client = MagicMock()
+    mock_parallel_class.return_value = mock_client
+    
+    mock_search_response = MagicMock()
+    mock_search_response.search_id = "live_search_id"
+    mock_search_response.session_id = "live_session_id"
+    
+    class StubSearchItem:
+        def __init__(self, url):
+            self.url = url
+            
+    mock_search_response.results = [
+        StubSearchItem("https://www.theguardian.com/film/review/live_test")
+    ]
+    mock_client.search.return_value = mock_search_response
+    
+    class StubExtractItem:
+        def __init__(self, url, title, full_content):
+            self.url = url
+            self.title = title
+            self.full_content = full_content
+            
+    mock_extract_response = MagicMock()
+    mock_extract_response.extract_id = "live_extract_id"
+    mock_extract_response.results = [
+        StubExtractItem("https://www.theguardian.com/film/review/live_test", "Live Test Review", "Review content here that is long enough to bypass thin check " * 10)
+    ]
+    mock_extract_response.errors = []
+    mock_client.extract.return_value = mock_extract_response
+
+    context = UserContext(
+        country="US",
+        service_access=["Netflix"],
+        allow_rent_buy=True,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+        tonight_signals=[]
+    )
+    
+    # Run rank_movies with force_live_evidence=True
+    res = rank_movies(context, force_live_evidence=True)
+    
+    # Verify that the parallel client was instantiated and search was called
+    assert mock_client.search.call_count > 0
+
