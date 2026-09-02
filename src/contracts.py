@@ -2,13 +2,21 @@
 TONI API Contracts and Enums
 
 This module defines the shared typed API contracts (Pydantic models) representing
-the canonical product contract for the Tonight’s Own Next Indulgence (TONI) discovery engine.
+the canonical product contract for the Tonight's Options, Narrowed Intelligently (TONI) discovery engine.
 These types serve as the single source of truth for both the backend agent runtime and Tina's front end.
 """
 
 from enum import Enum
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+# --- TASTE SIGNAL NAME CONSTANTS ---
+SIGNAL_MAX_RUNTIME = "max-runtime"
+SIGNAL_EXCLUDE_GENRE = "exclude-genre"
+SIGNAL_TONE = "tone"
+SIGNAL_PACING = "pacing"
+SIGNAL_DEMANDINGNESS = "demandingness"
+SIGNAL_PREFERRED_GENRES = "preferred_genres"
 
 # --- STATE & CATEGORIZATION ENUMS ---
 
@@ -160,30 +168,46 @@ class Recommendation(BaseModel):
 class RecommendationResponse(BaseModel):
     """The final structured recommendations payload."""
     recommendations: List[Recommendation] = Field(
+        max_length=7,
         description="The ranked watchlist containing up to 7 recommendations in total."
     )
 
+    @model_validator(mode="after")
+    def validate_roles_sequence(self) -> "RecommendationResponse":
+        if not self.validate_roles():
+            raise ValueError("Recommendations role sequence is invalid.")
+        return self
+
     def validate_roles(self) -> bool:
-        """Validates that the first three recommendations have correct role assignments.
+        """Validates that recommendations have correct role assignments in sequence.
 
         - First must be 'best_fit'
-        - Second must be 'strong_alternative'
-        - Third must be 'worth_a_stretch'
-        - Suffix must be 'ranked_additional'
+        - Second must be 'strong_alternative' (or 'ranked_additional' if only 2 premium roles)
+        - Third must be 'worth_a_stretch' (or 'ranked_additional' if worth_a_stretch omitted)
+        - All subsequent recommendations must be 'ranked_additional'
         """
         if not self.recommendations:
             return True
         
-        # Check first three roles
-        roles_sequence = [OutputRole.BEST_FIT, OutputRole.STRONG_ALTERNATIVE, OutputRole.WORTH_A_STRETCH]
-        for i, role in enumerate(roles_sequence):
-            if len(self.recommendations) > i:
-                if self.recommendations[i].role != role:
-                    return False
+        has_additional = False
+        allowed_roles_at_index = [
+            [OutputRole.BEST_FIT],
+            [OutputRole.STRONG_ALTERNATIVE, OutputRole.RANKED_ADDITIONAL],
+            [OutputRole.WORTH_A_STRETCH, OutputRole.RANKED_ADDITIONAL],
+        ]
         
-        # Check additional roles
-        for rec in self.recommendations[3:]:
-            if rec.role != OutputRole.RANKED_ADDITIONAL:
+        for i, rec in enumerate(self.recommendations):
+            if i < len(allowed_roles_at_index):
+                if rec.role not in allowed_roles_at_index[i]:
+                    return False
+                if rec.role == OutputRole.RANKED_ADDITIONAL:
+                    has_additional = True
+            else:
+                if rec.role != OutputRole.RANKED_ADDITIONAL:
+                    return False
+            
+            # Once we see a RANKED_ADDITIONAL, all subsequent items must be RANKED_ADDITIONAL
+            if has_additional and rec.role != OutputRole.RANKED_ADDITIONAL:
                 return False
                 
         return True

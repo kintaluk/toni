@@ -18,7 +18,7 @@ def test_ranking_case_a_light_and_fun():
         ]
     )
 
-    res = rank_movies(context)
+    res = rank_movies(context, force_live_evidence=False)
     assert len(res.recommendations) > 0
     assert res.validate_roles() is True
 
@@ -41,7 +41,7 @@ def test_ranking_case_b_heavy_and_demanding():
         ]
     )
 
-    res = rank_movies(context)
+    res = rank_movies(context, force_live_evidence=False)
     assert len(res.recommendations) > 0
     assert res.validate_roles() is True
 
@@ -64,7 +64,7 @@ def test_ranking_case_c_genre_exclusions():
         ]
     )
 
-    res = rank_movies(context)
+    res = rank_movies(context, force_live_evidence=False)
     assert len(res.recommendations) > 0
     assert res.validate_roles() is True
 
@@ -84,14 +84,70 @@ def test_runtime_hard_constraint():
         country="US",
         service_access=["Netflix"],
         allow_rent_buy=True,
-        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMSTEHING if hasattr(IntakeDepth, "JUST_GIVE_ME_SOMSTEHING") else IntakeDepth.JUST_GIVE_ME_SOMETHING,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
         tonight_signals=[
             TasteSignal(name="max-runtime", value=100, signal_type=SignalType.HARD_CONSTRAINT),
         ]
     )
 
-    res = rank_movies(context)
+    res = rank_movies(context, force_live_evidence=False)
     assert len(res.recommendations) > 0
     for rec in res.recommendations:
         assert rec.metadata.runtime_minutes <= 100
         assert rec.metadata.title == "Nosferatu"
+
+
+def test_persistent_taste_hard_constraint():
+    # A hard constraint in persistent_taste filters results.
+    # Exclude Crime genre in persistent taste
+    context = UserContext(
+        country="US",
+        service_access=["Netflix"],
+        allow_rent_buy=True,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+        tonight_signals=[],
+        persistent_taste=[
+            TasteSignal(name="exclude-genre", value=["Crime"], signal_type=SignalType.HARD_CONSTRAINT),
+        ]
+    )
+
+    res = rank_movies(context, force_live_evidence=False)
+    assert len(res.recommendations) > 0
+    for rec in res.recommendations:
+        genres = [g.lower() for g in rec.metadata.genres]
+        assert "crime" not in genres
+
+
+def test_soft_max_runtime_does_not_filter():
+    # A soft-typed max-runtime signal does not filter results.
+    context = UserContext(
+        country="US",
+        service_access=["Netflix"],
+        allow_rent_buy=True,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+        tonight_signals=[
+            TasteSignal(name="max-runtime", value=100, signal_type=SignalType.SOFT_SESSION_PREFERENCE),
+        ]
+    )
+
+    res = rank_movies(context, force_live_evidence=False)
+    # If it didn't filter, we should have long movies recommended (e.g. Inception or The Dark Knight)
+    assert len(res.recommendations) > 0
+    any_long_movie = any(rec.metadata.runtime_minutes > 100 for rec in res.recommendations)
+    assert any_long_movie is True
+
+
+def test_invalid_demandingness_value_does_not_crash():
+    # Verify that a non-numeric demandingness value does not crash the ranking engine
+    context = UserContext(
+        country="US",
+        service_access=["Netflix"],
+        allow_rent_buy=True,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+        tonight_signals=[
+            TasteSignal(name="demandingness", value="quite a lot", signal_type=SignalType.SOFT_SESSION_PREFERENCE),
+        ]
+    )
+
+    res = rank_movies(context, force_live_evidence=False)
+    assert len(res.recommendations) > 0

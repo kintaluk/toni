@@ -48,13 +48,10 @@ def test_domain_filtering():
     assert "avclub.com" in filtered[1]
 
 
-def test_trace_logging():
-    # Remove existing trace file if any to isolate test
-    if TRACE_LOG_PATH.exists():
-        try:
-            TRACE_LOG_PATH.unlink()
-        except OSError:
-            pass
+def test_trace_logging(tmp_path, monkeypatch):
+    # Set TRACE_LOG_PATH to a temporary file
+    temp_trace_path = tmp_path / "parallel_traces.jsonl"
+    monkeypatch.setattr("src.evidence.TRACE_LOG_PATH", temp_trace_path)
 
     log_trace(
         title="Inception",
@@ -67,8 +64,8 @@ def test_trace_logging():
         errors=["Error 1"]
     )
 
-    assert TRACE_LOG_PATH.exists()
-    lines = TRACE_LOG_PATH.read_text(encoding="utf-8").splitlines()
+    assert temp_trace_path.exists()
+    lines = temp_trace_path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
 
     data = json.loads(lines[0])
@@ -81,13 +78,10 @@ def test_trace_logging():
     assert data["errors"] == ["Error 1"]
 
 
-def test_caching_mechanics():
-    # Delete existing cache file
-    if CACHE_PATH.exists():
-        try:
-            CACHE_PATH.unlink()
-        except OSError:
-            pass
+def test_caching_mechanics(tmp_path, monkeypatch):
+    # Set CACHE_PATH to a temporary file
+    temp_cache_path = tmp_path / "evidence_cache.json"
+    monkeypatch.setattr("src.evidence.CACHE_PATH", temp_cache_path)
 
     # Ensure cache miss
     cached = load_from_cache("Pulp Fiction", 1994)
@@ -160,7 +154,8 @@ def test_get_film_evidence_flow(mock_parallel_class):
     mock_client.extract.assert_called_once_with(
         urls=["https://www.theguardian.com/film/review/babylon", "https://www.avclub.com/babylon-review"],
         session_id="session_test_id",
-        advanced_settings={"full_content": True}
+        advanced_settings={"full_content": True},
+        timeout=10.0
     )
 
     # Verify return list has exactly 1 valid item (excluding the thin 100-character one)

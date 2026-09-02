@@ -16,7 +16,9 @@ from parallel import Parallel
 
 load_dotenv()
 
-PARALLEL_API_KEY = os.environ.get("PARALLEL_API_KEY")
+def _parallel_api_key():
+    """Retrieve PARALLEL_API_KEY from environment lazily."""
+    return os.environ.get("PARALLEL_API_KEY")
 
 # Root directory of the repository
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -28,19 +30,19 @@ MIN_CONTENT_CHARS = 500
 
 # Blocklist of aggregator, news, paywalled, or scrapable-blocking domains
 BLOCKED_DOMAINS = [
-    "wikipedia.org",
-    "imdb.com",
-    "rottentomatoes.com",
-    "metacritic.com",
-    "nytimes.com",
-    "variety.com",
-    "deadline.com",
-    "boxofficemojo.com",
-    "ticketmaster",
-    "fandango.com",
-    "letterboxd.com",
-    "trakt.tv",
-    "rogerebert.com/festivals",  # Keep main RogerEbert reviews but filter festival schedules
+    "wikipedia.org",            # Aggregator / Encyclopedic
+    "imdb.com",                 # Aggregator / Database
+    "rottentomatoes.com",       # Aggregator
+    "metacritic.com",           # Aggregator
+    "nytimes.com",              # Hard paywall
+    "variety.com",              # Hard paywall & scrape-blocking
+    "deadline.com",             # Industry news / scrape-blocking
+    "boxofficemojo.com",        # Box office statistics
+    "ticketmaster",             # Ticket listings
+    "fandango.com",             # Ticket listings
+    "letterboxd.com",           # Social media reviews aggregator
+    "trakt.tv",                 # Tracking aggregator
+    "rogerebert.com/festivals", # Filter festival diaries/schedules (keep main reviews)
 ]
 
 
@@ -53,8 +55,7 @@ def build_objective(title: str, year: int, director: str) -> str:
         "magazines, or established film review outlets) count. Exclude fan forum "
         "posts, message board discussions, plot summary or synopsis pages, ticket "
         "or showtime listings, and general news coverage about the film's box "
-        "office or production. The film received a genuinely divided critical "
-        "reception on release, so prioritise sources giving a substantive, "
+        "office or production. Prioritise sources giving a substantive, "
         "opinionated critical assessment of the film's quality, whether positive "
         "or negative, rather than a neutral plot description."
     )
@@ -69,14 +70,40 @@ def build_queries(title: str, year: int, director: str) -> List[str]:
     ]
 
 
+import urllib.parse
+
 def filter_search_results(results: List[Any]) -> List[str]:
     """Filter search result URLs to exclude aggregators, ticket listings, and blocked domains."""
     valid_urls = []
     for r in results:
         url = r.url
-        # Check if URL matches any blocked domain
-        if any(blocked in url.lower() for blocked in BLOCKED_DOMAINS):
-            continue
+        try:
+            parsed = urllib.parse.urlparse(url)
+            netloc = parsed.netloc.lower()
+            
+            is_blocked = False
+            for blocked in BLOCKED_DOMAINS:
+                if "/" in blocked:
+                    # Specific subpath check (e.g. rogerebert.com/festivals)
+                    if blocked in url.lower():
+                        is_blocked = True
+                        break
+                elif "." in blocked:
+                    # Precise domain matching
+                    if netloc == blocked or netloc.endswith("." + blocked):
+                        is_blocked = True
+                        break
+                else:
+                    # Substring check for general keywords (e.g. ticketmaster)
+                    if blocked in netloc:
+                        is_blocked = True
+                        break
+            if is_blocked:
+                continue
+        except Exception:
+            # Fallback to simple substring check on url if parsing fails
+            if any(blocked in url.lower() for blocked in BLOCKED_DOMAINS):
+                continue
         valid_urls.append(url)
     return valid_urls
 
@@ -110,19 +137,34 @@ def log_trace(
 
 
 def load_from_cache(title: str, year: int) -> Optional[List[Dict[str, Any]]]:
-    """Load cached evidence from logs/evidence_cache.json if present."""
+    """Load cached evidence from logs/evidence_cache.json if present and not expired."""
     if not CACHE_PATH.exists():
         return None
     try:
         cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
         key = f"{title.lower()}-{year}"
-        return cache.get(key)
+        entry = cache.get(key)
+        if not entry:
+            return None
+        
+        # Treat old-style cache entries (which are lists, not dicts with timestamp) as expired
+        if isinstance(entry, list):
+            return None
+            
+        if isinstance(entry, dict) and "data" in entry and "timestamp" in entry:
+            # TTL is 24 hours (86400 seconds)
+            TTL_SEC = 86400
+            age = time.time() - entry["timestamp"]
+            if age < TTL_SEC:
+                return entry["data"]
+                
+        return None
     except Exception:
         return None
 
 
 def save_to_cache(title: str, year: int, data: List[Dict[str, Any]]) -> None:
-    """Save extracted evidence to logs/evidence_cache.json."""
+    """Save extracted evidence to logs/evidence_cache.json with a timestamp."""
     CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     cache = {}
     if CACHE_PATH.exists():
@@ -131,7 +173,10 @@ def save_to_cache(title: str, year: int, data: List[Dict[str, Any]]) -> None:
         except Exception:
             pass
     key = f"{title.lower()}-{year}"
-    cache[key] = data
+    cache[key] = {
+        "timestamp": time.time(),
+        "data": data
+    }
     CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
 
 
@@ -139,7 +184,8 @@ def get_film_evidence(
     title: str,
     year: int,
     director: str,
-    force_live: bool = False
+    force_live: bool = False,
+    timeout: Optional[float] = None
 ) -> List[Dict[str, Any]]:
     """Retrieve extracted review contents for a film.
 
@@ -152,12 +198,13 @@ def get_film_evidence(
             return cached
 
     # 2. Check for PARALLEL_API_KEY
-    if not PARALLEL_API_KEY:
+    if not _parallel_api_key():
         print("[!] PARALLEL_API_KEY missing. Returning empty evidence.")
         return []
 
-    # Initialize client
-    client = Parallel()
+    # Initialize client with timeout if provided
+    client_timeout = timeout if timeout is not None else 10.0
+    client = Parallel(timeout=client_timeout)
     evidence_results = []
     errors_list = []
     search_id = None
@@ -169,7 +216,8 @@ def get_film_evidence(
         # 3. Parallel Search
         response = client.search(
             objective=build_objective(title, year, director),
-            search_queries=build_queries(title, year, director)
+            search_queries=build_queries(title, year, director),
+            timeout=client_timeout
         )
         search_id = response.search_id
         session_id = response.session_id
@@ -186,7 +234,8 @@ def get_film_evidence(
         extract_response = client.extract(
             urls=target_urls,
             session_id=session_id,
-            advanced_settings={"full_content": True}
+            advanced_settings={"full_content": True},
+            timeout=client_timeout
         )
         extract_id = extract_response.extract_id
 

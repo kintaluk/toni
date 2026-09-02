@@ -8,6 +8,7 @@ and maps the final pool into presentation-ready recommendation roles (Best Fit, 
 """
 
 import sys
+import time
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
@@ -22,6 +23,8 @@ from contracts import (
     EvidenceState,
     OutputRole,
     SignalType,
+    SIGNAL_MAX_RUNTIME,
+    SIGNAL_EXCLUDE_GENRE,
 )
 from availability import get_film_availability, AvailabilityStatus
 from evidence import get_film_evidence
@@ -313,11 +316,13 @@ def generate_concise_reason(title: str, score: int, profile: FilmProfile, contex
     tone_req = next((s.value for s in signals if s.name == "tone"), None)
 
     reasons = []
+    tone_matched = False
 
     if tone_req:
         tone_str = tone_req if isinstance(tone_req, str) else tone_req[0]
         if tone_str.lower() in [t.lower() for t in profile.tone_and_emotional_character]:
             reasons.append(f"perfectly captures the {tone_str.lower()} vibe you are looking for")
+            tone_matched = True
 
     if pacing_req:
         if pacing_req == "brisk" and profile.pacing_and_structure >= 4.0:
@@ -332,8 +337,31 @@ def generate_concise_reason(title: str, score: int, profile: FilmProfile, contex
         if profile.performances >= 4.5:
             reasons.append("presents standout, emotionally resonant actor performances")
 
-    reason_suffix = " and ".join(reasons) if reasons else "stands as a solid recommendation"
-    return f"This film {reason_suffix}, making it an exceptional fit for your evening."
+    # Construct reason prefix
+    if reasons:
+        reason_suffix = " and ".join(reasons)
+        start_phrase = f"This film {reason_suffix}"
+    else:
+        start_phrase = f"{title} stands as a well-rounded and crafted cinematic option"
+
+    # Decide fit description based on score and tone matching
+    if tone_req and not tone_matched:
+        # Tone mismatch
+        if score >= 60:
+            fit_phrase = "making it a highly compelling alternative despite not matching your exact mood preferences tonight."
+        else:
+            fit_phrase = "offering a different cinematic flavor if you are open to shifting your mood tonight."
+    else:
+        if score >= 80:
+            fit_phrase = "making it an exceptional, top-tier fit for your evening!"
+        elif score >= 60:
+            fit_phrase = "making it a highly promising option for your evening."
+        elif score >= 40:
+            fit_phrase = "representing a solid alternative choice for tonight."
+        else:
+            fit_phrase = "offering a more casual, unexpected option if you're in the mood for a detour."
+
+    return f"{start_phrase}, {fit_phrase}"
 
 
 def generate_stretch_signal(profile: FilmProfile, context: UserContext) -> Optional[str]:
@@ -345,7 +373,14 @@ def generate_stretch_signal(profile: FilmProfile, context: UserContext) -> Optio
         return None
 
     signals = context.tonight_signals + context.persistent_taste
-    demanding_val = next((float(s.value) for s in signals if s.name == "demandingness"), None)
+    demanding_val = None
+    for s in signals:
+        if s.name == "demandingness":
+            try:
+                demanding_val = float(s.value)
+                break
+            except (ValueError, TypeError):
+                pass
 
     if demanding_val is not None:
         # If user wants very easy viewing (demandingness <= 2.5) but the film is highly demanding (demandingness >= 4.0)
@@ -355,7 +390,7 @@ def generate_stretch_signal(profile: FilmProfile, context: UserContext) -> Optio
     return None
 
 
-def rank_movies(context: UserContext, force_live_evidence: bool = False) -> RecommendationResponse:
+def rank_movies(context: UserContext, force_live_evidence: bool = True) -> RecommendationResponse:
     """Ties the entire TONI pipeline together:
 
     1. Checks live availability for all seed pool movies.
@@ -368,11 +403,23 @@ def rank_movies(context: UserContext, force_live_evidence: bool = False) -> Reco
     """
     eligible_recommendations: List[Recommendation] = []
 
-    # Get hard constraints from context
-    max_runtime = next((int(s.value) for s in context.tonight_signals if s.name == "max-runtime"), None)
-    exclude_genres = next((s.value for s in context.tonight_signals if s.name == "exclude-genre"), [])
-    if isinstance(exclude_genres, str):
-        exclude_genres = [exclude_genres]
+    # Combine signals from both tonight's session and persistent taste
+    all_signals = context.tonight_signals + context.persistent_taste
+
+    # Get hard constraints from combined signals
+    max_runtime_signal = next(
+        (s for s in all_signals if s.name == SIGNAL_MAX_RUNTIME and s.signal_type == SignalType.HARD_CONSTRAINT),
+        None
+    )
+    max_runtime = int(max_runtime_signal.value) if max_runtime_signal is not None else None
+
+    exclude_genres = []
+    for s in all_signals:
+        if s.name == SIGNAL_EXCLUDE_GENRE and s.signal_type == SignalType.HARD_CONSTRAINT:
+            if isinstance(s.value, list):
+                exclude_genres.extend(s.value)
+            elif isinstance(s.value, str):
+                exclude_genres.append(s.value)
     exclude_genres_lower = [g.lower().strip() for g in exclude_genres]
 
     # Process all seed pool films
@@ -389,7 +436,7 @@ def rank_movies(context: UserContext, force_live_evidence: bool = False) -> Reco
             continue  # Exclude unavailable or unverified titles
 
         # --- HARD CONSTRAINT 2: RUNTIME LIMITS ---
-        if max_runtime and metadata.runtime_minutes > max_runtime:
+        if max_runtime is not None and metadata.runtime_minutes > max_runtime:
             continue
 
         # --- HARD CONSTRAINT 3: GENRE EXCLUSIONS ---
@@ -456,15 +503,6 @@ def rank_movies(context: UserContext, force_live_evidence: bool = False) -> Reco
             stretch_rec = rec
             break
 
-    # Fallback: if no film naturally has a stretch signal, take the next highest craft/score movie and generate a stretch signal for it!
-    if not stretch_rec:
-        for rec in eligible_recommendations:
-            if rec.metadata.title in used_titles:
-                continue
-            rec.stretch_signal = f"A highly acclaimed film with incredible {rec.profile.craft_and_execution}/5 craft, representing a magnificent cinematic stretch for tonight."
-            stretch_rec = rec
-            break
-
     if stretch_rec:
         stretch_rec.role = OutputRole.WORTH_A_STRETCH
         final_recommendations.append(stretch_rec)
@@ -480,19 +518,34 @@ def rank_movies(context: UserContext, force_live_evidence: bool = False) -> Reco
         final_recommendations.append(rec)
 
     # --- 5. ATTACH RUNTIME PARALLEL SEARCH & EXTRACT EVIDENCE ---
+    evidence_start_time = time.time()
+    TOTAL_EVIDENCE_BUDGET_SEC = 15.0
+
     for rec in final_recommendations:
+        elapsed = time.time() - evidence_start_time
+        if elapsed >= TOTAL_EVIDENCE_BUDGET_SEC:
+            print(f"[WARNING] Evidence lookup time budget exceeded. Skipping remaining films.", file=sys.stderr)
+            break
+
         try:
+            remaining_budget = TOTAL_EVIDENCE_BUDGET_SEC - elapsed
+            film_timeout = min(8.0, remaining_budget)
+            if film_timeout <= 1.0:
+                print(f"[WARNING] Not enough time budget left for {rec.metadata.title}. Skipping.", file=sys.stderr)
+                continue
+
             evidence = get_film_evidence(
                 title=rec.metadata.title,
                 year=rec.metadata.year,
                 director=rec.metadata.director,
                 force_live=force_live_evidence,
+                timeout=film_timeout,
             )
             if evidence:
                 rec.evidence_sources = [
                     item["url"] for item in evidence if isinstance(item, dict) and "url" in item
                 ]
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[ERROR] Evidence lookup failed for {rec.metadata.title}: {str(e)}", file=sys.stderr)
 
     return RecommendationResponse(recommendations=final_recommendations)

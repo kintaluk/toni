@@ -99,7 +99,7 @@ DEMO_PERSONAS = [
             "country": "US",
             "service_access": ["Paramount+", "Pluto TV"],
             "allow_rent_buy": False,
-            "intake_depth": "a_couple_of_questions_is_fine",
+            "intake_depth": "a_couple_of_questions",
             "tonight_signals": [
                 {"name": "demandingness", "value": 4.0, "signal_type": "soft_session_preference"},
                 {"name": "tone", "value": "intense", "signal_type": "soft_session_preference"}
@@ -165,7 +165,7 @@ def get_personas() -> Dict[str, Any]:
 @app.post("/api/recommend", response_model=RecommendationResponse, summary="Generate Movie Recommendations")
 def recommend_movies(
     context: UserContext,
-    force_live_evidence: bool = Query(False, description="Whether to bypass local cache and force live Parallel Search calls")
+    force_live_evidence: bool = Query(True, description="Whether to bypass local cache and force live Parallel Search calls")
 ) -> RecommendationResponse:
     """Generate personalized movie recommendations.
     
