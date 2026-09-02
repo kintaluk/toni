@@ -447,3 +447,22 @@ TMDB movie watch-provider documentation
 Watchmode API and plan information
 
 Internal sources: TONI Foundation; TONI Hackathon Product & Scope; TONI Task 03 - Hackathon Availability Approach; TONI Streaming Market Baseline; KINTALUK/TONI repository at commit 159b75d.
+
+13. Backend Implementation & Deployment Progress
+
+As of 2 September 2026, Nathan has successfully delivered all backend phases, spikes, and integration contracts outlined in this delivery plan:
+
+### 13.1 Delivered Deliverables & Status
+*   **Gate A & B (Contracts & Scope):** Enforced strictly via production-grade Pydantic models in `src/contracts.py` (representing the 6-dimension Film Profile, Fit Breakdowns, and tri-state availability states).
+*   **Gate C (Technical Proof - Live Spikes & Evidence):** Developed real-time Watchmode API and TMDB fallback checks in `src/availability.py`, coupled with dynamic Parallel Search/Extract pipeline triggers in `src/evidence.py`.
+*   **Gate D (Recommendation Proof):** Dynamic scoring loop and personalized ranking engine implemented in `src/profiling.py` and `src/ranking.py`, validated by automated tests for three distinct user personas.
+*   **Gate E (Product Proof & FastAPI Web App):** Assembled end-to-end backend service in `src/main.py` and wrapped it in a highly responsive FastAPI service wrapper (`src/api.py`) featuring an interactive Web Demo UI (`static/index.html`).
+*   **Gate F (Submission Proof - Licensing & Deployment):**
+    *   **OSI License:** Added an official **MIT License** (`LICENSE`) to the repository root.
+    *   **Live Cloud Run Deployment:** Created a production `Dockerfile` and set up container builds in Artifact Registry. Successfully deployed the serverless backend live to Google Cloud Run!
+
+### 13.2 Live Hosted Endpoints & Configuration
+*   **Active GCP Project ID:** `agentichackathon-507012`
+*   **Hosted Cloud Run URL:** `https://toni-app-38088879709.us-central1.run.app`
+*   **Health API Check:** `https://toni-app-38088879709.us-central1.run.app/api/health`
+*   **Deployment Configuration Utility:** Automated pre-flight validation and deployment generation is available locally via `python src/deploy.py`.
