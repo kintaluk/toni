@@ -146,5 +146,9 @@ def test_recommendation_roles_validation():
     assert res_correct.validate_roles() is True
 
     # Validate response with incorrect roles sequence (r4 has RANKED_ADDITIONAL at position 1)
-    res_incorrect = RecommendationResponse(recommendations=[r4, r2, r3])
-    assert res_incorrect.validate_roles() is False
+    with pytest.raises(ValidationError):
+        RecommendationResponse(recommendations=[r4, r2, r3])
+
+    # Validate response with more than 7 items fails at the boundary
+    with pytest.raises(ValidationError):
+        RecommendationResponse(recommendations=[r1, r1, r1, r1, r1, r1, r1, r1])

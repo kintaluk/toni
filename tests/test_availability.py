@@ -1,6 +1,10 @@
+import os
 import pytest
 from src.contracts import UserContext, IntakeDepth, AvailabilityStatus
 from src.availability import normalize_service_name, get_film_availability
+
+# Force mock availability by default in tests to ensure deterministic results
+os.environ["TONI_USE_MOCK_AVAILABILITY"] = "true"
 
 
 def test_service_normalization():
@@ -71,7 +75,11 @@ def test_mock_availability_rent_buy_enabled():
     assert any(s in res.matched_services for s in ["Apple TV", "Google Play", "Prime Video"])
 
 
-def test_mock_availability_unsupported_film():
+def test_mock_availability_unsupported_film(monkeypatch):
+    # Ensure no live keys are detected so we test the unverified fallback
+    monkeypatch.delenv("WATCHMODE_API_KEY", raising=False)
+    monkeypatch.delenv("TMDB_API_KEY", raising=False)
+
     # Non-seed movie should fall back to live checks or return UNVERIFIED
     context = UserContext(
         country="UK",
@@ -82,4 +90,59 @@ def test_mock_availability_unsupported_film():
 
     res = get_film_availability("Some Random Indie Movie 2026", 2026, context)
     # If live keys aren't active/matching, should return UNVERIFIED (never false AVAILABLE)
-    assert res.status in (AvailabilityStatus.UNVERIFIED, AvailabilityStatus.UNAVAILABLE, AvailabilityStatus.AVAILABLE)
+    assert res.status == AvailabilityStatus.UNVERIFIED
+
+
+def test_mock_availability_with_env_flag(monkeypatch):
+    # Set TONI_USE_MOCK_AVAILABILITY to "false" to bypass mock path
+    monkeypatch.setenv("TONI_USE_MOCK_AVAILABILITY", "false")
+    # Ensure no live keys are detected so we test the unverified fallback
+    monkeypatch.delenv("WATCHMODE_API_KEY", raising=False)
+    monkeypatch.delenv("TMDB_API_KEY", raising=False)
+    
+    context = UserContext(
+        country="UK",
+        service_access=["Netflix"],
+        allow_rent_buy=False,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+    )
+
+    # Inception is a seed film but with mock disabled it should fall through and return UNVERIFIED
+    res = get_film_availability("Inception", 2010, context)
+    assert res.status == AvailabilityStatus.UNVERIFIED
+    assert res.provider == "None"
+
+
+def test_mock_availability_with_env_flag_true(monkeypatch):
+    # Set TONI_USE_MOCK_AVAILABILITY explicitly to "true"
+    monkeypatch.setenv("TONI_USE_MOCK_AVAILABILITY", "true")
+    
+    context = UserContext(
+        country="UK",
+        service_access=["Netflix"],
+        allow_rent_buy=False,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+    )
+
+    # Inception is a seed film and should use the mock
+    res = get_film_availability("Inception", 2010, context)
+    assert res.status == AvailabilityStatus.AVAILABLE
+    assert res.provider == "LocalHybridMock"
+
+
+def test_mock_availability_year_mismatch(monkeypatch):
+    # Ensure no live keys are detected so we test the unverified fallback
+    monkeypatch.delenv("WATCHMODE_API_KEY", raising=False)
+    monkeypatch.delenv("TMDB_API_KEY", raising=False)
+
+    context = UserContext(
+        country="UK",
+        service_access=["Netflix"],
+        allow_rent_buy=False,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+    )
+
+    # Inception (2010) queried with 1999 should bypass mock and yield UNVERIFIED on live fallback (no keys)
+    res = get_film_availability("Inception", 1999, context)
+    assert res.status == AvailabilityStatus.UNVERIFIED
+    assert res.provider == "None"

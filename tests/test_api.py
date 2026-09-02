@@ -71,7 +71,7 @@ def test_recommend_endpoint_persona_a():
         "persistent_taste": []
     }
 
-    response = client.post("/api/recommend", json=payload)
+    response = client.post("/api/recommend?force_live_evidence=false", json=payload)
     assert response.status_code == 200
     data = response.json()
     assert "recommendations" in data
@@ -96,3 +96,17 @@ def test_serve_index_html():
     response = client.get("/")
     assert response.status_code == 200
     assert "Tonight's Options, Narrowed Intelligently" in response.text
+
+
+def test_recommend_invalid_payload():
+    """Verify /api/recommend returns 422 for bad API payloads."""
+    payload = {
+        "country": "UK",
+        "service_access": ["Netflix"],
+        "allow_rent_buy": True,
+        "intake_depth": "just_give_me_something",
+        "tonight_signals": "invalid-should-be-a-list",
+        "persistent_taste": []
+    }
+    response = client.post("/api/recommend", json=payload)
+    assert response.status_code == 422

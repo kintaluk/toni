@@ -67,7 +67,8 @@ def render_card(rec: Any) -> None:
     print(f"\n{role_color}┌{border_char * width}┐{RESET}")
     # Header line (Role + Score)
     header_text = f"  {role}"
-    score_text = f"Personal Fit Score: {rec.personal_fit_score}/100  "
+    qual_label = "Exceptional Match" if rec.personal_fit_score >= 80 else ("Strong Match" if rec.personal_fit_score >= 60 else ("Good Match" if rec.personal_fit_score >= 40 else "Interesting Detour"))
+    score_text = f"Match Level: {qual_label}  "
     spacing = width - len(header_text) - len(score_text)
     print(f"{role_color}│{RESET}{BOLD}{role_color}{header_text}{RESET}{' ' * spacing}{BOLD}{score_text}{role_color}│{RESET}")
     print(f"{role_color}├{border_char * width}┤{RESET}")
@@ -182,7 +183,8 @@ def run_pipeline(context: UserContext) -> None:
         print(f"\n{BOLD}{WHITE}├─ ALSO WORTH CONSIDERING tonight (Expanded Watchlist) ───{RESET}")
         for idx, r in enumerate(additional):
             services_str = ", ".join(r.availability.matched_services) if r.availability.matched_services else "None matching"
-            print(f"  {idx+4}. {BOLD}{WHITE}{r.metadata.title}{RESET} ({r.metadata.year}) - Fit Score: {YELLOW}{r.personal_fit_score}/100{RESET} | Stream: {services_str}")
+            qual_label = "Exceptional" if r.personal_fit_score >= 80 else ("Strong" if r.personal_fit_score >= 60 else ("Good" if r.personal_fit_score >= 40 else "Detour"))
+            print(f"  {idx+4}. {BOLD}{WHITE}{r.metadata.title}{RESET} ({r.metadata.year}) - Match: {YELLOW}{qual_label}{RESET} | Stream: {services_str}")
         print(f"{BOLD}{WHITE}└──────────────────────────────────────────────────────────{RESET}\n")
 
 
@@ -196,12 +198,14 @@ def custom_intake_flow() -> None:
         country = input(f"Enter viewing country ({BOLD}UK{RESET} or {BOLD}US{RESET}): ").upper().strip()
         
     # 2. Services Access
-    print(f"\nSelect streaming platforms you pay for/access ({BOLD}comma-separated list{RESET}):")
-    print("Example options: Netflix, Prime Video, Disney+, Max, Paramount+, Pluto TV, Channel 4")
-    services_input = input("Your Services: ").strip()
-    services = [s.strip() for s in services_input.split(",") if s.strip()]
-    if not services:
-        services = ["Netflix"]  # Fallback default
+    services = []
+    while not services:
+        print(f"\nSelect streaming platforms you pay for/access ({BOLD}comma-separated list{RESET}):")
+        print("Example options: Netflix, Prime Video, Disney+, Max, Paramount+, Pluto TV, Channel 4")
+        services_input = input("Your Services: ").strip()
+        services = [s.strip() for s in services_input.split(",") if s.strip()]
+        if not services:
+            print(f"{RED}Error: You must select at least one streaming service.{RESET}")
         
     # 3. Rent/Buy opt-in
     rent_buy_input = input("\nAllow rent/purchase options? (yes/no, default no): ").lower().strip()
