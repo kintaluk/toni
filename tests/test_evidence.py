@@ -101,7 +101,8 @@ def test_caching_mechanics(tmp_path, monkeypatch):
 
 
 @patch("src.evidence.Parallel")
-def test_get_film_evidence_flow(mock_parallel_class):
+def test_get_film_evidence_flow(mock_parallel_class, monkeypatch):
+    monkeypatch.setenv("PARALLEL_API_KEY", "dummy_key")
     # Setup mock search response
     mock_client = MagicMock()
     mock_parallel_class.return_value = mock_client

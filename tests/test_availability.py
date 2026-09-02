@@ -1,11 +1,6 @@
-import os
 import pytest
 from src.contracts import UserContext, IntakeDepth, AvailabilityStatus
 from src.availability import normalize_service_name, get_film_availability
-
-# Force mock availability by default in tests to ensure deterministic results
-os.environ["TONI_USE_MOCK_AVAILABILITY"] = "true"
-
 
 def test_service_normalization():
     assert normalize_service_name("Disney Plus") == "disney+"
