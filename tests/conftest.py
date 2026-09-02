@@ -10,10 +10,26 @@ if SRC_PATH not in sys.path:
     sys.path.insert(0, SRC_PATH)
 
 @pytest.fixture(scope="session", autouse=True)
-def setup_test_environment():
+def setup_test_environment(tmp_path_factory):
     """Session-scoped fixture to isolate the test suite from external APIs."""
     # Set default mock availability flag
     os.environ["TONI_USE_MOCK_AVAILABILITY"] = "true"
+
+    # Create temporary directories for logs and cache to prevent test pollution
+    temp_dir = tmp_path_factory.mktemp("test_logs_and_cache")
+    temp_trace_path = temp_dir / "parallel_traces.jsonl"
+    temp_cache_path = temp_dir / "evidence_cache.json"
+
+    # Patch TRACE_LOG_PATH and CACHE_PATH globally for all tests
+    patch_trace1 = patch("src.evidence.TRACE_LOG_PATH", temp_trace_path)
+    patch_cache1 = patch("src.evidence.CACHE_PATH", temp_cache_path)
+    patch_trace2 = patch("evidence.TRACE_LOG_PATH", temp_trace_path)
+    patch_cache2 = patch("evidence.CACHE_PATH", temp_cache_path)
+
+    patch_trace1.start()
+    patch_cache1.start()
+    patch_trace2.start()
+    patch_cache2.start()
 
     # Setup global Parallel stub
     mock_client = MagicMock()
@@ -58,3 +74,7 @@ def setup_test_environment():
     
     patcher.stop()
     patcher2.stop()
+    patch_trace1.stop()
+    patch_cache1.stop()
+    patch_trace2.stop()
+    patch_cache2.stop()
