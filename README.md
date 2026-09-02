@@ -44,7 +44,7 @@ TONI asks a short, useful set of questions about factors such as:
 Recommendations are dynamically filtered using live, country-specific (UK/US) streaming availability data (powered by Watchmode and TMDB) against the user's explicit service list and extra-cost rent/buy preferences.
 
 ### 3. Live Evidence Gathering (Parallel Search & Extract)
-TONI calls the Parallel Search and Extract APIs dynamically at runtime during the user session to gather professional critical film reviews, ensuring we assess films based on real critical consensus.
+TONI calls the Parallel Search and Extract APIs dynamically at runtime during the user session to gather and cite professional critical film reviews, providing live critical sources and external evidence for our recommended films.
 
 ### 4. Personal Matching & Scoring
 Our scoring engine combines the stable, evidence-led 6-dimension Film Profile with the user's tonight context and persistent taste memory to calculate a normalized, internal `Personal Fit Score` (0-100) and assign specific recommendation roles.

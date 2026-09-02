@@ -47,11 +47,30 @@ RATE_LIMIT_MAX_REQUESTS = 10  # requests per minute
 
 def check_rate_limit(request: Request):
     """Simple sliding-window rate limiter for the recommendation API."""
-    client_ip = request.client.host if request.client else "unknown"
+    # Extract client IP, prioritizing Cloud Run's X-Forwarded-For header
+    x_forwarded_for = request.headers.get("X-Forwarded-For")
+    if x_forwarded_for:
+        # Trust only the first entry since subsequent entries are proxy hop info
+        client_ip = x_forwarded_for.split(",")[0].strip()
+    else:
+        client_ip = request.client.host if request.client else "unknown"
+        
     now = time.time()
-    # Remove timestamps older than RATE_LIMIT_WINDOW
-    _rate_limit_db[client_ip] = [t for t in _rate_limit_db[client_ip] if now - t < RATE_LIMIT_WINDOW]
     
+    # Clean and sweep all entries to prevent memory leak/unbounded growth
+    to_delete = []
+    for ip, timestamps in list(_rate_limit_db.items()):
+        cleaned = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW]
+        if not cleaned:
+            to_delete.append(ip)
+        else:
+            _rate_limit_db[ip] = cleaned
+            
+    for ip in to_delete:
+        if ip in _rate_limit_db:
+            del _rate_limit_db[ip]
+            
+    # Enforce rate limiting
     if len(_rate_limit_db[client_ip]) >= RATE_LIMIT_MAX_REQUESTS:
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Maximum of 10 requests per minute allowed.")
     

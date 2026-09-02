@@ -156,14 +156,19 @@ def test_invalid_demandingness_value_does_not_crash():
 from unittest.mock import MagicMock, patch
 
 @patch("evidence.Parallel")
-def test_ranking_force_live_evidence_reaches_parallel(mock_parallel_class, monkeypatch):
+def test_ranking_force_live_evidence_reaches_parallel(mock_parallel_class, monkeypatch, tmp_path):
+    # Set TRACE_LOG_PATH to a temporary file to prevent polluting the real evidence log file.
+    # We patch both "src.evidence" and "evidence" since they may be imported differently.
+    temp_trace_path = tmp_path / "parallel_traces.jsonl"
+    monkeypatch.setattr("src.evidence.TRACE_LOG_PATH", temp_trace_path)
+    monkeypatch.setattr("evidence.TRACE_LOG_PATH", temp_trace_path)
     monkeypatch.setenv("PARALLEL_API_KEY", "dummy_key")
     
     mock_client = MagicMock()
     mock_parallel_class.return_value = mock_client
     
     mock_search_response = MagicMock()
-    mock_search_response.search_id = "live_search_id"
+    mock_search_response.search_id = "mock_search_id"
     mock_search_response.session_id = "live_session_id"
     
     class StubSearchItem:
@@ -182,7 +187,7 @@ def test_ranking_force_live_evidence_reaches_parallel(mock_parallel_class, monke
             self.full_content = full_content
             
     mock_extract_response = MagicMock()
-    mock_extract_response.extract_id = "live_extract_id"
+    mock_extract_response.extract_id = "mock_extract_id"
     mock_extract_response.results = [
         StubExtractItem("https://www.theguardian.com/film/review/live_test", "Live Test Review", "Review content here that is long enough to bypass thin check " * 10)
     ]
