@@ -67,7 +67,18 @@ Its purpose is to preserve why decisions were made, not just what the current co
 * **Status:** Confirmed / Hackathon-only
 * **Area:** Availability / Integration / Testing
 * **Decision:** We introduce a local hybrid mock adapter for our seed pool movies that activates when API keys are absent, or when the `TONI_USE_MOCK_AVAILABILITY` environment variable is explicitly set to `"true"`.
-* **Why:** This ensures credentials-free local evaluation, offline capability, rapid testing, and robust test isolation. In the test suite, we force `TONI_USE_MOCK_AVAILABILITY="true"` to prevent live API leaks, ensuring unit tests run deterministically in under 1 second without making outbound network queries.
+* **Why:** This ensures credentials-free local evaluation, offline capability, rapid testing, and robust test isolation. In the test suite, we force `TONI_USE_MOCK_AVAILABILITY="true"` and stub the `Parallel` client globally to prevent live API leaks, ensuring unit and integration tests run deterministically in under 1 second without making outbound network queries regardless of the environment.
+
+---
+
+## Superseded Decisions
+
+### DEC-000: Initial Seven-Dimension Rubric (Brief 1)
+* **Date:** 2026-08-25
+* **Status:** Superseded by DEC-001
+* **Area:** Recommendation Model
+* **Decision:** Use a 7-dimension rubric (Story, Pacing, Performances, Tone, Craft, Accessibility, Rewatch value) implemented in `src/score_rubric.py` to evaluate films.
+* **Why:** Initial draft of movie profiling from Brief 1. Superseded in Brief 2 to align with professional reviews and separate consensus/divergence evidence state from static film profiles, removing "Rewatch value".
 
 ---
 
