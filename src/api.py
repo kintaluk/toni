@@ -8,10 +8,13 @@ streaming availability lookups, and demo personas to Tina's frontend or external
 
 import os
 import sys
+import time
+import traceback
+from collections import defaultdict
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -37,10 +40,38 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Enable CORS for local development and hosted frontends
+# Lightweight in-memory sliding window rate limiter
+_rate_limit_db = defaultdict(list)
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX_REQUESTS = 10  # requests per minute
+
+def check_rate_limit(request: Request):
+    """Simple sliding-window rate limiter for the recommendation API."""
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    # Remove timestamps older than RATE_LIMIT_WINDOW
+    _rate_limit_db[client_ip] = [t for t in _rate_limit_db[client_ip] if now - t < RATE_LIMIT_WINDOW]
+    
+    if len(_rate_limit_db[client_ip]) >= RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Maximum of 10 requests per minute allowed.")
+    
+    _rate_limit_db[client_ip].append(now)
+
+# Enable restricted CORS for actual frontend origins
+allowed_origins_env = os.environ.get("CORS_ALLOWED_ORIGINS", "")
+if allowed_origins_env:
+    allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+else:
+    allowed_origins = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:3000",
+        "https://toni-app-38088879709.us-central1.run.app",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -165,7 +196,9 @@ def get_personas() -> Dict[str, Any]:
 @app.post("/api/recommend", response_model=RecommendationResponse, summary="Generate Movie Recommendations")
 def recommend_movies(
     context: UserContext,
-    force_live_evidence: bool = Query(True, description="Whether to bypass local cache and force live Parallel Search calls")
+    request: Request,
+    force_live_evidence: bool = Query(True, description="Whether to bypass local cache and force live Parallel Search calls"),
+    _rate_limit: None = Depends(check_rate_limit)
 ) -> RecommendationResponse:
     """Generate personalized movie recommendations.
     
@@ -176,7 +209,11 @@ def recommend_movies(
         response = rank_movies(context, force_live_evidence=force_live_evidence)
         return response
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error running recommendation pipeline: {str(e)}")
+        traceback.print_exc(file=sys.stderr)
+        raise HTTPException(
+            status_code=500,
+            detail="An internal error occurred while processing your recommendation request. Please contact support."
+        )
 
 
 # Serve static web demo UI if static directory exists

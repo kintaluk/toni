@@ -67,15 +67,15 @@ def parse_env_secrets() -> dict:
                 if key in ["PARALLEL_API_KEY", "WATCHMODE_API_KEY", "TMDB_API_KEY"]:
                     if val:
                         secrets[key] = val
-                        print(f"  ✔ Found secret config for {GREEN}{key}{RESET} ({val[:4]}...)")
+                        print(f"  ✔ Found secret config for {GREEN}{key}{RESET}")
     return secrets
 
 def get_gcloud_config() -> dict:
     """Fetch active gcloud configuration to pre-fill deployment parameters."""
     config = {
-        "project": "agentichackathon-507012",
-        "account": "nathan@kintal.co",
-        "region": "us-central1"
+        "project": os.environ.get("GCP_PROJECT_ID", ""),
+        "account": os.environ.get("GCP_ACCOUNT_EMAIL", ""),
+        "region": os.environ.get("GCP_REGION", "us-central1")
     }
     
     gcloud_bin = shutil.which("gcloud")
@@ -119,28 +119,38 @@ def main():
     
     service_name = "toni-app"
     region = gcloud_cfg["region"]
-    project_id = gcloud_cfg["project"]
+    project_id = gcloud_cfg["project"] if gcloud_cfg["project"] else "GCP_PROJECT_ID"
     
-    # Convert secrets dictionary to Cloud Run argument string
-    env_vars_list = [f"{k}={v}" for k, v in secrets.items()]
-    # Force production settings in cloud deployment
-    env_vars_list.append("PORT=8080")
-    env_vars_list.append("GOOGLE_GENAI_USE_VERTEXAI=True")
+    # Environment variables (do not include reserved PORT variable or secrets here)
+    env_vars_list = [
+        "GOOGLE_GENAI_USE_VERTEXAI=True"
+    ]
     env_vars_arg = ",".join(env_vars_list)
     
-    # Define artifact registry or registry path
-    image_tag = f"gcr.io/{project_id}/{service_name}:latest"
+    # Secrets mapped via Cloud Run Secret Manager integration
+    secrets_arg = ""
+    if secrets:
+        secrets_list = [f"{k}={k}:latest" for k in secrets.keys()]
+        secrets_arg = ",".join(secrets_list)
+    
+    # Define Artifact Registry path (replaces deprecated gcr.io)
+    image_tag = f"{region}-docker.pkg.dev/{project_id}/toni-repo/{service_name}:latest"
     
     # Build Deploy Command list
     build_cmd = f"gcloud builds submit --tag {image_tag} ."
-    deploy_cmd = (
-        f"gcloud run deploy {service_name} \\\n"
-        f"  --image {image_tag} \\\n"
-        f"  --platform managed \\\n"
-        f"  --region {region} \\\n"
-        f"  --allow-unauthenticated \\\n"
+    
+    deploy_cmd_parts = [
+        f"gcloud run deploy {service_name}",
+        f"  --image {image_tag}",
+        "  --platform managed",
+        f"  --region {region}",
+        "  --allow-unauthenticated",
         f"  --set-env-vars=\"{env_vars_arg}\""
-    )
+    ]
+    if secrets_arg:
+        deploy_cmd_parts.append(f"  --set-secrets=\"{secrets_arg}\"")
+        
+    deploy_cmd = " \\\n".join(deploy_cmd_parts)
     
     print(f"\n{BOLD}{CYAN}[4/4] Generation completed!{RESET}")
     print(f"To deploy TONI to Google Cloud Run, execute the following commands in your CLI:\n")
@@ -153,9 +163,10 @@ def main():
     
     print(f"{BOLD}{CYAN}==================================================={RESET}")
     print(f"{BOLD}{WHITE}Dry-run notes:{RESET}")
-    print(f" - Running Cloud Build compiles the Docker container directly in the cloud (no local Docker required).")
+    print(f" - Running Cloud Build compiles the Docker container directly in the cloud via Artifact Registry.")
+    print(f" - Artifact Registry ({region}-docker.pkg.dev) is utilized as gcr.io is deprecated.")
     print(f" - Deploying to Cloud Run automatically exposes port 8080 and configures HTTPS endpoints.")
-    print(f" - Environment secrets (e.g., Parallel and Watchmode keys) have been safely bundled.")
+    print(f" - Environment secrets (e.g., Parallel and Watchmode keys) are mapped using Google Cloud Secret Manager.")
     print(f"{BOLD}{CYAN}==================================================={RESET}")
 
 if __name__ == "__main__":
