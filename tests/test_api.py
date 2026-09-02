@@ -110,3 +110,58 @@ def test_recommend_invalid_payload():
     }
     response = client.post("/api/recommend", json=payload)
     assert response.status_code == 422
+
+
+import api
+
+def test_recommend_rate_limiting():
+    """Verify that `/api/recommend` rate limits clients exceeding 10 requests per minute."""
+    # Reset rate limit DB
+    api._rate_limit_db.clear()
+    
+    payload = {
+        "country": "UK",
+        "service_access": ["Netflix"],
+        "allow_rent_buy": True,
+        "intake_depth": "just_give_me_something",
+        "tonight_signals": [],
+        "persistent_taste": []
+    }
+    
+    # Send 10 successful requests
+    for i in range(10):
+        response = client.post("/api/recommend?force_live_evidence=false", json=payload)
+        assert response.status_code == 200
+        
+    # The 11th request should exceed the rate limit and return 429
+    response_limit = client.post("/api/recommend?force_live_evidence=false", json=payload)
+    assert response_limit.status_code == 429
+    assert "Rate limit exceeded" in response_limit.json()["detail"]
+    
+    # Cleanup DB
+    api._rate_limit_db.clear()
+
+
+def test_recommend_sanitized_500_errors(monkeypatch):
+    """Verify that internal 500 errors do not leak stack traces or system info to clients."""
+    def mock_rank_movies_crash(context, force_live_evidence=True):
+        raise ValueError("CRITICAL DATABASE FAILED at line 42 inside /usr/secret/db.py: password='supersecret'")
+        
+    monkeypatch.setattr("api.rank_movies", mock_rank_movies_crash)
+    
+    payload = {
+        "country": "UK",
+        "service_access": ["Netflix"],
+        "allow_rent_buy": True,
+        "intake_depth": "just_give_me_something",
+        "tonight_signals": [],
+        "persistent_taste": []
+    }
+    
+    response = client.post("/api/recommend?force_live_evidence=false", json=payload)
+    assert response.status_code == 500
+    data = response.json()
+    assert "An internal error occurred" in data["detail"]
+    assert "supersecret" not in data["detail"]
+    assert "db.py" not in data["detail"]
+
