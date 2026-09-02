@@ -380,7 +380,7 @@ def get_film_availability(title: str, year: int, context: UserContext) -> Availa
                         norm_s = normalize_service_name(source_name)
                         if any(normalize_service_name(u_s) == norm_s for u_s in context.service_access):
                             matched_services.append(source_name)
-                    elif source_type in ("rent", "buy") and context.allow_rent_buy:
+                    elif source_type in ("purchase", "rent") and context.allow_rent_buy:
                         matched_services.append(source_name)
 
                 matched_services = list(set(matched_services))
