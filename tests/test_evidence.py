@@ -101,7 +101,15 @@ def test_caching_mechanics(tmp_path, monkeypatch):
 
 
 @patch("src.evidence.Parallel")
-def test_get_film_evidence_flow(mock_parallel_class, monkeypatch):
+def test_get_film_evidence_flow(mock_parallel_class, monkeypatch, tmp_path):
+    # Set TRACE_LOG_PATH and CACHE_PATH to temporary files to prevent test pollution
+    temp_trace_path = tmp_path / "parallel_traces.jsonl"
+    temp_cache_path = tmp_path / "evidence_cache.json"
+    monkeypatch.setattr("src.evidence.TRACE_LOG_PATH", temp_trace_path)
+    monkeypatch.setattr("src.evidence.CACHE_PATH", temp_cache_path)
+    # Also patch the non-src version just in case
+    monkeypatch.setattr("evidence.TRACE_LOG_PATH", temp_trace_path)
+    monkeypatch.setattr("evidence.CACHE_PATH", temp_cache_path)
     monkeypatch.setenv("PARALLEL_API_KEY", "dummy_key")
     # Setup mock search response
     mock_client = MagicMock()
