@@ -175,6 +175,10 @@ class RecommendationResponse(BaseModel):
         default=0,
         description="The number of seed pool films excluded during ranking as unverified."
     )
+    unverified_excluded_titles: List[str] = Field(
+        default_factory=list,
+        description="The list of seed pool films (as 'Title (Year)') excluded during ranking as unverified."
+    )
 
     @model_validator(mode="after")
     def validate_roles_sequence(self) -> "RecommendationResponse":

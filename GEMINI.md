@@ -40,7 +40,7 @@ A `.venv` virtual environment exists at the repo root. Core commands for testing
 # Verify imports and key configurations (runs locally with no leakage)
 .venv/Scripts/python.exe src/verify_env.py
 
-# Run the test suite (36 unit and integration tests)
+# Run the test suite (37 unit and integration tests)
 .venv/Scripts/python.exe -m pytest
 
 # Run Option A: Start the FastAPI HTTP Server & Interactive Web Demo UI (port 8000)

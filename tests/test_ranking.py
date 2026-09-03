@@ -235,6 +235,7 @@ def test_ranking_unverified_exclusion_count(monkeypatch):
     res = rank_movies(context, force_live_evidence=False)
     # Inception and Babylon should be excluded as unverified
     assert res.unverified_excluded_count == 2
+    assert res.unverified_excluded_titles == ["Inception (2010)", "Babylon (2022)"]
     # Only The Godfather is available
     assert len(res.recommendations) == 1
     assert res.recommendations[0].metadata.title == "The Godfather"

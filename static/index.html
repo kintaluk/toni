@@ -251,6 +251,17 @@
           <!-- Rendered dynamically -->
         </div>
       </div>
+
+      <!-- UNVERIFIED EXCLUSIONS -->
+      <div id="unverified-exclusions" class="card-glass rounded-2xl p-6 border border-gray-900/60 hidden text-left">
+        <h4 class="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3 flex items-center gap-2">
+          <svg class="w-4.5 h-4.5 text-gray-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          Unverified Stream Status (Skipped)
+        </h4>
+        <div class="space-y-1.5 text-xs text-gray-500" id="unverified-list">
+          <!-- Rendered dynamically -->
+        </div>
+      </div>
     </div>
 
   </main>
@@ -520,21 +531,37 @@
       const top3Container = document.getElementById("top3-cards");
       const additionalList = document.getElementById("additional-list");
       const expandedWatchlist = document.getElementById("expanded-watchlist");
+      const unverifiedExclusions = document.getElementById("unverified-exclusions");
+      const unverifiedList = document.getElementById("unverified-list");
 
       top3Container.innerHTML = "";
       additionalList.innerHTML = "";
+      unverifiedList.innerHTML = "";
+
+      // Populate unverified exclusions if any exist
+      const unverifiedTitles = data.unverified_excluded_titles || [];
+      if (unverifiedTitles.length > 0) {
+        unverifiedTitles.forEach(title => {
+          const div = document.createElement("div");
+          div.className = "py-0.5 border-b border-gray-900/40 last:border-0";
+          div.innerText = `${title} - Couldn't find reliable availability information for this title.`;
+          unverifiedList.appendChild(div);
+        });
+        unverifiedExclusions.classList.remove("hidden");
+      } else {
+        unverifiedExclusions.classList.add("hidden");
+      }
 
       if (!recs.length) {
         let wording = "No films could match your streaming services or constraints. Please widen your subscriptions or enable rent/buy.";
-        if (data.unverified_excluded_count > 0) {
-          wording += " Couldn't find reliable availability information for this title.";
-        }
         top3Container.innerHTML = `
           <div class="col-span-3 text-center py-10 text-gray-400">
             ${escapeHtml(wording)}
           </div>
         `;
+        expandedWatchlist.classList.add("hidden");
         resultsSection.classList.remove("hidden");
+        resultsSection.scrollIntoView({ behavior: "smooth" });
         return;
       }
 
