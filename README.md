@@ -172,6 +172,15 @@ Run the environment verification tool and tests:
 
 ---
 
+## Data Source Attribution
+
+TONI utilizes third-party APIs to deliver live metadata, search indexes, and streaming availability:
+- **Streaming Availability:** Powered by [Watchmode](https://www.watchmode.com) API.
+- **Watch Providers:** Watch provider details are provided by [JustWatch](https://www.justwatch.com) (integrated via [The Movie Database (TMDB)](https://www.themoviedb.org)). This product uses the TMDB API but is not endorsed or certified by TMDB.
+- **Search & Extracts:** Powered by [Parallel Web Systems](https://parallel.life) Search & Extract APIs.
+
+---
+
 ## Legal & Copyright
 
 TONI has passed an initial naming scan without an obvious film or television category conflict. It has not been formally legally cleared.

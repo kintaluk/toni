@@ -31,11 +31,21 @@ If these two packages hit a dependency conflict, stop and report the exact confl
 
 ## Commands
 
-No lint or test tooling exists yet; none is specified by the briefs so far. A `.venv` exists at the repo root (Windows, not activated by default in this environment; call the interpreter directly rather than assuming `source .venv/bin/activate`):
+A `.venv` virtual environment exists at the repo root. Core commands for testing and running the application:
 
-```
+```powershell
+# Install dependencies
 .venv/Scripts/python.exe -m pip install -r requirements.txt
-.venv/Scripts/python.exe src/verify_env.py
-```
 
-Update this section as soon as real lint, test or run commands are introduced by a later brief; do not invent commands that are not actually wired up.
+# Verify imports and key configurations (runs locally with no leakage)
+.venv/Scripts/python.exe src/verify_env.py
+
+# Run the test suite (36 unit and integration tests)
+.venv/Scripts/python.exe -m pytest
+
+# Run Option A: Start the FastAPI HTTP Server & Interactive Web Demo UI (port 8000)
+.venv/Scripts/python.exe -m uvicorn src.api:app --reload --port 8000
+
+# Run Option B: Run the Interactive Terminal CLI Simulation
+.venv/Scripts/python.exe src/main.py
+```
