@@ -425,6 +425,7 @@ def rank_movies(context: UserContext, force_live_evidence: bool = True) -> Recom
     exclude_genres_lower = [g.lower().strip() for g in exclude_genres]
 
     unverified_excluded_count = 0
+    unverified_excluded_titles = []
 
     # Process all seed pool films
     for seed in SEED_FILMS:
@@ -439,6 +440,7 @@ def rank_movies(context: UserContext, force_live_evidence: bool = True) -> Recom
         if avail_res.status != AvailabilityStatus.AVAILABLE:
             if avail_res.status == AvailabilityStatus.UNVERIFIED:
                 unverified_excluded_count += 1
+                unverified_excluded_titles.append(f"{metadata.title} ({metadata.year})")
             continue  # Exclude unavailable or unverified titles
 
         # --- HARD CONSTRAINT 2: RUNTIME LIMITS ---
@@ -467,7 +469,11 @@ def rank_movies(context: UserContext, force_live_evidence: bool = True) -> Recom
 
     # If no movies are available, return empty response
     if not eligible_recommendations:
-        return RecommendationResponse(recommendations=[], unverified_excluded_count=unverified_excluded_count)
+        return RecommendationResponse(
+            recommendations=[],
+            unverified_excluded_count=unverified_excluded_count,
+            unverified_excluded_titles=unverified_excluded_titles
+        )
 
     # Sort primarily by Personal Fit Score descending
     eligible_recommendations.sort(key=lambda r: r.personal_fit_score, reverse=True)
@@ -556,5 +562,6 @@ def rank_movies(context: UserContext, force_live_evidence: bool = True) -> Recom
 
     return RecommendationResponse(
         recommendations=final_recommendations,
-        unverified_excluded_count=unverified_excluded_count
+        unverified_excluded_count=unverified_excluded_count,
+        unverified_excluded_titles=unverified_excluded_titles
     )
