@@ -208,3 +208,35 @@ def test_ranking_force_live_evidence_reaches_parallel(mock_parallel_class, monke
     # Verify that the parallel client was instantiated and search was called
     assert mock_client.search.call_count > 0
 
+
+def test_ranking_unverified_exclusion_count(monkeypatch):
+    from contracts import AvailabilityResult, AvailabilityStatus
+    
+    # Mock get_film_availability to return UNVERIFIED for "Inception" and "Babylon"
+    # and AVAILABLE for others.
+    def mock_get_film_availability(title, year, context):
+        if title in ["Inception", "Babylon"]:
+            return AvailabilityResult(status=AvailabilityStatus.UNVERIFIED, provider="Watchmode", country="US")
+        elif title in ["The Godfather"]:
+            return AvailabilityResult(status=AvailabilityStatus.AVAILABLE, provider="Watchmode", country="US", matched_services=["Paramount+"])
+        else:
+            return AvailabilityResult(status=AvailabilityStatus.UNAVAILABLE, provider="Watchmode", country="US")
+
+    monkeypatch.setattr("src.ranking.get_film_availability", mock_get_film_availability)
+
+    context = UserContext(
+        country="US",
+        service_access=["Paramount+"],
+        allow_rent_buy=False,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+        tonight_signals=[]
+    )
+
+    res = rank_movies(context, force_live_evidence=False)
+    # Inception and Babylon should be excluded as unverified
+    assert res.unverified_excluded_count == 2
+    # Only The Godfather is available
+    assert len(res.recommendations) == 1
+    assert res.recommendations[0].metadata.title == "The Godfather"
+
+

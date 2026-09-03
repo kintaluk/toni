@@ -46,7 +46,7 @@
       <div class="flex items-center space-x-2">
         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-300 border border-purple-500/20">
           <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
-          Parallel Search & Extract + Gemini
+          Parallel Search & Extract
         </span>
         <a href="/docs" target="_blank" class="text-xs text-gray-400 hover:text-white transition px-2 py-1 rounded border border-gray-800 hover:border-gray-700">API Docs</a>
       </div>
@@ -62,7 +62,7 @@
         Your Personal Guide to <span class="bg-gradient-to-r from-teal-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">What’s Worth Watching Next.</span>
       </h2>
       <p class="text-gray-400 text-sm sm:text-base leading-relaxed">
-        TONI does the homework: verifies your streaming access, gathers live critic reviews via Parallel, evaluates 6-dimension Film Profiles with Gemini, and delivers a tight, reasoned shortlist.
+        TONI does the homework: verifies your streaming access, gathers live critic reviews via Parallel, matches against six-dimension Film Profiles, and delivers a tight, reasoned shortlist.
       </p>
     </div>
 
@@ -257,10 +257,12 @@
 
   <!-- FOOTER -->
   <footer class="border-t border-gray-900 bg-gray-950 py-6 text-center text-xs text-gray-500">
-    <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+    <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
       <p>© 2026 TONI by KINTAL. Agentic Cinema Hackathon (Parallel Track).</p>
-      <p class="flex items-center gap-2">
-        <span>Parallel Web Systems SDK</span> • <span>Gemini 2.5 Pro</span> • <span>Watchmode / TMDB</span>
+      <p class="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[11px]">
+        <span>Powered by <a href="https://www.watchmode.com" target="_blank" class="hover:underline text-teal-400">Watchmode</a></span> • 
+        <span>Watch providers provided by <a href="https://www.justwatch.com" target="_blank" class="hover:underline text-teal-400">JustWatch</a> (via <a href="https://www.themoviedb.org" target="_blank" class="hover:underline text-teal-400">TMDB</a>)</span> • 
+        <span><a href="https://parallel.life" target="_blank" class="hover:underline text-teal-400">Parallel Web Systems SDK</a></span>
       </p>
     </div>
   </footer>
@@ -500,7 +502,7 @@
         }
 
         const data = await response.json();
-        renderResults(data.recommendations || []);
+        renderResults(data);
       } catch (err) {
         alert("Error running recommendation pipeline: " + err.message);
       } finally {
@@ -512,7 +514,8 @@
     }
 
     // Render Recommendations
-    function renderResults(recs) {
+    function renderResults(data) {
+      const recs = data.recommendations || [];
       const resultsSection = document.getElementById("results-section");
       const top3Container = document.getElementById("top3-cards");
       const additionalList = document.getElementById("additional-list");
@@ -522,9 +525,13 @@
       additionalList.innerHTML = "";
 
       if (!recs.length) {
+        let wording = "No films could match your streaming services or constraints. Please widen your subscriptions or enable rent/buy.";
+        if (data.unverified_excluded_count > 0) {
+          wording += " Couldn't find reliable availability information for this title.";
+        }
         top3Container.innerHTML = `
           <div class="col-span-3 text-center py-10 text-gray-400">
-            No films could match your streaming services or constraints. Please widen your subscriptions or enable rent/buy.
+            ${escapeHtml(wording)}
           </div>
         `;
         resultsSection.classList.remove("hidden");

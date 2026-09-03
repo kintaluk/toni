@@ -171,6 +171,10 @@ class RecommendationResponse(BaseModel):
         max_length=7,
         description="The ranked watchlist containing up to 7 recommendations in total."
     )
+    unverified_excluded_count: int = Field(
+        default=0,
+        description="The number of seed pool films excluded during ranking as unverified."
+    )
 
     @model_validator(mode="after")
     def validate_roles_sequence(self) -> "RecommendationResponse":
