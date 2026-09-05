@@ -32,11 +32,17 @@ Older scope: persistent viewing-history learning and long-term taste learning we
 
 Current decision: Task 04 promotes a bounded, lightweight progressive memory model into MVP. Persist enduring taste signals, service access, recommendations, confirmed viewing signals where known, likes, dislikes, rejections and corrections. Do not treat full chat history as the memory model.
 
-Conversational experience
+Conversational experience and single-brain voice/text interaction
 
-Older scope: full conversational recommendation was outside the hackathon requirement.
+Older scope: full conversational recommendation was outside the hackathon requirement; voice and text were considered separate or unsupported interfaces.
 
-Current decision: conversational hybrid intake and bounded free-text refinement are in MVP. An unrestricted general-purpose chatbot is still out of scope.
+Current decision: conversational hybrid intake and bounded free-text refinement are in MVP. An unrestricted general-purpose chatbot is still out of scope. Single-brain dual-mode switching (voice and text) is fully supported under a shared reasoning model: users can freely alternate between typing and tapping "🎙️ Talk to TONI" without losing session context, intake progress, or extracted taste signals. The live voice interface features three clear visual states: Default ("🎙️ Talk to TONI"), Listening (Electric Lime pulsing ring and active status banner), and Responding (Warm Bone styling with speech synthesis audio).
+
+Trailer availability and fallback detection
+
+Older scope: trailers were unverified external links or unhandled iframe embeds without graceful fallback.
+
+Current decision: trailer URLs are resolved dynamically with canonical seed mapping and TMDB fallback. If a trailer is confirmed, a "▶ Watch trailer" action is displayed. If a trailer is missing, restricted, or unavailable, the UI must render an on-brand fallback badge: "Trailer unavailable" (Deep Ink keyline on Warm Bone: `border border-ink/30 bg-bone text-ink px-3 py-1 text-xs rounded-[3px] font-sans font-medium`) without breaking watchcard layout, poster monograph, or editorial rationale. Any restricted iframe embeds fall back cleanly to a direct YouTube search on Warm Bone.
 
 Recommendation count
 
@@ -116,6 +122,8 @@ Task 03 Hackathon Availability Approach: PASS.
 
 Task 04 Hackathon MVP Cut: PASS.
 
-Current stage: implementation planning, UX execution, repo reconciliation and end-to-end validation.
+Single-Brain Voice/Text Switching & Trailer Fallback Implementation: PASS. Verified with 48/48 passing automated unit and integration tests, live runtime Parallel integration, zero credential leakage, and an active web demo UI (port 8000).
+
+Current stage: verified build complete, GitHub aligned, and live demonstration ready.
 
 No additional product-strategy discovery is required before build unless implementation or testing exposes a real contradiction.
