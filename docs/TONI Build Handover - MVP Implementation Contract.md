@@ -54,6 +54,8 @@ Taste anchor is adaptive. Do not force one in fast mode when the user's request 
 
 Conversation is for subjective/contextual input. Structured controls are preferred for country, services and rent/buy.
 
+Single-brain dual-mode interaction: Users can provide conversational input via text or spoken voice ("🎙️ Talk to TONI") interchangeably under a unified reasoning model. Switching between typing and speaking preserves the full session context, intake stage, and active signal constraints.
+
 4. Context parsing
 
 The system should be able to extract, when present:
@@ -275,6 +277,8 @@ specific concise fit reason
 runtime
 
 where to watch
+
+trailer access ("▶ Watch trailer" action when verified, or on-brand "Trailer unavailable" badge when missing or unembeddable)
 
 Deeper evidence is optional, for example Why this?
 
