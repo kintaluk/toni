@@ -36,36 +36,93 @@ def _tmdb_api_key():
     return os.environ.get("TMDB_API_KEY")
 
 # --- SERVICE NAME NORMALIZATION MAP ---
-# Standardizes provider names from different APIs to standard identifiers
+# Standardizes provider names and IDs from API presets and external lookups
 SERVICE_NAME_MAP = {
+    # Disney
     "disney plus": "disney+",
     "disney+": "disney+",
+    "disney": "disney+",
+    "disney_plus": "disney+",
+
+    # Netflix
     "netflix": "netflix",
+
+    # Prime Video / Amazon
     "amazon prime video": "prime video",
     "amazon prime": "prime video",
     "prime video": "prime video",
+    "prime_video": "prime video",
+    "amazon video": "prime video",
+    "amazon": "prime video",
+
+    # Max / HBO
     "hbo max": "max",
     "hbo max amazon channel": "max",
     "max": "max",
+    "hbo": "max",
+
+    # Hulu
     "hulu": "hulu",
+
+    # BBC
     "bbc iplayer": "bbc iplayer",
+    "bbc_iplayer": "bbc iplayer",
+    "iplayer": "bbc iplayer",
+    "bbc": "bbc iplayer",
+
+    # ITV
     "itvx": "itvx",
+    "itv hub": "itvx",
+    "itv": "itvx",
+
+    # Channel 4
     "channel 4": "channel 4",
+    "channel_4": "channel 4",
+    "all 4": "channel 4",
+    "all4": "channel 4",
+    "4od": "channel 4",
+
+    # My5
     "my5": "my5",
+    "channel 5": "my5",
+
+    # Peacock
     "peacock": "peacock",
     "peacock premium": "peacock",
+    "peacock_premium": "peacock",
+
+    # Apple TV
     "apple tv plus": "apple tv+",
     "apple tv+": "apple tv+",
+    "apple_tv+": "apple tv+",
+    "apple_tv_plus": "apple tv+",
+    "apple tv": "apple tv+",
+    "appletv+": "apple tv+",
+
+    # Paramount
     "paramount plus": "paramount+",
     "paramount+": "paramount+",
     "paramount+ amazon channel": "paramount+",
+    "paramount_plus": "paramount+",
+    "paramount": "paramount+",
+
+    # Pluto TV
+    "pluto tv": "pluto tv",
+    "pluto_tv": "pluto tv",
+    "pluto": "pluto tv",
 }
 
 
 def normalize_service_name(name: str) -> str:
-    """Normalize a streaming service name to a lowercase, clean format."""
-    name_lower = name.lower().strip()
-    return SERVICE_NAME_MAP.get(name_lower, name_lower)
+    """Normalize a streaming service name or ID to a lowercase, clean canonical format."""
+    if not name:
+        return ""
+    name_clean = name.lower().strip()
+    if name_clean in SERVICE_NAME_MAP:
+        return SERVICE_NAME_MAP[name_clean]
+    # Check alternate format replacing underscores and dashes with spaces
+    alt = name_clean.replace("_", " ").replace("-", " ")
+    return SERVICE_NAME_MAP.get(alt, alt)
 
 
 def make_request(url: str, headers: dict = None) -> tuple[int, dict]:
@@ -445,3 +502,128 @@ def get_film_availability(title: str, year: int, context: UserContext) -> Availa
         country=user_country,
         matched_services=[],
     )
+
+
+# --- CANONICAL SEED POSTER ARTWORK MAP ---
+SEED_POSTERS: Dict[str, str] = {
+    "inception": "https://image.tmdb.org/t/p/w500/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg",
+    "babylon": "https://image.tmdb.org/t/p/w500/wjOHjWCUE0YzDiEzKv8AfqHj3ir.jpg",
+    "the godfather": "https://image.tmdb.org/t/p/w500/3bhkrj58Vtu7enYsRolD1fZdja1.jpg",
+    "everything everywhere all at once": "https://image.tmdb.org/t/p/w500/w3LxiVYPqrlxqPYSUTNNZNaPnBv.jpg",
+    "spirited away": "https://image.tmdb.org/t/p/w500/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg",
+    "pulp fiction": "https://image.tmdb.org/t/p/w500/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg",
+    "parasite": "https://image.tmdb.org/t/p/w500/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg",
+    "the dark knight": "https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911r6m7haRef0WH.jpg",
+    "whiplash": "https://image.tmdb.org/t/p/w500/7fn624j5lj3xTme2SgiLCeuedmO.jpg",
+    "barbie": "https://image.tmdb.org/t/p/w500/iuFNMS8U5cb6xfzi51Dbkovj7vM.jpg",
+    "nosferatu": "https://image.tmdb.org/t/p/w500/1pDjhU3kvdG31i5b4b1a3oWkCsh.jpg",
+    "paddington 2": "https://image.tmdb.org/t/p/w500/ebd57Xh84O8q1e8cQ6Q4i6zP4bA.jpg",
+}
+
+_POSTER_CACHE: Dict[str, Optional[str]] = {}
+
+
+def get_film_poster_url(title: str, year: int) -> Optional[str]:
+    """Retrieve poster image URL for a film using TMDB or Watchmode, with canonical seed fallback.
+
+    Returns full-resolution image URL e.g. 'https://image.tmdb.org/t/p/w500/...' or None.
+    """
+    key = f"{title.lower().strip()}_{year}"
+    if key in _POSTER_CACHE:
+        return _POSTER_CACHE[key]
+
+    clean_title = title.lower().strip()
+    if clean_title in SEED_POSTERS:
+        _POSTER_CACHE[key] = SEED_POSTERS[clean_title]
+        return SEED_POSTERS[clean_title]
+
+    # 1. Try TMDB search for poster_path
+    if _tmdb_api_key():
+        try:
+            safe_title = urllib.parse.quote(title)
+            url = f"https://api.themoviedb.org/3/search/movie?api_key={_tmdb_api_key()}&query={safe_title}&primary_release_year={year}"
+            code, res = make_request(url)
+            if code == 200:
+                results = res.get("results", [])
+                for r in results:
+                    poster_path = r.get("poster_path")
+                    if poster_path:
+                        poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+                        _POSTER_CACHE[key] = poster_url
+                        return poster_url
+        except Exception:
+            pass
+
+    # 2. Try Watchmode search for poster / image_url
+    if _watchmode_api_key():
+        try:
+            safe_title = urllib.parse.quote(title)
+            url = f"https://api.watchmode.com/v1/search/?apiKey={_watchmode_api_key()}&search_field=name&search_value={safe_title}&types=movie"
+            code, res = make_request(url)
+            if code == 200:
+                results = res.get("title_results", [])
+                for r in results:
+                    poster = r.get("poster") or r.get("image_url")
+                    if poster:
+                        _POSTER_CACHE[key] = poster
+                        return poster
+        except Exception:
+            pass
+
+    _POSTER_CACHE[key] = None
+    return None
+
+
+# --- CANONICAL SEED TRAILER MAP ---
+SEED_TRAILERS: Dict[str, str] = {
+    "inception": "https://www.youtube.com/watch?v=YoHD9XEInc0",
+    "babylon": "https://www.youtube.com/watch?v=5muIQDEmXkU",
+    "the godfather": "https://www.youtube.com/watch?v=UaVTIH8mujA",
+    "everything everywhere all at once": "https://www.youtube.com/watch?v=wxN1T1uxQ2g",
+    "spirited away": "https://www.youtube.com/watch?v=ByXuk9QqQkk",
+    "pulp fiction": "https://www.youtube.com/watch?v=s7EdQ4FqbhY",
+    "parasite": "https://www.youtube.com/watch?v=5xH0hhMbQW9",
+    "the dark knight": "https://www.youtube.com/watch?v=EXeTwQWrcwY",
+    "whiplash": "https://www.youtube.com/watch?v=7d_jQycdQGo",
+    "barbie": "https://www.youtube.com/watch?v=pBk4NYhWNMM",
+    "nosferatu": "https://www.youtube.com/watch?v=d_k8qF82XyE",
+    "paddington 2": "https://www.youtube.com/watch?v=52x5HJ9PBvM",
+}
+
+_TRAILER_CACHE: Dict[str, Optional[str]] = {}
+
+
+def get_film_trailer_url(title: str, year: int) -> Optional[str]:
+    """Retrieve trailer URL for a film using canonical seed fallback or external lookups."""
+    key = f"{title.lower().strip()}_{year}"
+    if key in _TRAILER_CACHE:
+        return _TRAILER_CACHE[key]
+
+    clean_title = title.lower().strip()
+    if clean_title in SEED_TRAILERS:
+        _TRAILER_CACHE[key] = SEED_TRAILERS[clean_title]
+        return SEED_TRAILERS[clean_title]
+
+    # Try TMDB for video / trailer key
+    if _tmdb_api_key():
+        try:
+            safe_title = urllib.parse.quote(title)
+            search_url = f"https://api.themoviedb.org/3/search/movie?api_key={_tmdb_api_key()}&query={safe_title}&primary_release_year={year}"
+            code, res = make_request(search_url)
+            if code == 200 and res.get("results"):
+                movie_id = res["results"][0].get("id")
+                if movie_id:
+                    videos_url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos?api_key={_tmdb_api_key()}"
+                    v_code, v_res = make_request(videos_url)
+                    if v_code == 200 and v_res.get("results"):
+                        for vid in v_res["results"]:
+                            if vid.get("site") == "YouTube" and vid.get("type") in ("Trailer", "Teaser") and vid.get("key"):
+                                trailer_url = f"https://www.youtube.com/watch?v={vid['key']}"
+                                _TRAILER_CACHE[key] = trailer_url
+                                return trailer_url
+        except Exception:
+            pass
+
+    _TRAILER_CACHE[key] = None
+    return None
+

@@ -241,3 +241,243 @@ def test_ranking_unverified_exclusion_count(monkeypatch):
     assert res.recommendations[0].metadata.title == "The Godfather"
 
 
+def test_discover_candidates_fallback():
+    """Verify discover_candidates_with_gemini safely returns fallback metadata if API key is absent."""
+    from src.ranking import discover_candidates_with_gemini
+    context = UserContext(
+        country="UK",
+        service_access=["Netflix"],
+        allow_rent_buy=True,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+        tonight_signals=[]
+    )
+    candidates = discover_candidates_with_gemini(context)
+    assert len(candidates) >= 5
+    assert all(hasattr(c, "title") and hasattr(c, "genres") for c in candidates)
+
+
+def test_live_pipeline_ranking_execution(monkeypatch):
+    """Verify live pipeline candidate discovery, availability gating, evidence lookup, and role assignment."""
+    monkeypatch.setenv("PARALLEL_API_KEY", "mock-parallel-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-gemini-key")
+    from contracts import AvailabilityResult, AvailabilityStatus, FilmMetadata, FilmProfile, EvidenceState
+    from src.ranking import rank_movies, DiscoveredCandidate
+
+    # Create 15 mock candidate films
+    mock_candidates = [
+        FilmMetadata(
+            title=f"Film {i}",
+            year=2020 + (i % 4),
+            director=f"Director {i}",
+            runtime_minutes=100 + (i * 2),
+            age_rating="15",
+            genres=["Drama"] if i % 2 == 0 else ["Comedy"]
+        )
+        for i in range(15)
+    ]
+
+    monkeypatch.setattr("src.ranking.discover_candidates_with_gemini", lambda ctx: mock_candidates)
+
+    # Availability gate: only films 0, 1, 2, 3 survive
+    def mock_get_film_availability(title, year, context):
+        if title in ["Film 0", "Film 1", "Film 2", "Film 3"]:
+            return AvailabilityResult(
+                status=AvailabilityStatus.AVAILABLE,
+                provider="Watchmode",
+                country=context.country,
+                matched_services=["Netflix"]
+            )
+        return AvailabilityResult(
+            status=AvailabilityStatus.UNAVAILABLE,
+            provider="Watchmode",
+            country=context.country
+        )
+
+    monkeypatch.setattr("src.ranking.get_film_availability", mock_get_film_availability)
+
+    # Evidence and Profiling mocks
+    monkeypatch.setattr(
+        "src.ranking.get_film_evidence",
+        lambda title, year, director, force_live, timeout: [{"url": f"https://example.com/reviews/{title.lower().replace(' ', '-')}"}]
+    )
+
+    def mock_generate_profile(title, year, director, reviews):
+        return (
+            FilmProfile(
+                story_and_writing=4.2,
+                pacing_and_structure=4.0,
+                performances=4.5,
+                craft_and_execution=4.3,
+                accessibility_and_demandingness=2.5,
+                tone_and_emotional_character=["engaging"]
+            ),
+            EvidenceState.STRONG_AGREEMENT,
+            f"Paraphrased consensus for {title}."
+        )
+
+    monkeypatch.setattr("src.ranking.generate_film_profile", mock_generate_profile)
+
+    context = UserContext(
+        country="UK",
+        service_access=["Netflix"],
+        allow_rent_buy=True,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+        tonight_signals=[]
+    )
+
+    res = rank_movies(context, force_live_evidence=False, use_live_pipeline=True)
+
+    assert len(res.recommendations) == 4
+    roles = [r.role for r in res.recommendations]
+    assert OutputRole.BEST_FIT in roles
+    assert OutputRole.STRONG_ALTERNATIVE in roles
+    # Check that evidence URLs were populated
+    assert all(len(r.evidence_sources) > 0 for r in res.recommendations)
+
+
+def test_live_pipeline_availability_gate_before_parallel(monkeypatch):
+    """Verify that get_film_evidence is strictly called ONLY for films that pass availability gating."""
+    monkeypatch.setenv("PARALLEL_API_KEY", "mock-parallel-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-gemini-key")
+    from contracts import AvailabilityResult, AvailabilityStatus, FilmMetadata, FilmProfile, EvidenceState
+    from src.ranking import rank_movies
+
+    # 15 discovered candidates
+    mock_candidates = [
+        FilmMetadata(
+            title=f"Discovered Movie {i}",
+            year=2021,
+            director=f"Director {i}",
+            runtime_minutes=105,
+            age_rating="12",
+            genres=["Action"] if i % 2 == 0 else ["Drama"]
+        )
+        for i in range(15)
+    ]
+    monkeypatch.setattr("src.ranking.discover_candidates_with_gemini", lambda ctx: mock_candidates)
+
+    checked_availability = []
+    # Only movies 2, 4, 6 are available; rest are unavailable
+    def mock_get_film_availability(title, year, context):
+        checked_availability.append(title)
+        if title in ["Discovered Movie 2", "Discovered Movie 4", "Discovered Movie 6"]:
+            return AvailabilityResult(
+                status=AvailabilityStatus.AVAILABLE,
+                provider="Watchmode",
+                country=context.country,
+                matched_services=["Netflix"]
+            )
+        return AvailabilityResult(status=AvailabilityStatus.UNAVAILABLE, provider="Watchmode", country=context.country)
+
+    monkeypatch.setattr("src.ranking.get_film_availability", mock_get_film_availability)
+
+    searched_parallel = []
+    def mock_get_film_evidence(title, year, director, force_live, timeout):
+        searched_parallel.append(title)
+        return [{"url": f"https://example.com/{title}"}]
+
+    monkeypatch.setattr("src.ranking.get_film_evidence", mock_get_film_evidence)
+
+    def mock_generate_profile(title, year, director, reviews):
+        return (
+            FilmProfile(
+                story_and_writing=4.0,
+                pacing_and_structure=4.0,
+                performances=4.0,
+                craft_and_execution=4.0,
+                accessibility_and_demandingness=2.0,
+                tone_and_emotional_character=["thrilling"]
+            ),
+            EvidenceState.STRONG_AGREEMENT,
+            f"Consensus for {title}"
+        )
+
+    monkeypatch.setattr("src.ranking.generate_film_profile", mock_generate_profile)
+
+    context = UserContext(
+        country="UK",
+        service_access=["Netflix"],
+        allow_rent_buy=True,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+        tonight_signals=[]
+    )
+
+    res = rank_movies(context, force_live_evidence=True, use_live_pipeline=True)
+
+    # All 15 candidates must have been checked for availability
+    assert len(checked_availability) == 15
+
+    # Parallel search must ONLY have been called for the available survivors (Movie 2, 4, 6)
+    assert len(searched_parallel) == 3
+    assert set(searched_parallel) == {"Discovered Movie 2", "Discovered Movie 4", "Discovered Movie 6"}
+
+    # Final recommendations contain exactly the 3 available films
+    assert len(res.recommendations) == 3
+    rec_titles = {r.metadata.title for r in res.recommendations}
+    assert rec_titles == {"Discovered Movie 2", "Discovered Movie 4", "Discovered Movie 6"}
+
+
+def test_seed_fallback_when_live_pipeline_disabled():
+    """Verify that rank_movies uses deterministic SEED_FILMS when use_live_pipeline=False."""
+    context = UserContext(
+        country="UK",
+        service_access=["Netflix"],
+        allow_rent_buy=True,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+        tonight_signals=[]
+    )
+    res = rank_movies(context, force_live_evidence=False, use_live_pipeline=False)
+    # Seed films include Barbie, Paddington 2, etc.
+    assert len(res.recommendations) > 0
+    seed_titles = {s["metadata"]["title"] for s in SEED_FILMS}
+    assert all(r.metadata.title in seed_titles for r in res.recommendations)
+
+
+def test_candidate_pool_refill_guarantees_top_3(monkeypatch):
+    """Verify that if live availability filtering leaves < 3 candidates, pool is refilled from SEED_FILMS."""
+    from contracts import AvailabilityResult, AvailabilityStatus, FilmMetadata
+    from src.ranking import rank_movies
+
+    # 10 discovered mock candidates
+    mock_candidates = [
+        FilmMetadata(
+            title=f"Discovered Film {i}",
+            year=2021,
+            director="Director A",
+            runtime_minutes=110,
+            age_rating="12",
+            genres=["Drama"]
+        )
+        for i in range(10)
+    ]
+
+    monkeypatch.setattr("src.ranking.discover_candidates_with_gemini", lambda ctx: mock_candidates)
+
+    # Only 1 discovered candidate survives availability
+    def mock_availability(title, year, ctx):
+        if title == "Discovered Film 0":
+            return AvailabilityResult(status=AvailabilityStatus.AVAILABLE, provider="Mock", country="UK", matched_services=["Netflix"])
+        elif title.startswith("Discovered"):
+            return AvailabilityResult(status=AvailabilityStatus.UNAVAILABLE, provider="Mock", country="UK")
+        # For seed films, return available for Barbie and Paddington 2
+        return AvailabilityResult(status=AvailabilityStatus.AVAILABLE, provider="Mock", country="UK", matched_services=["Netflix"])
+
+    monkeypatch.setattr("src.ranking.get_film_availability", mock_availability)
+    monkeypatch.setattr("src.ranking.get_film_evidence", lambda **kwargs: [{"url": "https://theguardian.com/film/review", "text": "Stunning."}])
+
+    context = UserContext(
+        country="UK",
+        service_access=["Netflix"],
+        allow_rent_buy=False,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+        tonight_signals=[]
+    )
+
+    res = rank_movies(context, force_live_evidence=False, use_live_pipeline=True)
+    # Refill must guarantee at least 3 candidates in the shortlist
+    assert len(res.recommendations) >= 3
+    titles = [r.metadata.title for r in res.recommendations]
+    assert "Discovered Film 0" in titles
+
+
+

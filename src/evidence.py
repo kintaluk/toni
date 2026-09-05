@@ -217,9 +217,9 @@ def get_film_evidence(
         print("[!] PARALLEL_API_KEY missing. Returning empty evidence.")
         return []
 
-    # Initialize client with timeout if provided
+    # Initialize client with timeout if provided; max_retries=0 prevents compounding retry delays
     client_timeout = timeout if timeout is not None else 10.0
-    client = Parallel(timeout=client_timeout)
+    client = Parallel(timeout=client_timeout, max_retries=0)
     evidence_results = []
     errors_list = []
     search_id = None
@@ -239,7 +239,7 @@ def get_film_evidence(
 
         # 4. Filter URLs
         valid_urls = filter_search_results(response.results)
-        target_urls = valid_urls[:5]  # Limit to top 5 to optimize credits & performance
+        target_urls = valid_urls[:3]  # Limit to top 3 to optimize credits & performance
 
         if not target_urls:
             log_trace(title, year, search_id, None, time.time() - t0, 0, 0, ["No valid URLs survived filtering."])

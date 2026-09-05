@@ -1,679 +1,1941 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TONI — Tonight's Options, Narrowed Intelligently</title>
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>TONI | What fits tonight?</title>
+  <meta name="description" content="TONI (Tonight's Options, Narrowed Intelligently) - Your personal agentic guide to what's worth watching next.">
+  
+  <!-- Favicon & Design Tokens -->
+  <link rel="icon" type="image/svg+xml" href="static/assets/TONI_Favicon_16px_Deep_Ink.svg" onerror="this.href='assets/TONI_Favicon_16px_Deep_Ink.svg'">
+  <link rel="stylesheet" href="static/assets/TONI_Design_Tokens.css" onerror="this.href='assets/TONI_Design_Tokens.css'">
+  
+  <!-- Typography: Newsreader (Editorial Serif) & Plus Jakarta Sans (Modern Interface) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'bone': '#F6F4EE',
+            'bone-card': '#FAF8F3',
+            'bone-surface': '#FFFFFF',
+            'bone-dark': '#ECE8DE',
+            'ink': '#1A1D20',
+            'ink-muted': '#555C63',
+            'ink-subtle': '#8A929A',
+            'ink-border': 'rgba(26, 29, 32, 0.12)',
+            'ink-border-strong': 'rgba(26, 29, 32, 0.28)',
+            'lime': '#C2E85E',
+            'lime-hover': '#B6DC51',
+            'lime-dark': '#8DAF29'
+          },
+          fontFamily: {
+            serif: ['Newsreader', 'Georgia', 'serif'],
+            sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
   <style>
-    body {
-      font-family: 'Plus Jakarta Sans', sans-serif;
-      background-color: #0B0F17;
-      color: #F3F4F6;
+    /* Base Editorial Defaults */
+    html, body {
+      background-color: #F6F4EE;
+      color: #1A1D20;
+      font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      height: 100%;
     }
-    .cinema-gradient {
-      background: radial-gradient(circle at 50% 0%, rgba(20, 184, 166, 0.15), transparent 70%),
-                  radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.1), transparent 60%);
+
+    /* Custom Focus Ring with Refined Electric Lime */
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid #C2E85E;
+      outline-offset: 2px;
     }
-    .card-glass {
-      background: rgba(17, 24, 39, 0.85);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+
+    /* Optical Focus Breathing Keyframes */
+    @keyframes toni-focus-breathe {
+      0%, 100% { transform: scale(0.95); opacity: 0.85; }
+      50% { transform: scale(1.05); opacity: 1; }
+    }
+    @keyframes toni-notch-pulse {
+      0%, 100% { opacity: 0.55; }
+      50% { opacity: 1; }
+    }
+    .toni-loader-arcs {
+      animation: toni-focus-breathe 1400ms cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      transform-origin: center;
+    }
+    .toni-loader-notch {
+      animation: toni-notch-pulse 1400ms cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      transform-origin: center;
+    }
+
+    /* Micro-animations */
+    @keyframes aperture-mark-micro-step {
+      0% { transform: scale(1) rotate(0deg); }
+      50% { transform: scale(0.94) rotate(-6deg); }
+      100% { transform: scale(1) rotate(0deg); }
+    }
+    .aperture-mark {
+      transform-origin: center center;
+      transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .aperture-micro-step {
+      animation: aperture-mark-micro-step 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes message-fade-up {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .chat-message-anim {
+      animation: message-fade-up 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .toni-loader-arcs, .toni-loader-notch, .aperture-micro-step, .chat-message-anim {
+        animation: none !important;
+        transform: none !important;
+      }
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #F6F4EE;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(26, 29, 32, 0.2);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(26, 29, 32, 0.4);
     }
   </style>
 </head>
-<body class="min-h-screen cinema-gradient antialiased flex flex-col justify-between">
 
-  <!-- TOP NAVIGATION -->
-  <header class="border-b border-gray-800/80 bg-gray-950/60 backdrop-blur-md sticky top-0 z-50">
-    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-      <div class="flex items-center space-x-3">
-        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-teal-500 to-indigo-500 flex items-center justify-center text-white font-extrabold text-lg shadow-lg shadow-teal-500/20">
-          T
-        </div>
+<body class="h-full flex flex-col selection:bg-lime selection:text-ink">
+  <span class="sr-only">Tonight's Options, Narrowed Intelligently</span>
+
+  <!-- TOP EDITORIAL HEADER -->
+  <header class="border-b border-ink/10 bg-bone/95 backdrop-blur-md sticky top-0 z-40 transition-colors flex-shrink-0">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
+      <a href="/" class="group flex items-center gap-2.5 no-underline" aria-label="TONI - What fits tonight?">
+        <img id="header-aperture-mark"
+             src="static/assets/TONI_Mark_Aperture_Notch_Primary.svg" 
+             onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.svg';}"
+             alt="TONI Aperture Mark" 
+             class="aperture-mark h-7 sm:h-8 w-auto transition-transform duration-200 origin-center">
         <div>
-          <h1 class="text-xl font-extrabold tracking-tight text-white flex items-center gap-2">
-            TONI
-            <span class="text-xs uppercase tracking-wider px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400 border border-teal-500/20 font-semibold">Hackathon MVP</span>
-          </h1>
-          <p class="text-xs text-gray-400">Tonight’s Options, Narrowed Intelligently</p>
+          <div class="flex items-center gap-2">
+            <span class="font-sans font-bold tracking-tight text-xl sm:text-2xl text-ink leading-none select-none">
+              TONI
+            </span>
+            <span class="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-lime text-ink">
+              Agent
+            </span>
+          </div>
         </div>
-      </div>
-      <div class="flex items-center space-x-2">
-        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-300 border border-purple-500/20">
-          <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
-          Parallel Search & Extract
-        </span>
-        <a href="/docs" target="_blank" class="text-xs text-gray-400 hover:text-white transition px-2 py-1 rounded border border-gray-800 hover:border-gray-700">API Docs</a>
+      </a>
+
+      <!-- Header actions: Restart Chat & Results toggle -->
+      <div class="flex items-center gap-2">
+        <button type="button" 
+                id="header-chat-btn"
+                onclick="returnToChat()" 
+                class="hidden text-xs font-semibold text-ink px-3 py-1.5 rounded-[4px] border border-ink/20 hover:border-lime bg-white shadow-2xs transition">
+          💬 Return to chat
+        </button>
+        <button type="button" 
+                onclick="restartConversation()" 
+                title="Restart conversation" 
+                class="text-xs font-medium text-ink-muted hover:text-ink px-2.5 py-1.5 rounded-[4px] border border-ink/15 hover:border-ink/30 transition">
+          ↺ New chat
+        </button>
       </div>
     </div>
   </header>
 
-  <!-- MAIN CONTAINER -->
-  <main class="max-w-6xl mx-auto px-4 py-8 flex-1 w-full">
+  <!-- MAIN SCROLLABLE CONTAINER -->
+  <main class="flex-1 overflow-y-auto" id="main-scroll-container">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
 
-    <!-- HERO SECTION -->
-    <div class="text-center max-w-3xl mx-auto mb-10">
-      <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-white mb-3">
-        Your Personal Guide to <span class="bg-gradient-to-r from-teal-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">What’s Worth Watching Next.</span>
-      </h2>
-      <p class="text-gray-400 text-sm sm:text-base leading-relaxed">
-        TONI does the homework: verifies your streaming access, gathers live critic reviews via Parallel, matches against six-dimension Film Profiles, and delivers a tight, reasoned shortlist.
-      </p>
-    </div>
+      <!-- DEMO PERSONAS DRAWER (IF ?debug=true) -->
+      <section id="personas-section" class="mb-6 hidden">
+        <details class="group bg-white/50 rounded-[4px] border border-ink/15 p-3.5 transition-all">
+          <summary class="cursor-pointer flex items-center justify-between font-medium text-xs text-ink/70 hover:text-ink select-none">
+            <span class="flex items-center gap-2 font-semibold text-xs text-ink">
+              <svg class="w-3.5 h-3.5 text-ink" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              Quick Test Personas
+            </span>
+            <span class="text-[11px] text-ink-subtle group-open:rotate-180 transition-transform">▼</span>
+          </summary>
+          <div class="mt-3 pt-2 border-t border-ink/10 grid grid-cols-1 sm:grid-cols-3 gap-2.5" id="personas-container">
+            <!-- Dynamically loaded from /api/personas -->
+          </div>
+        </details>
+      </section>
 
-    <!-- PERSONA PRESETS -->
-    <div class="card-glass rounded-2xl p-5 mb-8 border border-gray-800">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-bold uppercase tracking-wider text-gray-400 flex items-center gap-2">
-          <svg class="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-          Quick Demo Personas (One-Click Test Cases)
-        </h3>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3" id="personas-container">
-        <!-- Loaded dynamically -->
-      </div>
-    </div>
+      <!-- VIEW A: CONVERSATIONAL INTAKE (#intake-view with #toni-chat-thread) -->
+      <section id="intake-view" class="space-y-6">
+        <div id="toni-chat-thread" class="space-y-6 max-w-2xl mx-auto">
+          <!-- Messages will be dynamically rendered here as conversation bubbles -->
+        </div>
+      </section>
 
-    <!-- CUSTOM INTAKE FORM -->
-    <div class="card-glass rounded-2xl p-6 mb-8 border border-gray-800">
-      <h3 class="text-lg font-bold text-white mb-5 flex items-center gap-2 border-b border-gray-800 pb-3">
-        <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
-        Custom Intake Questionnaire
-      </h3>
+      <!-- VIEW B: AUTHENTIC FOCUS BREATHING LOADER (SHOWN DURING GENERATION) -->
+      <section id="loading-view" class="hidden my-16 text-center max-w-lg mx-auto chat-message-anim">
+        <div class="bg-white/90 rounded-[8px] border border-ink/15 p-8 sm:p-10 shadow-sm space-y-5">
+          <!-- Authentic Brand Aperture Focus Breathing Loader -->
+          <div class="relative w-24 h-24 mx-auto flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" class="w-24 h-24">
+              <!-- Outer Focus Breathing Arcs -->
+              <g class="toni-loader-arcs" fill="none" stroke="#1A1D20" stroke-width="10" stroke-linecap="round">
+                <path d="M 32,108 C 65,62 145,62 178,102" />
+                <path d="M 22,98 C 55,138 135,138 168,92" />
+              </g>
+              <!-- Center Notch Pulse Blade -->
+              <polygon class="toni-loader-notch" points="88,80 116,82 110,112 92,108" fill="#C2E85E" stroke="#1A1D20" stroke-width="3" />
+            </svg>
+          </div>
 
-      <form id="intake-form" class="space-y-6">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          <!-- 1. Country -->
           <div>
-            <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Viewing Market</label>
-            <div class="grid grid-cols-2 gap-3">
-              <label class="cursor-pointer">
-                <input type="radio" name="country" value="UK" checked class="peer sr-only">
-                <div class="p-3 text-center rounded-xl border border-gray-700 bg-gray-900/60 peer-checked:border-teal-500 peer-checked:bg-teal-500/10 peer-checked:text-teal-300 font-semibold transition">
-                  🇬🇧 UK Market
-                </div>
-              </label>
-              <label class="cursor-pointer">
-                <input type="radio" name="country" value="US" class="peer sr-only">
-                <div class="p-3 text-center rounded-xl border border-gray-700 bg-gray-900/60 peer-checked:border-teal-500 peer-checked:bg-teal-500/10 peer-checked:text-teal-300 font-semibold transition">
-                  🇺🇸 US Market
-                </div>
-              </label>
+            <h3 class="font-serif text-2xl font-bold text-ink mb-1.5">
+              Consulting Critical Consensus &amp; Live Access
+            </h3>
+            <p class="text-xs sm:text-sm text-ink-muted font-serif leading-relaxed" id="loader-subtext">
+              Synthesizing verified reviews via Parallel and verifying active catalogue availability for tonight...
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW C: DEDICATED "WHAT FITS TONIGHT?" RESULTS PAGE -->
+      <section id="results-view" class="hidden space-y-8 chat-message-anim">
+        
+        <!-- Results Page Header -->
+        <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 border-b border-ink/15">
+          <div>
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-[11px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-lime text-ink">
+                Verified Shortlist
+              </span>
+              <span class="text-xs text-ink-muted font-medium" id="results-region-tag">Market: UK</span>
             </div>
+            <h1 class="font-serif text-3xl sm:text-5xl font-bold text-ink tracking-tight">
+              What fits tonight?
+            </h1>
+            <p class="text-xs sm:text-sm text-ink-muted font-serif mt-1 max-w-xl">
+              Intelligently narrowed from verified critical consensus and your active streaming platforms.
+            </p>
           </div>
 
-          <!-- 2. Allow Rent/Buy -->
-          <div>
-            <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Rent / Buy Options</label>
-            <div class="flex items-center justify-between p-3 rounded-xl border border-gray-700 bg-gray-900/60">
-              <span class="text-sm text-gray-300">Allow extra-cost rental & purchase?</span>
-              <input type="checkbox" id="allow-rent-buy" checked class="w-5 h-5 text-teal-600 rounded bg-gray-800 border-gray-700 focus:ring-teal-500">
-            </div>
-          </div>
-        </div>
-
-        <!-- 3. Streaming Services -->
-        <div>
-          <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Your Streaming Subscriptions</label>
-          <div class="flex flex-wrap gap-2" id="services-chips">
-            <!-- Rendered dynamically -->
+          <!-- Quick Return to Chat -->
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button type="button" 
+                    onclick="returnToChat()" 
+                    class="px-4 py-2 rounded-full border border-ink/20 hover:border-lime bg-white text-ink text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs hover:shadow-xs">
+              <span>← Adjust conversation</span>
+            </button>
           </div>
         </div>
 
-        <!-- Intake Depth Selector -->
-        <div class="border-t border-gray-800 pt-4">
-          <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Intake Depth / Detail Level</label>
-          <div class="grid grid-cols-3 gap-3">
-            <label class="cursor-pointer">
-              <input type="radio" name="intake_depth" value="just_give_me_something" checked class="peer sr-only">
-              <div class="p-3 text-center rounded-xl border border-gray-700 bg-gray-900/60 peer-checked:border-teal-500 peer-checked:bg-teal-500/10 peer-checked:text-teal-300 text-xs font-semibold transition">
-                ⚡ Quick Fit
-              </div>
-            </label>
-            <label class="cursor-pointer">
-              <input type="radio" name="intake_depth" value="a_couple_of_questions" class="peer sr-only">
-              <div class="p-3 text-center rounded-xl border border-gray-700 bg-gray-900/60 peer-checked:border-teal-500 peer-checked:bg-teal-500/10 peer-checked:text-teal-300 text-xs font-semibold transition">
-                📋 A Few Details
-              </div>
-            </label>
-            <label class="cursor-pointer">
-              <input type="radio" name="intake_depth" value="get_to_know_me" class="peer sr-only">
-              <div class="p-3 text-center rounded-xl border border-gray-700 bg-gray-900/60 peer-checked:border-teal-500 peer-checked:bg-teal-500/10 peer-checked:text-teal-300 text-xs font-semibold transition">
-                🧠 Deep Scan
-              </div>
-            </label>
+        <!-- Top 3 Watchcards Container -->
+        <div id="watchcards-container" class="space-y-6">
+          <!-- Watchcards injected here -->
+        </div>
+
+        <!-- Candidates 4 to 7 Accordions -->
+        <div id="additional-candidates-container" class="pt-4 space-y-3">
+          <!-- Accordions injected here -->
+        </div>
+
+        <!-- Bottom Page Controls -->
+        <div class="pt-8 border-t border-ink/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p class="text-xs text-ink-muted font-serif">
+            Not quite what you were in the mood for? Chat with TONI to refine your rhythm, actors, or genres.
+          </p>
+          <div class="flex items-center gap-3">
+            <button type="button" 
+                    onclick="returnToChat()" 
+                    class="px-5 py-2.5 rounded-full bg-ink text-bone text-xs font-semibold hover:text-lime transition shadow-sm">
+              ← Refine in chat
+            </button>
+            <button type="button" 
+                    onclick="restartConversation()" 
+                    class="px-4 py-2.5 rounded-full border border-ink/20 bg-bone text-ink text-xs font-semibold hover:border-ink/40 transition">
+              Start fresh
+            </button>
           </div>
         </div>
 
-        <!-- 4. Pacing & Tone (Core Questionnaire - Always Visible) -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 border-t border-gray-800 pt-4">
-          <div>
-            <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Pacing Preference</label>
-            <select id="pacing-select" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-teal-500">
-              <option value="brisk">Brisk (Fast, lively, engaging)</option>
-              <option value="measured" selected>Measured (Moderate, balanced)</option>
-              <option value="slow">Slow (Slow-burning, cinematic space)</option>
-            </select>
-          </div>
+      </section>
 
-          <div>
-            <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Desired Tone / Vibe</label>
-            <select id="tone-select" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-teal-500">
-              <option value="">Any Tone / General Fit</option>
-              <option value="funny">Funny & Witty</option>
-              <option value="magical">Magical & Wondrous</option>
-              <option value="intense">Intense & Gritty</option>
-              <option value="mind-bending">Mind-bending & Intellectual</option>
-              <option value="tense">Tense & Thrilling</option>
-              <option value="warm">Warm & Heartfelt</option>
-              <option value="bleak">Bleak & Atmospheric</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- 5. Attention / Effort Budget (Visible for A Couple Of Questions and Get To Know Me) -->
-        <div id="demandingness-section" class="hidden border-t border-gray-800 pt-4">
-          <div class="flex justify-between items-center mb-2">
-            <label class="text-xs font-semibold uppercase tracking-wider text-gray-400">Attention / Effort Budget</label>
-            <span id="demandingness-val" class="text-xs font-bold text-teal-400">3.0 / 5 (Balanced)</span>
-          </div>
-          <input type="range" id="demandingness-slider" min="1" max="5" step="0.5" value="3.0" class="w-full accent-teal-500 bg-gray-800 h-2 rounded-lg cursor-pointer">
-          <div class="flex justify-between text-[11px] text-gray-500 mt-1">
-            <span>Light / Mindless</span>
-            <span>Balanced</span>
-            <span>Demanding / Arthouse</span>
-          </div>
-        </div>
-
-        <!-- 6. Genre Exclusions (Visible ONLY for Get To Know Me) -->
-        <div id="exclude-section" class="hidden border-t border-gray-800 pt-4">
-          <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Exclude Specific Genre</label>
-          <select id="exclude-genre-select" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-teal-500">
-            <option value="">None (Don't exclude any genres)</option>
-            <option value="Horror">Exclude Horror</option>
-            <option value="Crime">Exclude Crime</option>
-            <option value="Sci-Fi">Exclude Sci-Fi</option>
-            <option value="Comedy">Exclude Comedy</option>
-            <option value="Drama">Exclude Drama</option>
-          </select>
-        </div>
-
-        <!-- SUBMIT BUTTON -->
-        <div class="pt-3">
-          <button type="submit" id="submit-btn" class="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-teal-500 to-indigo-600 text-white font-bold text-base shadow-lg shadow-teal-500/25 hover:from-teal-400 hover:to-indigo-500 transition transform active:scale-[0.99] flex items-center justify-center gap-2">
-            <svg class="w-5 h-5 animate-spin hidden" id="spinner" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
-            <span id="btn-text">Generate My Personal Shortlist Tonight</span>
-          </button>
-        </div>
-      </form>
     </div>
-
-    <!-- REASONING PROGRESS STATE -->
-    <div id="reasoning-state" class="hidden card-glass rounded-2xl p-6 mb-8 border border-teal-500/30 text-center animate-pulse">
-      <div class="flex justify-center mb-3">
-        <div class="w-10 h-10 rounded-full bg-teal-500/20 text-teal-400 flex items-center justify-center">
-          <svg class="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
-        </div>
-      </div>
-      <h4 class="text-base font-bold text-white mb-1" id="reasoning-title">Evaluating Live Movie Candidates...</h4>
-      <p class="text-xs text-gray-400" id="reasoning-desc">Checking streaming availability across your active services...</p>
-    </div>
-
-    <!-- RECOMMENDATIONS OUTPUT -->
-    <div id="results-section" class="hidden space-y-8">
-      <div class="flex items-center justify-between border-b border-gray-800 pb-4">
-        <div>
-          <h3 class="text-2xl font-extrabold text-white tracking-tight">Your TONI Shortlist for Tonight</h3>
-          <p class="text-xs text-gray-400 mt-0.5">Top 3 recommendations tailored to your taste, mood, and streaming availability.</p>
-        </div>
-        <span class="px-3 py-1 bg-teal-500/10 text-teal-400 border border-teal-500/20 text-xs font-semibold rounded-full">
-          3 Curated Roles
-        </span>
-      </div>
-
-      <!-- TOP 3 WATCHCARDS -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6" id="top3-cards">
-        <!-- Rendered dynamically -->
-      </div>
-
-      <!-- EXPANDED WATCHLIST -->
-      <div id="expanded-watchlist" class="card-glass rounded-2xl p-6 border border-gray-800 hidden">
-        <h4 class="text-sm font-bold uppercase tracking-wider text-gray-400 mb-4 flex items-center gap-2">
-          <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-          Also Worth Considering Tonight (Expanded Watchlist)
-        </h4>
-        <div class="space-y-3" id="additional-list">
-          <!-- Rendered dynamically -->
-        </div>
-      </div>
-
-      <!-- UNVERIFIED EXCLUSIONS -->
-      <div id="unverified-exclusions" class="card-glass rounded-2xl p-6 border border-gray-900/60 hidden text-left">
-        <h4 class="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3 flex items-center gap-2">
-          <svg class="w-4.5 h-4.5 text-gray-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-          Unverified Stream Status (Skipped)
-        </h4>
-        <div class="space-y-1.5 text-xs text-gray-500" id="unverified-list">
-          <!-- Rendered dynamically -->
-        </div>
-      </div>
-    </div>
-
   </main>
 
-  <!-- FOOTER -->
-  <footer class="border-t border-gray-900 bg-gray-950 py-6 text-center text-xs text-gray-500">
-    <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-      <p>© 2026 TONI by KINTAL. Agentic Cinema Hackathon (Parallel Track).</p>
-      <p class="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[11px]">
-        <span>Powered by <a href="https://www.watchmode.com" target="_blank" class="hover:underline text-teal-400">Watchmode</a></span> • 
-        <span>Watch providers provided by <a href="https://www.justwatch.com" target="_blank" class="hover:underline text-teal-400">JustWatch</a> (via <a href="https://www.themoviedb.org" target="_blank" class="hover:underline text-teal-400">TMDB</a>)</span> • 
-        <span><a href="https://parallel.life" target="_blank" class="hover:underline text-teal-400">Parallel Web Systems SDK</a></span>
+  <!-- BOTTOM PERSISTENT CHAT BAR -->
+  <footer id="bottom-chat-bar" class="border-t border-ink/15 bg-bone/95 backdrop-blur-md p-3 sm:p-4 flex-shrink-0">
+    <div class="max-w-2xl mx-auto">
+      
+      <!-- Voice status banner (if active) -->
+      <div id="voice-status-bar" class="hidden mb-2 px-3 py-1.5 rounded-[4px] bg-lime/20 border border-lime text-xs text-ink font-medium flex items-center justify-between chat-message-anim">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-ink animate-ping"></span>
+          <span id="voice-status-text"><strong>TONI Voice:</strong> Listening to your viewing mood... Speak now.</span>
+        </div>
+        <button type="button" onclick="toggleSingleBrainVoice()" class="text-xs font-bold hover:underline">
+          Done
+        </button>
+      </div>
+
+      <form id="chat-input-form" class="flex items-center gap-2" onsubmit="handleUserTextInput(event)">
+        <!-- Single-Brain Voice/Text Mode Switching Button -->
+        <button type="button" 
+                id="voice-mic-btn" 
+                onclick="toggleSingleBrainVoice()" 
+                title="Talk to TONI" 
+                aria-label="Talk to TONI" 
+                class="px-3 py-2 rounded-full border border-ink/20 hover:border-lime bg-white text-ink transition-all active:scale-95 flex items-center gap-1.5 flex-shrink-0 text-xs font-sans font-medium shadow-2xs">
+          <span class="text-base">🎙️</span>
+          <span id="voice-btn-label" class="hidden sm:inline">Talk to TONI</span>
+        </button>
+
+        <!-- Natural Language Chat Input -->
+        <input type="text" 
+               id="chat-text-input" 
+               autocomplete="off" 
+               placeholder="Type a response or describe what you want tonight..." 
+               class="flex-1 bg-white border border-ink/20 rounded-full px-4 py-2.5 text-xs sm:text-sm text-ink placeholder:text-ink-subtle focus:outline-none focus:border-lime font-sans shadow-2xs">
+
+        <!-- Send Button -->
+        <button type="submit" 
+                id="chat-send-btn" 
+                title="Send message" 
+                class="px-4 py-2.5 rounded-full bg-ink text-bone hover:text-lime hover:bg-ink font-medium text-xs tracking-wide transition border border-transparent hover:border-lime active:scale-95 flex items-center gap-1.5 flex-shrink-0">
+          <span class="hidden sm:inline">Send</span>
+          <span class="font-bold">→</span>
+        </button>
+      </form>
+
+      <p class="text-[10px] text-ink-subtle text-center mt-2 font-sans">
+        Talk to TONI by voice or text, or tap any suggested answer button above.
       </p>
     </div>
   </footer>
 
-  <!-- SCRIPT -->
+  <!-- ON-BRAND VALIDATION/ERROR MODAL DIALOG (#FFFFFF PAPER CARD, DEEP INK TEXT, EYE MARK, UNDERSTOOD BUTTON) -->
+  <div id="toni-brand-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs hidden p-4" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="bg-white rounded-[4px] border-l-4 border-l-lime border-y border-r border-ink/15 shadow-xl max-w-md w-full p-6 relative chat-message-anim">
+      <div class="flex items-start gap-3">
+        <img src="static/assets/TONI_Mark_Aperture_Notch_Primary.svg" 
+             onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.svg';}"
+             alt="TONI Eye Mark" 
+             class="w-6 h-6 flex-shrink-0 mt-0.5">
+        <div class="flex-1 min-w-0">
+          <h4 id="modal-title" class="font-serif text-lg font-bold text-ink">TONI Notice</h4>
+          <p id="modal-message" class="text-xs text-ink/80 mt-1.5 font-sans leading-relaxed"></p>
+        </div>
+      </div>
+      <div class="mt-5 flex justify-end">
+        <button type="button" onclick="closeBrandModal()" class="px-4 py-1.5 rounded-full bg-ink text-bone text-xs font-semibold hover:text-lime transition">
+          Understood
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ON-BRAND WATCH TRAILER MODAL (OFFICIAL VIDEO PLAYER) -->
+  <div id="toni-trailer-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs hidden p-4" role="dialog" aria-modal="true" aria-labelledby="trailer-modal-title">
+    <div class="bg-white rounded-[6px] border-l-4 border-l-lime border-y border-r border-ink/20 shadow-2xl max-w-2xl w-full p-4 sm:p-6 relative chat-message-anim">
+      <div class="flex items-center justify-between pb-3 mb-3 border-b border-ink/10">
+        <div class="flex items-center gap-2">
+          <img src="static/assets/TONI_Mark_Aperture_Notch_Primary.svg" 
+               onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.svg';}"
+               alt="TONI Eye Mark" 
+               class="w-5 h-5 flex-shrink-0">
+          <h4 id="trailer-modal-title" class="font-serif text-lg font-bold text-ink truncate">Trailer</h4>
+        </div>
+        <button type="button" onclick="closeTrailerModal()" class="text-xs font-bold text-ink-muted hover:text-ink px-2.5 py-1 rounded-[3px] hover:bg-black/5 transition">
+          ✕ Close
+        </button>
+      </div>
+
+      <!-- 16:9 Official YouTube Video Frame -->
+      <div class="relative w-full aspect-video bg-black rounded-[4px] overflow-hidden border border-ink/10 shadow-inner flex items-center justify-center">
+        <iframe id="trailer-iframe" src="" class="w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+        <div id="trailer-fallback-notice" class="hidden w-full h-full flex items-center justify-center bg-bone-card"></div>
+      </div>
+
+      <div class="mt-3 flex items-center justify-between text-xs text-ink-muted">
+        <span class="font-sans">Official Studio Trailer</span>
+        <a id="trailer-external-link" href="#" target="_blank" rel="noopener noreferrer" class="font-semibold text-ink hover:text-lime-dark hover:underline inline-flex items-center gap-1">
+          <span>Watch on YouTube</span>
+          <span class="text-lime-dark font-bold">↗</span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCRIPT LOGIC (CONVERSATIONAL AGENT ENGINE & CANONICAL FILM REGISTRY) -->
   <script>
+    // Canonical Film Registry: Exact IMDb IDs (tt...) and Official YouTube Video IDs
+    const FILM_REGISTRY = {
+      "inception": { imdb: "tt1375666", trailer: "YoHD9XEInc0" },
+      "babylon": { imdb: "tt10640346", trailer: "5muQK7CuFxY" },
+      "the godfather": { imdb: "tt0068646", trailer: "UaVTIH8mujA" },
+      "everything everywhere all at once": { imdb: "tt6710474", trailer: "wxN1T1uxQ2g" },
+      "spirited away": { imdb: "tt0245429", trailer: "ByXuk9QqQkk" },
+      "pulp fiction": { imdb: "tt0110912", trailer: "s7EdQ4FqbhY" },
+      "parasite": { imdb: "tt6751668", trailer: "5xH0RZE7t4E" },
+      "the dark knight": { imdb: "tt0468569", trailer: "EXeTwQWrcwY" },
+      "barbie": { imdb: "tt1517268", trailer: "pBk4NYhWNMM" },
+      "nosferatu": { imdb: "tt0013442", trailer: "qyTC05zP7X0" },
+      "roma": { imdb: "tt6155172", trailer: "6BS27ngZtxg" },
+      "the irishman": { imdb: "tt1302006", trailer: "WHXxVmeGQUc" },
+      "manchester by the sea": { imdb: "tt4034228", trailer: "gsVoD0zmPeM" },
+      "the lost daughter": { imdb: "tt9100054", trailer: "xNq9YOfL0Zs" },
+      "aftersun": { imdb: "tt19770238", trailer: "vX_eE0g_Eis" },
+      "the power of the dog": { imdb: "tt10293406", trailer: "LRDPo0CHrko" },
+      "tar": { imdb: "tt14444726", trailer: "Na6gA1RehsU" },
+      "past lives": { imdb: "tt13238346", trailer: "kA244xucNIU" },
+      "anatomy of a fall": { imdb: "tt17009710", trailer: "fTrsp5BMloA" },
+      "the zone of interest": { imdb: "tt7160372", trailer: "r-vfg3KkV54" },
+      "decision to leave": { imdb: "tt12477724", trailer: "BOCSzqO_Hao" },
+      "spider man across the spider verse": { imdb: "tt9362722", trailer: "cqGjhVJWtEg" },
+      "spiderman across the spiderverse": { imdb: "tt9362722", trailer: "cqGjhVJWtEg" },
+      "dune part two": { imdb: "tt15239678", trailer: "Way9Dexny3w" },
+      "dune": { imdb: "tt1160419", trailer: "8g18jFHCLXk" },
+      "oppenheimer": { imdb: "tt15398776", trailer: "uYPbbksJxIg" },
+      "poor things": { imdb: "tt14230458", trailer: "RlbR5N6veqw" },
+      "killers of the flower moon": { imdb: "tt5537002", trailer: "EP34Yoxs3FQ" },
+      "the banshees of inisherin": { imdb: "tt11813216", trailer: "uRu3zLOJN2c" },
+      "triangle of sadness": { imdb: "tt8303368", trailer: "VDvfFIZQIuQ" },
+      "rye lane": { imdb: "tt15894294", trailer: "X4Q8MvEep_M" },
+      "all of us strangers": { imdb: "tt21192142", trailer: "O_A4T_W-t-Q" },
+      "marriage story": { imdb: "tt7653254", trailer: "BHi-a1n8t7o" },
+      "uncut gems": { imdb: "tt5727208", trailer: "vTfJp2Ts978" },
+      "sound of metal": { imdb: "tt0077269", trailer: "VFOrGkAvjAE" },
+      "nomadland": { imdb: "tt9770150", trailer: "6sxCFZ8_d84" },
+      "the father": { imdb: "tt10272386", trailer: "4TZb3RE55UE" },
+      "minari": { imdb: "tt10633456", trailer: "KQ0gFidlro8" },
+      "drive my car": { imdb: "tt14039582", trailer: "6BKGn3_1m-o" },
+      "coda": { imdb: "tt10366460", trailer: "0pmfrHN6ZK8" },
+      "belfast": { imdb: "tt12789558", trailer: "Ja3PPOnJQ2k" },
+      "glass onion": { imdb: "tt11564570", trailer: "gj5ibYSz8C8" },
+      "knives out": { imdb: "tt8946378", trailer: "qGqiHJTsRfs" },
+      "portrait of a lady on fire": { imdb: "tt8613070", trailer: "R-fQPT4mcJU" },
+      "the farewell": { imdb: "tt8637428", trailer: "RofpAjQB4uA" },
+      "1917": { imdb: "tt8579674", trailer: "gCdx8gsHL54" },
+      "moonlight": { imdb: "tt4975722", trailer: "9NJj12tJzqc" },
+      "la la land": { imdb: "tt3783958", trailer: "0pdqf4P9MB8" },
+      "arrival": { imdb: "tt2543164", trailer: "tFMo3UJ4B4g" },
+      "blade runner 2049": { imdb: "tt1856101", trailer: "gCcx85zbxz4" },
+      "get out": { imdb: "tt5052448", trailer: "DzfpyUB60YY" },
+      "lady bird": { imdb: "tt5929794", trailer: "cNi_HC839Wo" },
+      "call me by your name": { imdb: "tt4726236", trailer: "ZzS9Z7wF7pE" },
+      "phantom thread": { imdb: "tt5776858", trailer: "xNsiQMeSvMk" },
+      "the shape of water": { imdb: "tt5580390", trailer: "XFYWazblaUA" },
+      "interstellar": { imdb: "tt0816692", trailer: "zSWdZVtXT7E" },
+      "whiplash": { imdb: "tt2582802", trailer: "7d_jQycdQGo" },
+      "grand budapest hotel": { imdb: "tt2278388", trailer: "1Fg5iWmQjwk" },
+      "the grand budapest hotel": { imdb: "tt2278388", trailer: "1Fg5iWmQjwk" },
+      "boyhood": { imdb: "tt1065073", trailer: "Y0oX04nGL4w" },
+      "birdman": { imdb: "tt2562232", trailer: "uJfLoE65_14" },
+      "her": { imdb: "tt1798709", trailer: "6QRvTv_tpYs" },
+      "inside llewyn davis": { imdb: "tt2042568", trailer: "LFph7yvH7_I" },
+      "the wolf of wall street": { imdb: "tt0993846", trailer: "iszwuX1AK6A" },
+      "12 years a slave": { imdb: "tt2024544", trailer: "z02Ie8wKKRg" },
+      "the master": { imdb: "tt1560747", trailer: "fJ1O1g83U4g" },
+      "drive": { imdb: "tt0780504", trailer: "KBiOF3y1W0Y" },
+      "the social network": { imdb: "tt1285016", trailer: "lB95KLmpLR4" },
+      "black swan": { imdb: "tt0947798", trailer: "5jaI1XOB-mM" },
+      "inglourious basterds": { imdb: "tt0361748", trailer: "KnrRy6kSFF0" },
+      "no country for old men": { imdb: "tt0477348", trailer: "38A__WT3-o0" },
+      "there will be blood": { imdb: "tt0469494", trailer: "FeSLPELpMeM" },
+      "zodiac": { imdb: "tt0443706", trailer: "yNncHPl1UXg" },
+      "pans labyrinth": { imdb: "tt0457430", trailer: "EqYiSlkvRuw" },
+      "children of men": { imdb: "tt0206634", trailer: "2VT2apoX1zp" },
+      "the departed": { imdb: "tt0407887", trailer: "iojhqm0JTW4" },
+      "the prestige": { imdb: "tt0482571", trailer: "o4gHCmTQDVI" },
+      "eternal sunshine of the spotless mind": { imdb: "tt0338013", trailer: "07-QBnEkgXU" },
+      "lost in translation": { imdb: "tt0335266", trailer: "W6iVPCRflQM" },
+      "city of god": { imdb: "tt0317248", trailer: "dcUOO4Itgmw" },
+      "mulholland drive": { imdb: "tt0166924", trailer: "jbZJ4P8QB4I" },
+      "memento": { imdb: "tt0209144", trailer: "4CV41hoyS8A" },
+      "requiem for a dream": { imdb: "tt0180093", trailer: "QBwzN4VI144" },
+      "fight club": { imdb: "tt0137523", trailer: "qtRKDV93vdE" },
+      "the matrix": { imdb: "tt0133093", trailer: "vKQi3bBA1y8" },
+      "goodfellas": { imdb: "tt0099685", trailer: "2ilzidi_J8Q" },
+      "fargo": { imdb: "tt0116282", trailer: "h2tY82z3xXU" },
+      "seven": { imdb: "tt0114369", trailer: "znmZoVkCjpI" },
+      "se7en": { imdb: "tt0114369", trailer: "znmZoVkCjpI" },
+      "heat": { imdb: "tt0113277", trailer: "2GfZl4HeV78" },
+      "the silence of the lambs": { imdb: "tt0102926", trailer: "W6Mm8Sbe__o" },
+      "apocalypse now": { imdb: "tt0078788", trailer: "FTjG-Aux_yQ" },
+      "taxi driver": { imdb: "tt0075314", trailer: "cDCF8k66VvY" },
+      "chinatown": { imdb: "tt0071315", trailer: "mEedP6b1yio" },
+      "2001 a space odyssey": { imdb: "tt0062622", trailer: "oR_e9y-bka0" },
+      "casablanca": { imdb: "tt0034583", trailer: "EJvlGh_FgcI" },
+      "citizen kane": { imdb: "tt0033467", trailer: "8dxh3lwdOFw" },
+      "alien": { imdb: "tt0078748", trailer: "LjLamj-b0I8" },
+      "aliens": { imdb: "tt0090605", trailer: "bTCaVKKYY-A" },
+      "the shining": { imdb: "tt0081505", trailer: "S014446q204" },
+      "the big lebowski": { imdb: "tt0118715", trailer: "cd-go0oBF4Y" },
+      "jurassic park": { imdb: "tt0107290", trailer: "QWBKEmWWL38" },
+      "titanic": { imdb: "tt0120338", trailer: "I7c1etV7DCo" },
+      "forrest gump": { imdb: "tt0109830", trailer: "bLvqoHBptjg" },
+      "schindlers list": { imdb: "tt0108052", trailer: "gG22XNhtnoY" },
+      "the shawshank redemption": { imdb: "tt0111161", trailer: "PLl99DlL6b4" },
+      "gladiator": { imdb: "tt0172495", trailer: "P5ieIbInFpg" },
+      "the truman show": { imdb: "tt0120382", trailer: "dlnHK816Onw" },
+      "ex machina": { imdb: "tt0470752", trailer: "EoQuVnKhxaM" },
+      "nightcrawler": { imdb: "tt2872718", trailer: "X8kYDQan8bw" },
+      "mad max fury road": { imdb: "tt1392190", trailer: "hEJnMQG9ev8" },
+      "sicario": { imdb: "tt3397884", trailer: "7XLQ13Dx8tM" },
+      "the holdovers": { imdb: "tt14849194", trailer: "AhKLf951e7U" },
+      "challengers": { imdb: "tt16426830", trailer: "VobTTb-VGcg" },
+      "civil war": { imdb: "tt17279496", trailer: "aDyQxtg0V2w" },
+      "furiosa": { imdb: "tt12037194", trailer: "XJMuhwVlca4" }
+    };
+
+    function normalizeKey(title) {
+      return String(title || "")
+        .toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/&/g, "and")
+        .replace(/[^\w\s]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function getDirectImdbUrl(title, year) {
+      const key = normalizeKey(title);
+      const data = FILM_REGISTRY[key];
+      if (data && data.imdb) {
+        return `https://www.imdb.com/title/${data.imdb}/`;
+      }
+      return `https://duckduckgo.com/?q=%21ducky+site%3Aimdb.com%2Ftitle+${encodeURIComponent(title + ' ' + year)}`;
+    }
+
+    async function resolveMissingImdbId(title, year, key) {
+      if (FILM_REGISTRY[key] && FILM_REGISTRY[key].imdb) return;
+
+      try {
+        const searchQ = `${title} ${year} film`;
+        const wikiRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQ)}&format=json&origin=*`);
+        const wikiData = await wikiRes.json();
+        const results = wikiData?.query?.search || [];
+        if (!results.length) return;
+
+        const pageId = results[0].pageid;
+        const propRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&prop=pageprops&pageids=${pageId}&format=json&origin=*`);
+        const propData = await propRes.json();
+        const qid = propData?.query?.pages?.[pageId]?.pageprops?.wikibase_item;
+        if (!qid) return;
+
+        const wdRes = await fetch(`https://www.wikidata.org/wiki/Special:EntityData/${qid}.json?origin=*`);
+        const wdData = await wdRes.json();
+        const claims = wdData?.entities?.[qid]?.claims;
+        const imdbId = claims?.P345?.[0]?.mainsnak?.datavalue?.value;
+        const ytId = claims?.P1651?.[0]?.mainsnak?.datavalue?.value;
+
+        if (imdbId) {
+          if (!FILM_REGISTRY[key]) FILM_REGISTRY[key] = {};
+          FILM_REGISTRY[key].imdb = imdbId;
+          if (ytId && !FILM_REGISTRY[key].trailer) FILM_REGISTRY[key].trailer = ytId;
+
+          const directUrl = `https://www.imdb.com/title/${imdbId}/`;
+          document.querySelectorAll(`[data-imdb-for="${key}"]`).forEach(el => {
+            el.href = directUrl;
+          });
+        }
+      } catch (e) {}
+    }
+
+    // Conversational State Machine
+    const chatState = {
+      step: 1,
+      country: "UK",
+      allow_rent_buy: false,
+      intake_depth: "",
+      service_access: [],
+      pacing: "measured",
+      tone: "",
+      demandingness: 3.0,
+      exclude_genre: "",
+      max_runtime: null,
+      freeform_mood: "",
+      dialogue_mode: "text",
+      conversation_history: [],
+      lastResults: null
+    };
+
+    let cachedProviders = {};
+    let isGenerating = false;
+    let voiceActive = false;
+    let speechRecognition = null;
+    let isSpeakingAudio = false;
+
+    function triggerApertureMicroStep() {
+      const mark = document.getElementById("header-aperture-mark");
+      if (!mark) return;
+      mark.classList.remove("aperture-micro-step");
+      void mark.offsetWidth;
+      mark.classList.add("aperture-micro-step");
+    }
+
+    function scrollToBottom() {
+      const scrollContainer = document.getElementById("main-scroll-container");
+      if (scrollContainer) {
+        setTimeout(() => {
+          scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: "smooth" });
+        }, 80);
+      }
+    }
+
+    function showBrandModal(title, message) {
+      const modal = document.getElementById("toni-brand-modal");
+      const titleEl = document.getElementById("modal-title");
+      const msgEl = document.getElementById("modal-message");
+      if (titleEl) titleEl.innerText = title || "TONI Notice";
+      if (msgEl) msgEl.innerText = message || "";
+      if (modal) modal.classList.remove("hidden");
+    }
+
+    function closeBrandModal() {
+      const modal = document.getElementById("toni-brand-modal");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    window.alert = function(msg) {
+      showBrandModal("TONI Notice", msg);
+    };
+
+    function hasTrailerAvailable(rec) {
+      if (!rec) return false;
+      if (rec.metadata && rec.metadata.trailer_url && typeof rec.metadata.trailer_url === "string" && rec.metadata.trailer_url.trim().length > 0) {
+        return true;
+      }
+      const normKey = normalizeKey(rec.metadata?.title || "");
+      if (FILM_REGISTRY[normKey]?.trailer) {
+        return true;
+      }
+      return false;
+    }
+
+    function extractYouTubeId(urlOrId) {
+      if (!urlOrId) return null;
+      if (/^[a-zA-Z0-9_-]{11}$/.test(urlOrId)) return urlOrId;
+      const match = urlOrId.match(/(?:v=|\/embed\/|youtu\.be\/|\/v\/)([^&#?]+)/);
+      if (match && match[1]) return match[1];
+      return null;
+    }
+
+    // Trailer Modal (Direct Video Player & Direct Watch Link)
+    function openTrailerModal(title, year, trailerUrl = null) {
+      const modal = document.getElementById("toni-trailer-modal");
+      const titleEl = document.getElementById("trailer-modal-title");
+      const iframe = document.getElementById("trailer-iframe");
+      const extLink = document.getElementById("trailer-external-link");
+      const fallbackNotice = document.getElementById("trailer-fallback-notice");
+
+      const key = normalizeKey(title);
+      const regData = FILM_REGISTRY[key];
+      let ytId = extractYouTubeId(trailerUrl);
+      if (!ytId && regData && regData.trailer) {
+        ytId = regData.trailer;
+      }
+
+      if (titleEl) titleEl.innerText = `${title} (${year}) — Official Trailer`;
+
+      if (ytId) {
+        if (iframe) {
+          iframe.classList.remove("hidden");
+          iframe.src = `https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0`;
+          iframe.onerror = () => handleTrailerFallbackNotice(title, year);
+        }
+        if (fallbackNotice) fallbackNotice.classList.add("hidden");
+        if (extLink) {
+          extLink.href = `https://www.youtube.com/watch?v=${ytId}`;
+          extLink.innerHTML = `<span>Watch on YouTube</span><span class="text-lime-dark font-bold">↗</span>`;
+        }
+      } else {
+        handleTrailerFallbackNotice(title, year);
+      }
+
+      if (modal) modal.classList.remove("hidden");
+    }
+
+    function handleTrailerFallbackNotice(title, year) {
+      const iframe = document.getElementById("trailer-iframe");
+      const extLink = document.getElementById("trailer-external-link");
+      const fallbackNotice = document.getElementById("trailer-fallback-notice");
+      const luckyTrailerUrl = `https://duckduckgo.com/?q=%21ducky+site%3Ayoutube.com%2Fwatch+${encodeURIComponent(title + ' ' + year + ' official trailer')}`;
+
+      if (iframe) {
+        iframe.src = "";
+        iframe.classList.add("hidden");
+      }
+      if (fallbackNotice) {
+        fallbackNotice.classList.remove("hidden");
+        fallbackNotice.innerHTML = `
+          <div class="p-6 text-center space-y-3">
+            <span class="border border-ink/30 bg-bone text-ink px-3 py-1 text-xs rounded-[3px] font-sans font-medium inline-block">Trailer unavailable</span>
+            <p class="font-serif text-lg font-bold text-ink">${escapeHtml(title)} (${year})</p>
+            <p class="text-xs text-ink-muted max-w-sm mx-auto font-sans">
+              Official video trailer stream is restricted or offline. You can search directly on YouTube.
+            </p>
+            <a href="${luckyTrailerUrl}" target="_blank" rel="noopener noreferrer" 
+               class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-ink text-bone font-semibold text-xs hover:text-lime transition shadow-md">
+              <span>Search YouTube for official trailer</span>
+              <span>↗</span>
+            </a>
+          </div>
+        `;
+      }
+      if (extLink) {
+        extLink.href = luckyTrailerUrl;
+        extLink.innerHTML = `<span>Search YouTube</span><span class="text-lime-dark font-bold">↗</span>`;
+      }
+    }
+
+    function closeTrailerModal() {
+      const modal = document.getElementById("toni-trailer-modal");
+      const iframe = document.getElementById("trailer-iframe");
+      if (iframe) iframe.src = "";
+      if (modal) modal.classList.add("hidden");
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        closeBrandModal();
+        closeTrailerModal();
+      }
+    });
+
+    const trailerModal = document.getElementById("toni-trailer-modal");
+    if (trailerModal) {
+      trailerModal.addEventListener("click", (e) => {
+        if (e.target === trailerModal) closeTrailerModal();
+      });
+    }
+
+    // --- SINGLE-BRAIN VOICE/TEXT ENGINE & CONTROLLER ---
+
+    function initSpeechRecognition() {
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRec) return null;
+      const rec = new SpeechRec();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = chatState.country === "US" ? "en-US" : "en-GB";
+
+      rec.onstart = () => {
+        updateVoiceUIState("listening");
+      };
+
+      rec.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript && transcript.trim()) {
+          handleVoiceUtterance(transcript.trim());
+        }
+      };
+
+      rec.onerror = (event) => {
+        console.warn("Speech recognition notice:", event.error);
+        updateVoiceUIState("default");
+      };
+
+      rec.onend = () => {
+        if (voiceActive && !isSpeakingAudio) {
+          updateVoiceUIState("default");
+          voiceActive = false;
+        }
+      };
+
+      return rec;
+    }
+
+    function updateVoiceUIState(state) {
+      const micBtn = document.getElementById("voice-mic-btn");
+      const btnLabel = document.getElementById("voice-btn-label");
+      const statusBar = document.getElementById("voice-status-bar");
+      const statusText = document.getElementById("voice-status-text");
+
+      if (state === "listening") {
+        if (micBtn) micBtn.className = "px-3 py-2 rounded-full border border-lime ring-2 ring-lime animate-pulse bg-lime/25 text-ink transition-all flex items-center gap-1.5 flex-shrink-0 text-xs font-sans font-semibold";
+        if (btnLabel) btnLabel.innerText = "Listening...";
+        if (statusBar) statusBar.classList.remove("hidden");
+        if (statusText) statusText.innerHTML = `<strong>TONI Voice:</strong> Listening to your viewing mood... Speak now.`;
+      } else if (state === "responding") {
+        if (micBtn) micBtn.className = "px-3 py-2 rounded-full border border-ink/40 bg-bone text-ink transition-all flex items-center gap-1.5 flex-shrink-0 text-xs font-sans font-medium";
+        if (btnLabel) btnLabel.innerText = "TONI Speaking...";
+        if (statusBar) statusBar.classList.remove("hidden");
+        if (statusText) statusText.innerHTML = `<strong>TONI Voice:</strong> Synthesizing editorial response...`;
+      } else {
+        if (micBtn) micBtn.className = "px-3 py-2 rounded-full border border-ink/20 hover:border-lime bg-white text-ink transition-all active:scale-95 flex items-center gap-1.5 flex-shrink-0 text-xs font-sans font-medium shadow-2xs";
+        if (btnLabel) btnLabel.innerText = "Talk to TONI";
+        if (statusBar) statusBar.classList.add("hidden");
+      }
+    }
+
+    async function toggleSingleBrainVoice() {
+      voiceActive = !voiceActive;
+      chatState.dialogue_mode = voiceActive ? "voice" : "text";
+
+      if (!voiceActive) {
+        if (speechRecognition) {
+          try { speechRecognition.stop(); } catch(e) {}
+        }
+        if (window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+        }
+        updateVoiceUIState("default");
+        return;
+      }
+
+      // Activating Voice Mode
+      if (!speechRecognition) {
+        speechRecognition = initSpeechRecognition();
+      }
+
+      if (speechRecognition) {
+        try {
+          updateVoiceUIState("listening");
+          speechRecognition.start();
+        } catch (e) {
+          console.warn("Could not start speech recognition:", e);
+          updateVoiceUIState("listening");
+          const input = document.getElementById("chat-text-input");
+          if (input) {
+            input.placeholder = "Listening... Speak or type what you want to watch tonight";
+            input.focus();
+          }
+        }
+      } else {
+        updateVoiceUIState("listening");
+        const input = document.getElementById("chat-text-input");
+        if (input) {
+          input.placeholder = "Voice mode active — type your thoughts and TONI will speak back";
+          input.focus();
+        }
+      }
+    }
+
+    // Retain compatibility with any legacy button call
+    function toggleGeminiLive() {
+      toggleSingleBrainVoice();
+    }
+
+    async function handleVoiceUtterance(userUtterance) {
+      appendUserMessage(userUtterance);
+      updateVoiceUIState("responding");
+
+      try {
+        const payload = buildVoiceTurnPayload(userUtterance, "voice");
+        const res = await fetch("/api/voice/turn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) throw new Error("Voice turn request failed");
+        const data = await res.json();
+
+        chatState.conversation_history.push({ role: "user", content: userUtterance });
+        chatState.conversation_history.push({ role: "assistant", content: data.assistant_reply });
+
+        syncContextToState(data.updated_context);
+        appendToniMessage(data.assistant_reply);
+
+        if (window.speechSynthesis) {
+          isSpeakingAudio = true;
+          const utterance = new SpeechSynthesisUtterance(data.assistant_reply);
+          utterance.lang = chatState.country === "US" ? "en-US" : "en-GB";
+          utterance.onend = () => {
+            isSpeakingAudio = false;
+            if (data.ready_to_recommend) {
+              updateVoiceUIState("default");
+              voiceActive = false;
+              setTimeout(() => triggerPipelineExecution(), 600);
+            } else {
+              if (voiceActive && speechRecognition) {
+                try {
+                  updateVoiceUIState("listening");
+                  speechRecognition.start();
+                } catch(e) {
+                  updateVoiceUIState("default");
+                  voiceActive = false;
+                }
+              } else {
+                updateVoiceUIState("default");
+                voiceActive = false;
+              }
+            }
+          };
+          utterance.onerror = () => {
+            isSpeakingAudio = false;
+            updateVoiceUIState("default");
+            voiceActive = false;
+            if (data.ready_to_recommend) {
+              triggerPipelineExecution();
+            }
+          };
+          window.speechSynthesis.speak(utterance);
+        } else {
+          updateVoiceUIState("default");
+          voiceActive = false;
+          if (data.ready_to_recommend) {
+            setTimeout(() => triggerPipelineExecution(), 800);
+          }
+        }
+      } catch (err) {
+        console.error("Voice turn error:", err);
+        updateVoiceUIState("default");
+        voiceActive = false;
+        appendToniMessage("I had trouble hearing that clearly. Tell me what kind of mood or pacing feels right tonight.");
+      }
+    }
+
+    function buildVoiceTurnPayload(userInput, mode) {
+      return {
+        user_input: userInput,
+        mode: mode,
+        current_context: {
+          country: chatState.country,
+          service_access: chatState.service_access,
+          allow_rent_buy: chatState.allow_rent_buy,
+          intake_depth: chatState.intake_depth || "a_couple_of_questions",
+          dialogue_mode: mode,
+          tonight_signals: [
+            ...(chatState.pacing ? [{ name: "pacing", value: chatState.pacing, signal_type: "soft_session_preference" }] : []),
+            ...(chatState.tone ? [{ name: "tone", value: chatState.tone, signal_type: "soft_session_preference" }] : []),
+            ...(chatState.demandingness ? [{ name: "demandingness", value: chatState.demandingness, signal_type: "soft_session_preference" }] : []),
+            ...(chatState.exclude_genre ? [{ name: "exclude-genre", value: [chatState.exclude_genre], signal_type: "hard_constraint" }] : []),
+            ...(chatState.max_runtime ? [{ name: "max-runtime", value: chatState.max_runtime, signal_type: "hard_constraint" }] : [])
+          ],
+          persistent_taste: [],
+          interaction_history: {}
+        },
+        conversation_history: chatState.conversation_history
+      };
+    }
+
+    function syncContextToState(ctx) {
+      if (!ctx) return;
+      if (ctx.country) chatState.country = ctx.country;
+      if (ctx.service_access && ctx.service_access.length) {
+        chatState.service_access = ctx.service_access;
+      }
+      if (typeof ctx.allow_rent_buy === "boolean") {
+        chatState.allow_rent_buy = ctx.allow_rent_buy;
+      }
+      (ctx.tonight_signals || []).forEach(sig => {
+        if (sig.name === "pacing") chatState.pacing = sig.value;
+        if (sig.name === "tone") chatState.tone = sig.value;
+        if (sig.name === "demandingness") chatState.demandingness = sig.value;
+        if (sig.name === "exclude-genre" && Array.isArray(sig.value) && sig.value.length) {
+          chatState.exclude_genre = sig.value[0];
+        }
+        if (sig.name === "max-runtime") chatState.max_runtime = sig.value;
+      });
+    }
+
+    // Append a TONI agent message bubble
+    function appendToniMessage(contentHtml, id = null) {
+      const thread = document.getElementById("toni-chat-thread");
+      const wrap = document.createElement("div");
+      wrap.className = "flex items-start gap-3 chat-message-anim";
+      if (id) wrap.id = id;
+
+      wrap.innerHTML = `
+        <img src="static/assets/TONI_Mark_Aperture_Notch_Primary.svg" 
+             onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.svg';}"
+             alt="TONI Eye Mark" 
+             class="w-7 h-7 flex-shrink-0 mt-0.5">
+        <div class="flex-1 max-w-xl bg-white/85 rounded-[6px] border border-ink/15 p-4 sm:p-5 shadow-xs space-y-3">
+          <div class="text-[11px] font-bold text-ink uppercase tracking-wider font-sans">TONI</div>
+          <div class="text-xs sm:text-sm text-ink font-serif leading-relaxed">
+            ${contentHtml}
+          </div>
+        </div>
+      `;
+      thread.appendChild(wrap);
+      triggerApertureMicroStep();
+      scrollToBottom();
+      return wrap;
+    }
+
+    // Append a user response bubble
+    function appendUserMessage(text) {
+      const thread = document.getElementById("toni-chat-thread");
+      const wrap = document.createElement("div");
+      wrap.className = "flex justify-end chat-message-anim";
+
+      wrap.innerHTML = `
+        <div class="max-w-md bg-ink text-bone rounded-2xl rounded-tr-xs px-4 py-2.5 text-xs sm:text-sm shadow-xs font-sans font-medium">
+          ${escapeHtml(text)}
+        </div>
+      `;
+      thread.appendChild(wrap);
+      triggerApertureMicroStep();
+      scrollToBottom();
+    }
+
     function escapeHtml(str) {
       if (!str) return "";
-      return str.replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
     }
 
     function safeUrl(url) {
       if (!url) return "#";
       try {
         const parsed = new URL(url);
-        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-          return url;
-        }
-      } catch (e) {
-        // Ignored
-      }
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") return url;
+      } catch (e) {}
       return "#";
     }
 
-    let selectedServices = [];
-    let cachedProviders = {};
+    function extractDomain(url) {
+      try {
+        const parsed = new URL(url);
+        return parsed.hostname.replace(/^www\./, "");
+      } catch (e) {
+        return url;
+      }
+    }
 
-    // Initialize Providers Chips dynamically from API (spaced display names)
-    async function updateServiceChips() {
-      const country = document.querySelector('input[name="country"]:checked').value;
-      const container = document.getElementById("services-chips");
-      
-      if (!cachedProviders[country]) {
-        try {
-          container.innerHTML = `<span class="text-xs text-gray-500 animate-pulse">Loading providers...</span>`;
-          const res = await fetch(`/api/providers?country=${country}`);
-          const data = await res.json();
-          cachedProviders[country] = data.providers || [];
-        } catch (err) {
-          console.error("Failed to fetch providers:", err);
-          // Fallback if API fails
-          cachedProviders[country] = (country === "UK" 
-            ? [{"name": "Netflix"}, {"name": "Prime Video"}, {"name": "Disney+"}, {"name": "BBC iPlayer"}, {"name": "ITVX"}, {"name": "Channel 4"}, {"name": "My5"}, {"name": "Paramount+"}, {"name": "Apple TV+"}]
-            : [{"name": "Netflix"}, {"name": "Prime Video"}, {"name": "Disney+"}, {"name": "Max"}, {"name": "Hulu"}, {"name": "Paramount+"}, {"name": "Pluto TV"}, {"name": "Apple TV+"}]
-          );
+    function formatDimensionScore(score) {
+      if (typeof score !== "number" || isNaN(score)) return "";
+      return `${Math.round(score * 20)}%`;
+    }
+
+    function formatEvidenceState(state) {
+      if (!state) return 'Broad critical consensus';
+      const cleanKey = String(state).toLowerCase().trim().replace(/[_\s]+/g, '_');
+      const map = {
+        'strong_agreement': 'Broad critical consensus',
+        'meaningful_disagreement': 'Critics are divided on this film',
+        'sparse_evidence': 'Limited review coverage',
+        'mainly_official_factual': 'Overview from official sources',
+        'strong critical consensus': 'Broad critical consensus',
+        'meaningful critical divergence': 'Critics are divided on this film',
+        'sparse critical evidence': 'Limited review coverage',
+        'factual & studio record': 'Overview from official sources'
+      };
+      return map[cleanKey] || 'Broad critical consensus';
+    }
+
+    // STEP 1: Effort level intake turn
+    function renderStep1() {
+      const html = `
+        <p class="text-sm sm:text-base font-medium text-ink">
+          Good evening. I'm TONI, your agentic cinema guide. How much effort do you want to give right now?
+        </p>
+        <p class="text-xs text-ink-muted mt-1">
+          You can tap a suggested answer below or type directly in the chat bar.
+        </p>
+
+        <!-- Effort selection chips -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2" id="step-1-chips">
+          <button type="button" 
+                  onclick="selectEffort('just_give_me_something', 'Just give me something')"
+                  class="px-3.5 py-2.5 rounded-full text-xs font-medium border border-ink/20 hover:border-lime hover:bg-lime/20 bg-bone transition text-ink text-center">
+            Just give me something
+          </button>
+          <button type="button" 
+                  onclick="selectEffort('a_couple_of_questions', 'A couple of questions is fine')"
+                  class="px-3.5 py-2.5 rounded-full text-xs font-medium border border-ink/20 hover:border-lime hover:bg-lime/20 bg-bone transition text-ink text-center">
+            A couple of questions is fine
+          </button>
+          <button type="button" 
+                  onclick="selectEffort('get_to_know_me', 'Get to know what I want')"
+                  class="px-3.5 py-2.5 rounded-full text-xs font-medium border border-ink/20 hover:border-lime hover:bg-lime/20 bg-bone transition text-ink text-center">
+            Get to know what I want
+          </button>
+        </div>
+      `;
+      appendToniMessage(html, "msg-step-1");
+    }
+
+    function selectEffort(depth, label) {
+      if (chatState.step > 1) return;
+      chatState.intake_depth = depth;
+      chatState.step = 2;
+      appendUserMessage(label);
+      setTimeout(renderStep2, 350);
+    }
+
+    // STEP 2: Market & Rent/Buy turn
+    function renderStep2() {
+      const html = `
+        <p class="text-sm sm:text-base font-medium text-ink">
+          Where are you streaming tonight, and should we include digital rentals or purchases?
+        </p>
+        <p class="text-xs text-ink-muted mt-1">
+          Catalogues differ significantly between countries.
+        </p>
+
+        <div class="space-y-3 pt-2">
+          <!-- Market Choices -->
+          <div>
+            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Market:</span>
+            <div class="flex gap-2">
+              <button type="button" 
+                      id="btn-market-uk"
+                      onclick="selectMarket('UK')" 
+                      class="px-4 py-1.5 rounded-full text-xs font-semibold border ${chatState.country === 'UK' ? 'border-lime bg-lime/25 text-ink' : 'border-ink/20 bg-bone text-ink/80'} transition">
+                🇬🇧 United Kingdom
+              </button>
+              <button type="button" 
+                      id="btn-market-us"
+                      onclick="selectMarket('US')" 
+                      class="px-4 py-1.5 rounded-full text-xs font-semibold border ${chatState.country === 'US' ? 'border-lime bg-lime/25 text-ink' : 'border-ink/20 bg-bone text-ink/80'} transition">
+                🇺🇸 United States
+              </button>
+            </div>
+          </div>
+
+          <!-- Rent / Buy Choices -->
+          <div>
+            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Rental / Purchase Option:</span>
+            <div class="flex gap-2">
+              <button type="button" 
+                      id="btn-rent-no"
+                      onclick="selectRentBuy(false)" 
+                      class="px-4 py-1.5 rounded-full text-xs font-semibold border ${!chatState.allow_rent_buy ? 'border-lime bg-lime/25 text-ink' : 'border-ink/20 bg-bone text-ink/80'} transition">
+                Included only
+              </button>
+              <button type="button" 
+                      id="btn-rent-yes"
+                      onclick="selectRentBuy(true)" 
+                      class="px-4 py-1.5 rounded-full text-xs font-semibold border ${chatState.allow_rent_buy ? 'border-lime bg-lime/25 text-ink' : 'border-ink/20 bg-bone text-ink/80'} transition">
+                Rent &amp; Buy OK
+              </button>
+            </div>
+          </div>
+
+          <!-- Confirm button -->
+          <div class="pt-1">
+            <button type="button" 
+                    onclick="confirmStep2()"
+                    class="px-5 py-2 rounded-full bg-ink text-bone text-xs font-semibold hover:text-lime transition shadow-2xs">
+              Confirm location &amp; continue →
+            </button>
+          </div>
+        </div>
+      `;
+      appendToniMessage(html, "msg-step-2");
+    }
+
+    function selectMarket(country) {
+      chatState.country = country;
+      const btnUk = document.getElementById("btn-market-uk");
+      const btnUs = document.getElementById("btn-market-us");
+      if (btnUk && btnUs) {
+        if (country === 'UK') {
+          btnUk.className = "px-4 py-1.5 rounded-full text-xs font-semibold border border-lime bg-lime/25 text-ink transition";
+          btnUs.className = "px-4 py-1.5 rounded-full text-xs font-semibold border border-ink/20 bg-bone text-ink/80 transition";
+        } else {
+          btnUs.className = "px-4 py-1.5 rounded-full text-xs font-semibold border border-lime bg-lime/25 text-ink transition";
+          btnUk.className = "px-4 py-1.5 rounded-full text-xs font-semibold border border-ink/20 bg-bone text-ink/80 transition";
         }
       }
-      
-      const providers = cachedProviders[country];
-      container.innerHTML = "";
-
-      providers.forEach(p => {
-        const service = p.name;
-        const isChecked = selectedServices.includes(service);
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = `px-3.5 py-1.5 rounded-full text-xs font-semibold transition border ${
-          isChecked 
-            ? "bg-teal-500/20 text-teal-300 border-teal-500/50 shadow-sm shadow-teal-500/10" 
-            : "bg-gray-900/60 text-gray-400 border-gray-700 hover:border-gray-600"
-        }`;
-        btn.innerText = service;
-        btn.onclick = () => {
-          if (selectedServices.includes(service)) {
-            selectedServices = selectedServices.filter(s => s !== service);
-          } else {
-            if (service === "BBC iPlayer" && country === "UK") {
-              const confirmLicence = confirm("Confirm TV Licence: Do you have a valid UK TV Licence to access BBC iPlayer?");
-              if (!confirmLicence) {
-                return;
-              }
-            }
-            selectedServices.push(service);
-          }
-          updateServiceChips();
-        };
-        container.appendChild(btn);
-      });
+      triggerApertureMicroStep();
     }
 
-    // Toggle fields based on chosen Intake Depth
-    function updateIntakeDepthFields() {
-      const depth = document.querySelector('input[name="intake_depth"]:checked').value;
-      const demSection = document.getElementById("demandingness-section");
-      const exclSection = document.getElementById("exclude-section");
-      
-      if (depth === "just_give_me_something") {
-        demSection.classList.add("hidden");
-        exclSection.classList.add("hidden");
-      } else if (depth === "a_couple_of_questions") {
-        demSection.classList.remove("hidden");
-        exclSection.classList.add("hidden");
-      } else if (depth === "get_to_know_me") {
-        demSection.classList.remove("hidden");
-        exclSection.classList.remove("hidden");
+    function selectRentBuy(allow) {
+      chatState.allow_rent_buy = allow;
+      const btnNo = document.getElementById("btn-rent-no");
+      const btnYes = document.getElementById("btn-rent-yes");
+      if (btnNo && btnYes) {
+        if (!allow) {
+          btnNo.className = "px-4 py-1.5 rounded-full text-xs font-semibold border border-lime bg-lime/25 text-ink transition";
+          btnYes.className = "px-4 py-1.5 rounded-full text-xs font-semibold border border-ink/20 bg-bone text-ink/80 transition";
+        } else {
+          btnYes.className = "px-4 py-1.5 rounded-full text-xs font-semibold border border-lime bg-lime/25 text-ink transition";
+          btnNo.className = "px-4 py-1.5 rounded-full text-xs font-semibold border border-ink/20 bg-bone text-ink/80 transition";
+        }
       }
+      triggerApertureMicroStep();
     }
 
-    // Load Personas
-    async function loadPersonas() {
-      try {
-        const res = await fetch("/api/personas");
-        const data = await res.json();
-        const container = document.getElementById("personas-container");
-        container.innerHTML = "";
+    function confirmStep2() {
+      if (chatState.step > 2) return;
+      chatState.step = 3;
+      const rentText = chatState.allow_rent_buy ? "Rent & Buy OK" : "Included only";
+      appendUserMessage(`${chatState.country}, ${rentText}`);
+      setTimeout(renderStep3, 350);
+    }
 
-        data.personas.forEach(p => {
-          const div = document.createElement("div");
-          div.className = "p-3.5 rounded-xl border border-gray-700 bg-gray-900/40 hover:border-teal-500/50 cursor-pointer transition flex flex-col justify-between";
-          div.innerHTML = `
-            <div>
-              <div class="text-xs font-bold text-white">${p.name}</div>
-              <div class="text-[11px] text-gray-400 mt-1 leading-snug">${p.description}</div>
-            </div>
-            <button class="mt-3 text-[11px] font-bold text-teal-400 hover:text-teal-300 flex items-center gap-1">
-              Run this simulation →
+    // STEP 3: Streaming Platform turn
+    async function renderStep3() {
+      const country = chatState.country;
+      let providers = cachedProviders[country];
+
+      if (!providers) {
+        try {
+          const res = await fetch(`/api/providers?country=${country}`);
+          const data = await res.json();
+          providers = data.providers || [];
+          cachedProviders[country] = providers;
+        } catch (e) {
+          providers = country === "UK" 
+            ? [{"name": "Netflix"}, {"name": "Prime Video"}, {"name": "Disney+"}, {"name": "BBC iPlayer"}, {"name": "ITVX"}, {"name": "Channel 4"}, {"name": "Paramount+"}, {"name": "Apple TV+"}]
+            : [{"name": "Netflix"}, {"name": "Prime Video"}, {"name": "Disney+"}, {"name": "Max"}, {"name": "Hulu"}, {"name": "Paramount+"}, {"name": "Pluto TV"}, {"name": "Apple TV+"}];
+          cachedProviders[country] = providers;
+        }
+      }
+
+      const chipsHtml = providers.map(p => `
+        <button type="button" 
+                onclick="toggleService('${escapeHtml(p.name)}')" 
+                id="chip-service-${p.name.replace(/\s+/g, '_')}"
+                class="service-chip px-3.5 py-1.5 rounded-full text-xs font-medium border ${chatState.service_access.includes(p.name) ? 'border-lime bg-lime/25 text-ink font-semibold' : 'border-ink/20 bg-bone text-ink/80'} transition">
+          ${escapeHtml(p.name)}
+        </button>
+      `).join("");
+
+      const html = `
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-sm sm:text-base font-medium text-ink">
+            Which streaming services do you have access to tonight?
+          </p>
+          <div class="flex items-center gap-1.5 flex-shrink-0">
+            <button type="button" onclick="selectAllServicesInChat()" class="text-[11px] font-semibold px-2 py-0.5 rounded border border-ink/20 bg-bone hover:border-lime">
+              Select All
             </button>
-          `;
-          div.onclick = () => runPipeline(p.context);
-          container.appendChild(div);
-        });
-      } catch (err) {
-        console.error("Failed to load personas:", err);
+            <button type="button" onclick="clearAllServicesInChat()" class="text-[11px] font-semibold px-2 py-0.5 rounded border border-ink/20 bg-bone hover:border-ink/40 text-ink-muted">
+              Clear All
+            </button>
+          </div>
+        </div>
+        <p class="text-xs text-ink-muted mt-0.5">
+          I will strictly verify availability against these services before ranking.
+        </p>
+
+        <div class="flex flex-wrap gap-2 pt-2" id="chat-service-chips-container">
+          ${chipsHtml}
+        </div>
+
+        <div class="pt-2">
+          <button type="button" 
+                  onclick="confirmStep3()"
+                  class="px-5 py-2 rounded-full bg-ink text-bone text-xs font-semibold hover:text-lime transition shadow-2xs">
+            Confirm streaming access →
+          </button>
+        </div>
+      `;
+      appendToniMessage(html, "msg-step-3");
+    }
+
+    function toggleService(name) {
+      if (chatState.service_access.includes(name)) {
+        chatState.service_access = chatState.service_access.filter(s => s !== name);
+      } else {
+        chatState.service_access.push(name);
+      }
+      refreshServiceChipsUI();
+      triggerApertureMicroStep();
+    }
+
+    function selectAllServicesInChat() {
+      const providers = cachedProviders[chatState.country] || [];
+      chatState.service_access = providers.map(p => p.name);
+      refreshServiceChipsUI();
+      triggerApertureMicroStep();
+    }
+
+    function clearAllServicesInChat() {
+      chatState.service_access = [];
+      refreshServiceChipsUI();
+      triggerApertureMicroStep();
+    }
+
+    function refreshServiceChipsUI() {
+      const container = document.getElementById("chat-service-chips-container");
+      if (!container) return;
+      const providers = cachedProviders[chatState.country] || [];
+      container.querySelectorAll(".service-chip").forEach((btn, idx) => {
+        const p = providers[idx];
+        if (p) {
+          const isSelected = chatState.service_access.includes(p.name);
+          btn.className = `service-chip px-3.5 py-1.5 rounded-full text-xs font-medium border ${isSelected ? 'border-lime bg-lime/25 text-ink font-semibold' : 'border-ink/20 bg-bone text-ink/80'} transition`;
+        }
+      });
+    }
+
+    function confirmStep3() {
+      if (chatState.step > 3) return;
+      if (chatState.service_access.length === 0 && !chatState.allow_rent_buy) {
+        showBrandModal("Streaming Access Required", "Please choose at least one streaming service you have access to, or enable digital rentals.");
+        return;
+      }
+      chatState.step = 4;
+      const count = chatState.service_access.length;
+      appendUserMessage(count > 0 ? `${count} services selected (${chatState.service_access.slice(0, 3).join(", ")}${count > 3 ? '...' : ''})` : "Rentals only");
+
+      if (chatState.intake_depth === 'just_give_me_something') {
+        setTimeout(renderReadyTurn, 350);
+      } else {
+        setTimeout(renderStep4, 350);
       }
     }
 
-    // Slider listener
-    const slider = document.getElementById("demandingness-slider");
-    const sliderVal = document.getElementById("demandingness-val");
-    slider.oninput = (e) => {
-      const val = parseFloat(e.target.value);
-      const label = val <= 2.0 ? "Light" : (val >= 4.0 ? "Demanding" : "Balanced");
-      sliderVal.innerText = `${val.toFixed(1)} / 5 (${label})`;
-    };
+    // STEP 4: Pacing & Mood turn
+    function renderStep4() {
+      const isDeep = chatState.intake_depth === 'get_to_know_me';
+      const html = `
+        <p class="text-sm sm:text-base font-medium text-ink">
+          What cadence and emotional character are you seeking tonight?
+        </p>
 
-    // Country radio change listener
-    document.querySelectorAll('input[name="country"]').forEach(r => {
-      r.addEventListener("change", () => {
-        selectedServices = [];
-        updateServiceChips();
-      });
-    });
+        <!-- Pacing options -->
+        <div class="space-y-3 pt-2">
+          <div>
+            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Pacing Appetite:</span>
+            <div class="flex flex-wrap gap-2" id="pacing-btn-group">
+              <button type="button" onclick="setPacing('brisk', this)" class="px-3 py-1.5 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition">
+                ⚡ Brisk (Fast, energetic)
+              </button>
+              <button type="button" onclick="setPacing('measured', this)" class="px-3 py-1.5 rounded-full text-xs font-semibold border border-lime bg-lime/25 text-ink transition">
+                ⏱️ Measured (Deliberate)
+              </button>
+              <button type="button" onclick="setPacing('slow', this)" class="px-3 py-1.5 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition">
+                🌿 Slow (Contemplative)
+              </button>
+            </div>
+          </div>
 
-    // Intake Depth listeners
-    document.querySelectorAll('input[name="intake_depth"]').forEach(r => {
-      r.addEventListener("change", updateIntakeDepthFields);
-    });
+          <!-- Desired tone options -->
+          <div>
+            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Desired Tone:</span>
+            <div class="flex flex-wrap gap-1.5" id="tone-btn-group">
+              <button type="button" onclick="setTone('tense', this)" class="px-3 py-1 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition">
+                Tense &amp; suspenseful
+              </button>
+              <button type="button" onclick="setTone('mind-bending', this)" class="px-3 py-1 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition">
+                Mind-bending &amp; intellectual
+              </button>
+              <button type="button" onclick="setTone('warm', this)" class="px-3 py-1 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition">
+                Warm &amp; heartfelt
+              </button>
+              <button type="button" onclick="setTone('intense', this)" class="px-3 py-1 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition">
+                Intense &amp; gritty
+              </button>
+              <button type="button" onclick="setTone('funny', this)" class="px-3 py-1 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition">
+                Funny &amp; witty
+              </button>
+            </div>
+          </div>
 
-    // Form Submit
-    document.getElementById("intake-form").onsubmit = async (e) => {
+          ${isDeep ? `
+          <!-- Deep mode: Exclusions -->
+          <div>
+            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Hard Exclusions:</span>
+            <select id="chat-exclude-genre" onchange="chatState.exclude_genre=this.value" class="bg-bone border border-ink/20 rounded-[4px] px-3 py-1.5 text-xs text-ink font-medium">
+              <option value="">No exclusions</option>
+              <option value="Horror">Exclude Horror</option>
+              <option value="Crime">Exclude Crime</option>
+              <option value="Sci-Fi">Exclude Sci-Fi</option>
+              <option value="Comedy">Exclude Comedy</option>
+            </select>
+          </div>
+          ` : ''}
+
+          <div class="pt-2">
+            <button type="button" 
+                    onclick="confirmStep4()"
+                    class="px-5 py-2 rounded-full bg-ink text-bone text-xs font-semibold hover:text-lime transition shadow-2xs">
+              Confirm taste preferences →
+            </button>
+          </div>
+        </div>
+      `;
+      appendToniMessage(html, "msg-step-4");
+    }
+
+    function setPacing(val, btn) {
+      chatState.pacing = val;
+      const group = document.getElementById("pacing-btn-group");
+      if (group) {
+        group.querySelectorAll("button").forEach(b => {
+          b.className = "px-3 py-1.5 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition";
+        });
+      }
+      btn.className = "px-3 py-1.5 rounded-full text-xs font-semibold border border-lime bg-lime/25 text-ink transition";
+      triggerApertureMicroStep();
+    }
+
+    function setTone(val, btn) {
+      chatState.tone = val;
+      const group = document.getElementById("tone-btn-group");
+      if (group) {
+        group.querySelectorAll("button").forEach(b => {
+          b.className = "px-3 py-1 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition";
+        });
+      }
+      btn.className = "px-3 py-1 rounded-full text-xs font-semibold border border-lime bg-lime/25 text-ink transition";
+      triggerApertureMicroStep();
+    }
+
+    function confirmStep4() {
+      if (chatState.step > 4) return;
+      chatState.step = 5;
+      const desc = `${chatState.pacing} pacing${chatState.tone ? ', ' + chatState.tone : ''}`;
+      appendUserMessage(desc);
+      setTimeout(renderReadyTurn, 350);
+    }
+
+    // FINAL TURN: Ready to generate shortlist
+    function renderReadyTurn() {
+      chatState.step = 5;
+      const html = `
+        <p class="text-sm sm:text-base font-medium text-ink">
+          I have everything I need to synthesize tonight's shortlist!
+        </p>
+        <p class="text-xs text-ink-muted mt-1">
+          Have any specific mood or actors in mind? Type below or tap "Find what fits tonight" to open your shortlist.
+        </p>
+        <div class="pt-3">
+          <button type="button" 
+                  id="final-generate-btn"
+                  onclick="triggerPipelineExecution()"
+                  class="px-6 py-3 rounded-full bg-ink text-bone font-medium text-xs tracking-wide transition border border-transparent hover:border-lime hover:text-lime shadow-md active:scale-98 flex items-center gap-2">
+            <span>Find what fits tonight</span>
+            <span>→</span>
+          </button>
+        </div>
+      `;
+      appendToniMessage(html, "msg-step-ready");
+    }
+
+    // Handle user free-form typed text
+    function handleUserTextInput(e) {
       e.preventDefault();
-      const country = document.querySelector('input[name="country"]:checked').value;
-      const allowRentBuy = document.getElementById("allow-rent-buy").checked;
-      const intakeDepth = document.querySelector('input[name="intake_depth"]:checked').value;
-      const pacing = document.getElementById("pacing-select").value;
-      const tone = document.getElementById("tone-select").value;
-      
-      let demandingness = 3.0;
-      let excludeGenre = "";
-      
-      if (intakeDepth !== "just_give_me_something") {
-        demandingness = parseFloat(document.getElementById("demandingness-slider").value);
-      }
-      if (intakeDepth === "get_to_know_me") {
-        excludeGenre = document.getElementById("exclude-genre-select").value;
+      const input = document.getElementById("chat-text-input");
+      if (!input || isGenerating) return;
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+
+      // If user types while on results page, bring them back to chat
+      const resultsView = document.getElementById("results-view");
+      if (resultsView && !resultsView.classList.contains("hidden")) {
+        returnToChat();
       }
 
-      const tonight_signals = [
-        { name: "pacing", value: pacing, signal_type: "soft_session_preference" }
-      ];
-      if (intakeDepth !== "just_give_me_something") {
-        tonight_signals.push({ name: "demandingness", value: demandingness, signal_type: "soft_session_preference" });
-      }
-      if (tone) {
-        tonight_signals.push({ name: "tone", value: tone, signal_type: "soft_session_preference" });
-      }
-      if (excludeGenre) {
-        tonight_signals.push({ name: "exclude-genre", value: [excludeGenre], signal_type: "hard_constraint" });
-      }
+      const lower = text.toLowerCase();
 
-      if (selectedServices.length === 0) {
-        alert("Please select at least one streaming service you pay for or access.");
+      if (chatState.step === 1) {
+        if (lower.includes("just") || lower.includes("quick") || lower.includes("fast") || lower.includes("something")) {
+          selectEffort("just_give_me_something", text);
+        } else if (lower.includes("deep") || lower.includes("know") || lower.includes("everything")) {
+          selectEffort("get_to_know_me", text);
+        } else {
+          selectEffort("a_couple_of_questions", text);
+        }
         return;
       }
 
+      if (chatState.step === 2) {
+        if (lower.includes("us") || lower.includes("states") || lower.includes("america")) {
+          chatState.country = "US";
+        } else if (lower.includes("uk") || lower.includes("britain") || lower.includes("england")) {
+          chatState.country = "UK";
+        }
+        if (lower.includes("rent") || lower.includes("buy")) {
+          chatState.allow_rent_buy = true;
+        }
+        confirmStep2();
+        return;
+      }
+
+      if (chatState.step === 3) {
+        const providers = cachedProviders[chatState.country] || [];
+        providers.forEach(p => {
+          if (lower.includes(p.name.toLowerCase())) {
+            if (!chatState.service_access.includes(p.name)) {
+              chatState.service_access.push(p.name);
+            }
+          }
+        });
+        if (chatState.service_access.length === 0) {
+          chatState.service_access = ["Netflix", "Prime Video"];
+        }
+        confirmStep3();
+        return;
+      }
+
+      appendUserMessage(text);
+      processTextDialogueTurn(text);
+    }
+
+    async function processTextDialogueTurn(userText) {
+      chatState.dialogue_mode = "text";
+      try {
+        const payload = buildVoiceTurnPayload(userText, "text");
+        const res = await fetch("/api/voice/turn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) throw new Error("Dialogue turn failed");
+        const data = await res.json();
+
+        chatState.conversation_history.push({ role: "user", content: userText });
+        chatState.conversation_history.push({ role: "assistant", content: data.assistant_reply });
+
+        syncContextToState(data.updated_context);
+        appendToniMessage(data.assistant_reply);
+
+        if (data.ready_to_recommend) {
+          setTimeout(() => triggerPipelineExecution(), 600);
+        }
+      } catch (err) {
+        console.warn("Text turn fallback:", err);
+        chatState.freeform_mood = userText;
+        setTimeout(triggerPipelineExecution, 300);
+      }
+    }
+
+    // Transition between views
+    function switchToView(viewName) {
+      const intakeView = document.getElementById("intake-view");
+      const loadingView = document.getElementById("loading-view");
+      const resultsView = document.getElementById("results-view");
+      const bottomBar = document.getElementById("bottom-chat-bar");
+      const headerChatBtn = document.getElementById("header-chat-btn");
+
+      if (intakeView) intakeView.classList.add("hidden");
+      if (loadingView) loadingView.classList.add("hidden");
+      if (resultsView) resultsView.classList.add("hidden");
+
+      if (viewName === "intake") {
+        if (intakeView) intakeView.classList.remove("hidden");
+        if (bottomBar) bottomBar.classList.remove("hidden");
+        if (headerChatBtn) headerChatBtn.classList.add("hidden");
+      } else if (viewName === "loading") {
+        if (loadingView) loadingView.classList.remove("hidden");
+        if (bottomBar) bottomBar.classList.add("hidden");
+        if (headerChatBtn) headerChatBtn.classList.add("hidden");
+      } else if (viewName === "results") {
+        if (resultsView) resultsView.classList.remove("hidden");
+        if (bottomBar) bottomBar.classList.remove("hidden");
+        if (headerChatBtn) headerChatBtn.classList.remove("hidden");
+        
+        // Scroll to top of results
+        const scrollContainer = document.getElementById("main-scroll-container");
+        if (scrollContainer) scrollContainer.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    }
+
+    function returnToChat() {
+      switchToView("intake");
+      scrollToBottom();
+      const input = document.getElementById("chat-text-input");
+      if (input) input.focus();
+    }
+
+    // Pipeline Execution
+    async function triggerPipelineExecution() {
+      if (isGenerating) return;
+      isGenerating = true;
+
+      // Switch to brand focus breathing loading view
+      switchToView("loading");
+      triggerApertureMicroStep();
+
+      const tonight_signals = [
+        { name: "pacing", value: chatState.pacing, signal_type: "soft_session_preference" }
+      ];
+
+      if (chatState.tone) {
+        tonight_signals.push({ name: "tone", value: chatState.tone, signal_type: "soft_session_preference" });
+      }
+
+      if (chatState.demandingness) {
+        tonight_signals.push({ name: "demandingness", value: chatState.demandingness, signal_type: "soft_session_preference" });
+      }
+
+      if (chatState.exclude_genre) {
+        tonight_signals.push({ name: "exclude-genre", value: [chatState.exclude_genre], signal_type: "hard_constraint" });
+      }
+
+      if (chatState.freeform_mood) {
+        tonight_signals.push({ name: "freeform_mood", value: chatState.freeform_mood, signal_type: "soft_session_preference" });
+      }
+
       const context = {
-        country: country,
-        service_access: selectedServices,
-        allow_rent_buy: allowRentBuy,
-        intake_depth: intakeDepth,
+        country: chatState.country,
+        service_access: chatState.service_access.length ? chatState.service_access : ["Netflix"],
+        allow_rent_buy: chatState.allow_rent_buy,
+        intake_depth: chatState.intake_depth || "a_couple_of_questions",
         tonight_signals: tonight_signals,
         persistent_taste: []
       };
 
-      await runPipeline(context);
-    };
-
-    // Run Recommendation Pipeline
-    async function runPipeline(context) {
-      const reasoningState = document.getElementById("reasoning-state");
-      const resultsSection = document.getElementById("results-section");
-      const submitBtn = document.getElementById("submit-btn");
-      const spinner = document.getElementById("spinner");
-      const btnText = document.getElementById("btn-text");
-
-      reasoningState.classList.remove("hidden");
-      resultsSection.classList.add("hidden");
-      submitBtn.disabled = true;
-      spinner.classList.remove("hidden");
-      btnText.innerText = "Analyzing Live Evidence with Parallel...";
-
       try {
-        const response = await fetch("/api/recommend", {
+        const queryParams = new URLSearchParams(window.location.search);
+        let url = "/api/recommend?live=true";
+        if (queryParams.has("live")) url = `/api/recommend?live=${queryParams.get("live")}`;
+        if (queryParams.has("force_live_evidence")) url += `&force_live_evidence=${queryParams.get("force_live_evidence")}`;
+
+        const response = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(context)
         });
 
         if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          // If detail is an array or object (FastAPI validation errors), format nicely
-          let errMsg = "";
-          if (errData.detail) {
-            if (typeof errData.detail === "string") {
-              errMsg = errData.detail;
-            } else {
-              errMsg = JSON.stringify(errData.detail);
-            }
-          } else {
-            errMsg = `HTTP error! Status: ${response.status}`;
-          }
-          throw new Error(errMsg);
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.detail || "Unable to generate recommendations.");
         }
 
         const data = await response.json();
-        renderResults(data);
+        chatState.lastResults = data;
+
+        setTimeout(() => {
+          renderDedicatedResultsPage(data);
+          isGenerating = false;
+        }, 400);
+
       } catch (err) {
-        alert("Error running recommendation pipeline: " + err.message);
-      } finally {
-        reasoningState.classList.add("hidden");
-        submitBtn.disabled = false;
-        spinner.classList.add("hidden");
-        btnText.innerText = "Generate My Personal Shortlist Tonight";
+        switchToView("intake");
+        showBrandModal("Recommendation Error", err.message);
+        isGenerating = false;
       }
     }
 
-    // Render Recommendations
-    function renderResults(data) {
+    // Render Dedicated "What fits tonight?" Results Page
+    function renderDedicatedResultsPage(data) {
+      switchToView("results");
+
+      const regionTag = document.getElementById("results-region-tag");
+      if (regionTag) regionTag.innerText = `Market: ${chatState.country} • ${chatState.service_access.slice(0, 3).join(', ')}`;
+
+      const watchcardsContainer = document.getElementById("watchcards-container");
+      const additionalContainer = document.getElementById("additional-candidates-container");
+      if (watchcardsContainer) watchcardsContainer.innerHTML = "";
+      if (additionalContainer) additionalContainer.innerHTML = "";
+
       const recs = data.recommendations || [];
-      const resultsSection = document.getElementById("results-section");
-      const top3Container = document.getElementById("top3-cards");
-      const additionalList = document.getElementById("additional-list");
-      const expandedWatchlist = document.getElementById("expanded-watchlist");
-      const unverifiedExclusions = document.getElementById("unverified-exclusions");
-      const unverifiedList = document.getElementById("unverified-list");
-
-      top3Container.innerHTML = "";
-      additionalList.innerHTML = "";
-      unverifiedList.innerHTML = "";
-
-      // Populate unverified exclusions if any exist
-      const unverifiedTitles = data.unverified_excluded_titles || [];
-      if (unverifiedTitles.length > 0) {
-        unverifiedTitles.forEach(title => {
-          const div = document.createElement("div");
-          div.className = "py-0.5 border-b border-gray-900/40 last:border-0";
-          div.innerText = `${title} - Couldn't find reliable availability information for this title.`;
-          unverifiedList.appendChild(div);
-        });
-        unverifiedExclusions.classList.remove("hidden");
-      } else {
-        unverifiedExclusions.classList.add("hidden");
-      }
-
       if (!recs.length) {
-        let wording = "No films could match your streaming services or constraints. Please widen your subscriptions or enable rent/buy.";
-        top3Container.innerHTML = `
-          <div class="col-span-3 text-center py-10 text-gray-400">
-            ${escapeHtml(wording)}
-          </div>
-        `;
-        expandedWatchlist.classList.add("hidden");
-        resultsSection.classList.remove("hidden");
-        resultsSection.scrollIntoView({ behavior: "smooth" });
+        if (watchcardsContainer) {
+          watchcardsContainer.innerHTML = `
+            <div class="p-8 text-center rounded-[6px] border border-ink/20 bg-white/70 space-y-4">
+              <h3 class="font-serif text-2xl font-bold text-ink">No candidates matched tonight's constraints</h3>
+              <p class="text-xs sm:text-sm text-ink-muted max-w-md mx-auto font-serif">
+                None of our verified candidates are currently available on your selected streaming services in ${chatState.country}. Try enabling digital rentals or adjusting genre exclusions.
+              </p>
+              <button type="button" onclick="returnToChat()" class="px-5 py-2.5 rounded-full bg-ink text-bone text-xs font-semibold hover:text-lime transition">
+                ← Adjust in Chat
+              </button>
+            </div>
+          `;
+        }
         return;
       }
 
-      const top3 = recs.filter(r => r.role !== "ranked_additional");
-      const additional = recs.filter(r => r.role === "ranked_additional");
+      const top3 = recs.slice(0, 3);
+      const additional = recs.slice(3);
 
-      top3.forEach(rec => {
+      // Render Top 3 Watchcards
+      top3.forEach((rec) => {
+        const isBestFit = rec.role === "best_fit";
+        const cardWrap = document.createElement("div");
+        cardWrap.className = "chat-message-anim";
+
         let roleBadge = "";
-        let borderClass = "";
-
         if (rec.role === "best_fit") {
-          roleBadge = `<span class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">BEST FIT</span>`;
-          borderClass = "border-emerald-500/40 shadow-lg shadow-emerald-500/5";
+          roleBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-[3px] text-[11px] font-bold bg-lime text-ink uppercase tracking-wider shadow-2xs">BEST FIT</span>`;
         } else if (rec.role === "strong_alternative") {
-          roleBadge = `<span class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-sky-500/20 text-sky-300 border border-sky-500/40">STRONG ALTERNATIVE</span>`;
-          borderClass = "border-sky-500/40 shadow-lg shadow-sky-500/5";
+          roleBadge = `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-ink text-bone">Strong alternative</span>`;
         } else {
-          roleBadge = `<span class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-purple-500/20 text-purple-300 border border-purple-500/40">WORTH A STRETCH</span>`;
-          borderClass = "border-purple-500/40 shadow-lg shadow-purple-500/5";
+          roleBadge = `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-transparent text-ink border border-ink/20">Worth a stretch</span>`;
         }
 
-        const sources = rec.evidence_sources && rec.evidence_sources.length ? rec.evidence_sources : [];
-        const sourcesHtml = sources.length 
-          ? `<div class="mt-3 pt-3 border-t border-gray-800 text-[11px] text-gray-400">
-              <span class="font-semibold text-gray-300">Parallel Verified Reviews:</span>
-              <ul class="list-disc list-inside mt-1 space-y-0.5 text-teal-400">
-                ${sources.slice(0, 3).map(s => {
-                  const safe = safeUrl(s);
-                  const display = escapeHtml(s);
-                  if (safe === "#") {
-                    return `<li class="truncate text-gray-500">${display}</li>`;
-                  }
-                  return `<li class="truncate"><a href="${safe}" target="_blank" class="hover:underline">${display}</a></li>`;
-                }).join("")}
-              </ul>
-            </div>`
-          : "";
+        const posterUrl = rec.metadata.poster_url || rec.metadata.artwork;
+        const normKey = normalizeKey(rec.metadata.title);
+        const directImdbUrl = getDirectImdbUrl(rec.metadata.title, rec.metadata.year);
 
-        const card = document.createElement("div");
-        card.className = `card-glass rounded-2xl p-5 flex flex-col justify-between border ${borderClass}`;
-        card.innerHTML = `
-          <div>
-            <div class="flex items-center justify-between mb-3">
-              ${roleBadge}
-              <span class="text-xs font-bold text-gray-400 cursor-pointer hover:text-teal-400 transition" onclick="this.innerText='${rec.personal_fit_score}/100 Fit Score'" title="Click to reveal raw score">Reveal Fit Score</span>
-            </div>
-            <h4 class="text-xl font-extrabold text-white">${rec.metadata.title}</h4>
-            <div class="text-xs text-gray-400 mt-1">${rec.metadata.year} • Dir. ${rec.metadata.director} • ${rec.metadata.runtime_minutes}m • ${rec.metadata.age_rating}</div>
-            
-            <div class="flex flex-wrap gap-1.5 mt-2.5">
-              ${rec.metadata.genres.map(g => `<span class="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-300 font-medium">${g}</span>`).join("")}
-            </div>
+        resolveMissingImdbId(rec.metadata.title, rec.metadata.year, normKey);
 
-            <div class="mt-4 p-3 rounded-xl bg-gray-900/80 border border-gray-800">
-              <div class="text-[11px] font-bold uppercase tracking-wider text-amber-400">Why Tonight:</div>
-              <p class="text-xs text-gray-300 mt-1 leading-relaxed">${rec.concise_reason}</p>
-            </div>
-
-            ${rec.stretch_signal ? `
-              <div class="mt-2.5 p-3 rounded-xl bg-purple-950/40 border border-purple-800/50">
-                <div class="text-[11px] font-bold uppercase tracking-wider text-purple-300">Stretch Rationale:</div>
-                <p class="text-xs text-purple-200 mt-1 leading-relaxed">${rec.stretch_signal}</p>
-              </div>
-            ` : ""}
-          </div>
-
-          <div class="mt-4">
-            <div class="flex items-center justify-between text-xs text-gray-400 py-1.5 border-t border-gray-800/80">
-              <span>Streaming:</span>
-              <span class="font-medium text-white">${rec.availability.matched_services.join(", ") || "Rent/Buy"}</span>
-            </div>
-            <div class="flex items-center justify-between text-xs text-gray-400 py-1.5 border-t border-gray-800/80">
-              <span>Evidence State:</span>
-              <span class="font-medium text-teal-300 capitalize">${rec.evidence_state.replaceAll('_', ' ')}</span>
-            </div>
-            ${sourcesHtml}
-          </div>
+        const editorialFallback = `
+          <a href="${directImdbUrl}" data-imdb-for="${normKey}" target="_blank" rel="noopener noreferrer" title="View official IMDb movie page for ${escapeHtml(rec.metadata.title)}" class="group/poster block w-24 sm:w-28 h-36 sm:h-40 flex-shrink-0 rounded-[4px] border border-ink/15 bg-white/70 p-2.5 flex flex-col justify-between text-center select-none shadow-xs hover:border-lime transition">
+            <div class="text-[9px] text-ink-subtle font-sans font-semibold uppercase tracking-wider">Monograph</div>
+            <div class="font-serif font-bold text-xs sm:text-sm text-ink leading-snug line-clamp-3">${escapeHtml(rec.metadata.title)}</div>
+            <div class="text-[10px] text-ink-muted font-sans font-medium">${rec.metadata.year} ↗</div>
+          </a>
         `;
-        top3Container.appendChild(card);
+
+        const artworkHtml = posterUrl 
+          ? `<a href="${directImdbUrl}" data-imdb-for="${normKey}" target="_blank" rel="noopener noreferrer" title="View official IMDb movie page for ${escapeHtml(rec.metadata.title)}" class="group/poster relative block w-24 sm:w-28 h-36 sm:h-40 flex-shrink-0 rounded-[4px] overflow-hidden border border-ink/15 bg-bone-dark shadow-xs hover:border-lime transition">
+               <img src="${safeUrl(posterUrl)}" alt="${escapeHtml(rec.metadata.title)} poster" class="w-full h-full object-cover transition transform group-hover/poster:scale-105" onerror="this.parentElement.outerHTML=\`${editorialFallback.replace(/"/g, '&quot;')}\`;">
+               <div class="absolute inset-0 bg-ink/30 opacity-0 group-hover/poster:opacity-100 transition-opacity flex items-center justify-center">
+                 <span class="text-[10px] bg-white text-ink px-1.5 py-0.5 rounded-[2px] font-sans font-semibold shadow-xs">IMDb ↗</span>
+               </div>
+             </a>`
+          : editorialFallback;
+
+        const services = rec.availability.matched_services.length 
+          ? rec.availability.matched_services.join(", ") 
+          : "Available to Rent or Buy";
+
+        const sources = rec.evidence_sources || [];
+        const sourcesHtml = sources.length 
+          ? `
+            <div class="mt-4 pt-3 border-t border-ink/10">
+              <span class="text-xs font-semibold text-ink-muted block mb-1.5 font-sans">Verified critical reviews &amp; evidence:</span>
+              <ul class="space-y-1 text-xs font-sans">
+                ${sources.slice(0, 3).map(url => `
+                  <li class="truncate">
+                    <a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer" class="text-ink hover:text-lime-dark hover:underline inline-flex items-center gap-1 font-medium">
+                      <span class="text-lime-dark font-bold">↗</span>
+                      <span>${escapeHtml(extractDomain(url))}</span>
+                      <span class="text-ink-subtle text-[11px] truncate">(${escapeHtml(url)})</span>
+                    </a>
+                  </li>
+                `).join("")}
+              </ul>
+            </div>
+          ` : "";
+
+        const stretchCallout = rec.stretch_signal 
+          ? `
+            <div class="mt-3.5 p-3.5 rounded-[4px] bg-ink/5 border border-ink/10">
+              <span class="text-xs font-semibold text-ink-muted block mb-1 font-sans">Why this is worth a stretch:</span>
+              <p class="text-xs text-ink leading-relaxed font-serif">${escapeHtml(rec.stretch_signal)}</p>
+            </div>
+          ` : "";
+
+        cardWrap.innerHTML = `
+          <article class="${isBestFit ? 'bg-white rounded-[6px] border border-ink/20 border-t-4 border-t-lime shadow-sm p-5 sm:p-7' : 'bg-white/70 rounded-[6px] border border-ink/15 p-5 sm:p-7 shadow-xs'}">
+            <!-- Header: Role badge, watch trailer, services -->
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <div class="flex items-center gap-2">
+                ${roleBadge}
+                <!-- Watch Trailer Button or Unavailable Fallback -->
+                ${hasTrailerAvailable(rec) ? `
+                <button type="button" 
+                        onclick="openTrailerModal('${escapeHtml(rec.metadata.title).replace(/'/g, "\\'")}', '${rec.metadata.year}', '${escapeHtml(rec.metadata.trailer_url || '')}')"
+                        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-[3px] text-xs font-semibold bg-white text-ink border border-ink/20 hover:border-lime hover:bg-lime/15 transition shadow-2xs">
+                  <span class="text-lime-dark font-bold">▶</span>
+                  <span>Watch trailer</span>
+                </button>
+                ` : `
+                <span class="border border-ink/30 bg-bone text-ink px-3 py-1 text-xs rounded-[3px] font-sans font-medium inline-flex items-center select-none" title="Official video trailer unavailable">
+                  Trailer unavailable
+                </span>
+                `}
+              </div>
+              <span class="text-xs font-semibold text-ink bg-bone px-3 py-1 rounded-[3px] border border-ink/15">
+                ${escapeHtml(services)}
+              </span>
+            </div>
+
+            <!-- Film Info -->
+            <div class="flex gap-4 sm:gap-6 items-start">
+              ${artworkHtml}
+              <div class="flex-1 min-w-0">
+                <h2 class="font-serif text-2xl sm:text-3xl font-bold text-ink leading-snug">
+                  ${escapeHtml(rec.metadata.title)}
+                </h2>
+                <p class="text-xs text-ink-muted mt-1 font-sans font-medium">
+                  ${rec.metadata.year} • Dir. ${escapeHtml(rec.metadata.director)} • ${rec.metadata.runtime_minutes} mins • Rated ${escapeHtml(rec.metadata.age_rating)}
+                  • <a href="${directImdbUrl}" data-imdb-for="${normKey}" target="_blank" rel="noopener noreferrer" class="hover:text-ink underline">Official IMDb page ↗</a>
+                </p>
+                <div class="flex flex-wrap gap-1.5 mt-2.5">
+                  ${rec.metadata.genres.map(g => `<span class="px-2 py-0.5 rounded-[3px] text-[11px] bg-ink/5 text-ink-muted font-medium border border-ink/10">${escapeHtml(g)}</span>`).join("")}
+                </div>
+                <div class="mt-4 pt-3 border-t border-ink/10">
+                  <p class="text-sm sm:text-base font-serif text-ink leading-relaxed">
+                    “${escapeHtml(rec.concise_reason)}”
+                  </p>
+                </div>
+                ${stretchCallout}
+                ${sourcesHtml}
+              </div>
+            </div>
+
+            <!-- Editorial Dimension Breakdown -->
+            <details class="mt-5 pt-3 border-t border-ink/10 group/fits">
+              <summary class="cursor-pointer text-xs font-semibold text-ink-muted hover:text-ink flex items-center justify-between select-none py-1">
+                <span class="font-sans text-xs font-semibold text-ink/75 group-hover/fits:text-ink">
+                  View editorial dimension breakdown &amp; evidence
+                </span>
+                <span class="text-[11px] text-ink-subtle group-open/fits:rotate-180 transition-transform">▼</span>
+              </summary>
+              <div class="mt-3 pt-2 text-xs text-ink-muted space-y-3 font-sans">
+                <div class="flex items-center justify-between p-2.5 rounded-[4px] bg-bone/70 border border-ink/15">
+                  <span class="font-medium text-ink">Critical evidence state:</span>
+                  <span class="font-semibold text-ink">${escapeHtml(formatEvidenceState(rec.evidence_state))}</span>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] p-2.5 rounded-[4px] bg-bone/70 border border-ink/15">
+                  <div><span class="text-ink-subtle block">Story &amp; Writing</span><span class="font-bold text-ink">${formatDimensionScore(rec.profile.story_and_writing)}</span></div>
+                  <div><span class="text-ink-subtle block">Pacing &amp; Structure</span><span class="font-bold text-ink">${formatDimensionScore(rec.profile.pacing_and_structure)}</span></div>
+                  <div><span class="text-ink-subtle block">Performances</span><span class="font-bold text-ink">${formatDimensionScore(rec.profile.performances)}</span></div>
+                  <div><span class="text-ink-subtle block">Craft &amp; Execution</span><span class="font-bold text-ink">${formatDimensionScore(rec.profile.craft_and_execution)}</span></div>
+                  <div><span class="text-ink-subtle block">Demandingness</span><span class="font-bold text-ink">${formatDimensionScore(rec.profile.accessibility_and_demandingness)}</span></div>
+                  <div><span class="text-ink-subtle block">Tone Adjectives</span><span class="font-medium text-ink truncate block">${escapeHtml(rec.profile.tone_and_emotional_character.join(', '))}</span></div>
+                </div>
+              </div>
+            </details>
+          </article>
+        `;
+        watchcardsContainer.appendChild(cardWrap);
       });
 
-      if (additional.length) {
-        expandedWatchlist.classList.remove("hidden");
+      // Render candidates 4-7 as interactive accordions
+      if (additional.length > 0) {
+        additionalContainer.innerHTML = `<h3 class="text-xs font-bold text-ink-muted uppercase tracking-wider font-sans mb-2">Ranked Candidates (4 to 7)</h3>`;
+
         additional.forEach((rec, idx) => {
-          const item = document.createElement("div");
-          item.className = "flex items-center justify-between p-3 rounded-xl bg-gray-900/60 border border-gray-800 text-xs";
-          item.innerHTML = `
-            <div class="flex items-center space-x-3">
-              <span class="w-6 h-6 rounded-full bg-gray-800 text-gray-400 flex items-center justify-center font-bold text-[11px]">${idx + 4}</span>
-              <div>
-                <span class="font-bold text-white">${rec.metadata.title}</span>
-                <span class="text-gray-400">(${rec.metadata.year}) — ${rec.metadata.genres.join(", ")}</span>
+          const rankNum = idx + 4;
+          const services = rec.availability.matched_services.length ? rec.availability.matched_services.join(", ") : "Available to Rent or Buy";
+          const details = document.createElement("details");
+          details.className = "group rounded-[6px] border border-ink/15 bg-white/70 overflow-hidden hover:border-ink/30 transition";
+
+          details.innerHTML = `
+            <summary class="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs cursor-pointer select-none list-none hover:bg-black/[0.02] transition">
+              <div class="flex items-center gap-3">
+                <span class="w-6 h-6 rounded-full bg-bone-dark text-ink font-bold text-[11px] flex items-center justify-center flex-shrink-0">${rankNum}</span>
+                <div>
+                  <span class="font-serif font-bold text-base text-ink">${escapeHtml(rec.metadata.title)}</span>
+                  <span class="text-ink-muted text-xs">(${rec.metadata.year}) • ${escapeHtml(rec.metadata.genres.join(", "))}</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 self-end sm:self-auto">
+                ${hasTrailerAvailable(rec) ? `
+                <button type="button" 
+                        onclick="event.stopPropagation(); openTrailerModal('${escapeHtml(rec.metadata.title).replace(/'/g, "\\'")}', '${rec.metadata.year}', '${escapeHtml(rec.metadata.trailer_url || '')}')"
+                        class="px-2.5 py-1 rounded-[3px] text-[11px] font-semibold bg-white text-ink border border-ink/20 hover:border-lime">
+                  ▶ Trailer
+                </button>
+                ` : `
+                <span class="border border-ink/30 bg-bone text-ink px-2.5 py-1 text-[11px] rounded-[3px] font-sans font-medium inline-flex items-center select-none">
+                  Trailer unavailable
+                </span>
+                `}
+                <span class="px-2 py-0.5 rounded-[3px] bg-bone text-ink font-medium border border-ink/15 text-[11px]">${escapeHtml(services)}</span>
+                <span class="text-[11px] text-ink-subtle group-open:rotate-180 transition-transform">▼</span>
+              </div>
+            </summary>
+            <div class="p-5 border-t border-ink/10 bg-white/40 space-y-3">
+              <p class="text-xs font-serif text-ink italic">“${escapeHtml(rec.concise_reason)}”</p>
+              <div class="text-[11px] text-ink-muted flex items-center gap-4">
+                <span>Director: <strong>${escapeHtml(rec.metadata.director)}</strong></span>
+                <span>Runtime: <strong>${rec.metadata.runtime_minutes} mins</strong></span>
+                <span>Evidence: <strong>${escapeHtml(formatEvidenceState(rec.evidence_state))}</strong></span>
               </div>
             </div>
-            <div class="flex items-center space-x-4">
-              <span class="text-teal-400 font-semibold">${rec.availability.matched_services.join(", ") || "Rent/Buy"}</span>
-              <span class="text-gray-400 font-bold cursor-pointer hover:text-teal-400 transition" onclick="this.innerText='${rec.personal_fit_score}/100'" title="Click to reveal raw score">Reveal Score</span>
-            </div>
           `;
-          additionalList.appendChild(item);
+          additionalContainer.appendChild(details);
         });
-      } else {
-        expandedWatchlist.classList.add("hidden");
       }
+    }
 
-      resultsSection.classList.remove("hidden");
-      resultsSection.scrollIntoView({ behavior: "smooth" });
+    // Restart Conversation
+    function restartConversation() {
+      chatState.step = 1;
+      chatState.service_access = [];
+      chatState.freeform_mood = "";
+      chatState.lastResults = null;
+      const thread = document.getElementById("toni-chat-thread");
+      if (thread) thread.innerHTML = "";
+      switchToView("intake");
+      renderStep1();
+    }
+
+    // Personas loader (?debug=true)
+    async function loadPersonas() {
+      try {
+        const res = await fetch("/api/personas");
+        const data = await res.json();
+        const container = document.getElementById("personas-container");
+        if (!container) return;
+        container.innerHTML = "";
+
+        data.personas.forEach(p => {
+          const card = document.createElement("div");
+          card.className = "p-2.5 rounded border border-ink/15 bg-white text-left hover:border-lime transition flex flex-col justify-between";
+          card.innerHTML = `
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="font-bold text-xs text-ink font-serif">${p.name}</span>
+                <span class="text-[10px] px-1.5 py-0.2 rounded bg-bone text-ink font-medium">${p.context.country}</span>
+              </div>
+              <p class="text-[10px] text-ink-muted mb-1 font-serif line-clamp-2">${p.description}</p>
+            </div>
+            <button type="button" class="mt-1 text-left text-[11px] font-semibold text-ink underline hover:text-lime-dark">
+              Load Persona →
+            </button>
+          `;
+          card.querySelector("button").onclick = () => {
+            applyPersona(p.context, p.name);
+          };
+          container.appendChild(card);
+        });
+      } catch (e) {
+        console.error("Personas fetch error", e);
+      }
+    }
+
+    function applyPersona(ctx, name) {
+      restartConversation();
+      appendUserMessage(`Load persona: ${name}`);
+      chatState.country = ctx.country;
+      chatState.service_access = [...ctx.service_access];
+      chatState.allow_rent_buy = ctx.allow_rent_buy;
+      chatState.intake_depth = ctx.intake_depth;
+
+      const pSig = (ctx.tonight_signals || []).find(s => s.name === "pacing");
+      if (pSig) chatState.pacing = pSig.value;
+
+      const tSig = (ctx.tonight_signals || []).find(s => s.name === "tone");
+      if (tSig) chatState.tone = tSig.value;
+
+      setTimeout(() => {
+        appendToniMessage(`Loaded persona <strong>${name}</strong> (${ctx.country}, ${ctx.service_access.join(', ')}). Ready to synthesize your shortlist!`);
+        renderReadyTurn();
+      }, 300);
     }
 
     // Init
-    updateServiceChips();
-    loadPersonas();
+    window.addEventListener("DOMContentLoaded", () => {
+      renderStep1();
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get("debug") === "true") {
+        const personasSection = document.getElementById("personas-section");
+        if (personasSection) personasSection.classList.remove("hidden");
+        loadPersonas();
+      }
+    });
   </script>
 </body>
 </html>

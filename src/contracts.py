@@ -139,6 +139,14 @@ class FilmMetadata(BaseModel):
     runtime_minutes: int = Field(description="Total runtime in minutes.")
     age_rating: str = Field(description="Age certification (e.g., 'PG-13', '15').")
     genres: List[str] = Field(description="List of associated genres.")
+    poster_url: Optional[str] = Field(
+        default=None,
+        description="URL for film key art or poster."
+    )
+    trailer_url: Optional[str] = Field(
+        default=None,
+        description="Direct URL or embed key for official trailer video."
+    )
 
 
 class Recommendation(BaseModel):
@@ -227,6 +235,7 @@ class UserContext(BaseModel):
     service_access: List[str] = Field(description="User's confirmed included-access streaming services.")
     allow_rent_buy: bool = Field(default=False, description="Whether extra-cost rental/purchase is allowed.")
     intake_depth: IntakeDepth = Field(description="Selected onboarding effort level.")
+    dialogue_mode: Optional[str] = Field(default="text", description="Active interface mode: 'text' or 'voice'.")
     tonight_signals: List[TasteSignal] = Field(
         default_factory=list,
         description="Extracted preference signals for the active session."
@@ -239,3 +248,26 @@ class UserContext(BaseModel):
         default_factory=dict,
         description="Mapping of movie titles to tracked user interaction states."
     )
+
+
+class VoiceTurnRequest(BaseModel):
+    """Payload for a unified voice/text dialogue turn."""
+    user_input: str = Field(description="The user's spoken or typed utterance.")
+    mode: str = Field(default="text", description="Active interface mode: 'text' or 'voice'.")
+    current_context: UserContext = Field(description="Current session UserContext with extracted signals.")
+    conversation_history: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="Chronological dialogue history [{'role': 'user'|'assistant', 'content': '...'}]"
+    )
+
+
+class VoiceTurnResponse(BaseModel):
+    """Response payload for a unified voice/text dialogue turn."""
+    assistant_reply: str = Field(description="Conversational response from TONI's brain.")
+    updated_context: UserContext = Field(description="Updated UserContext reflecting any newly extracted signals.")
+    ready_to_recommend: bool = Field(
+        default=False,
+        description="Whether enough criteria have been gathered to synthesize tonight's recommendations."
+    )
+    mode: str = Field(default="text", description="Active mode confirming context alignment.")
+

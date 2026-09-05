@@ -18,10 +18,12 @@ from pydantic import BaseModel, Field
 sys.path.append(str(Path(__file__).resolve().parent))
 from contracts import FilmProfile, EvidenceState
 
-load_dotenv()
+load_dotenv(override=True)
+if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("false", "0"):
+    os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
 
-# We use the recommended gemini-2.5-pro model for detailed critical reasoning
-MODEL_NAME = "gemini-2.5-pro"
+# We use the recommended gemini-pro-latest model for detailed critical reasoning
+MODEL_NAME = "gemini-pro-latest"
 
 
 class GeminiProfileSchema(BaseModel):
@@ -94,7 +96,8 @@ def generate_film_profile(
     Falls back to a robust mock generator if reviews list is empty or API keys are missing.
     """
     # Fallback/Mock Generator for our seed films if no reviews are supplied or API key is missing
-    if not reviews or not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+    has_gemini_key = bool(os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GEMINI_API_KEY"))
+    if not reviews or not has_gemini_key:
         # Local mock profiles for our main seed films to keep integration testing fast and robust
         title_lower = title.lower().strip()
         if "inception" in title_lower:
@@ -145,15 +148,22 @@ def generate_film_profile(
     client = genai.Client()
     prompt = build_profiling_prompt(title, year, director, reviews)
 
-    response = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.0,  # Temperature 0 for deterministic critical evaluation
-            response_mime_type="application/json",
-            response_schema=GeminiProfileSchema,
-        ),
-    )
+    response = None
+    for model_candidate in ["gemini-pro-latest", "gemini-flash-latest", "gemini-2.5-pro"]:
+        try:
+            response = client.models.generate_content(
+                model=model_candidate,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.0,  # Temperature 0 for deterministic critical evaluation
+                    response_mime_type="application/json",
+                    response_schema=GeminiProfileSchema,
+                ),
+            )
+            if response and response.parsed:
+                break
+        except Exception:
+            continue
 
     if not response.parsed:
         raise RuntimeError("Gemini profiling failed to return parseable response schema.")

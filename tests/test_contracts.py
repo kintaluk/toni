@@ -152,3 +152,29 @@ def test_recommendation_roles_validation():
     # Validate response with more than 7 items fails at the boundary
     with pytest.raises(ValidationError):
         RecommendationResponse(recommendations=[r1, r1, r1, r1, r1, r1, r1, r1])
+
+
+def test_film_metadata_poster_url():
+    """Verify FilmMetadata accepts and preserves poster_url field."""
+    # Without poster_url
+    m1 = FilmMetadata(
+        title="Test Movie",
+        year=2024,
+        director="Jane Doe",
+        runtime_minutes=110,
+        age_rating="PG",
+        genres=["Animation"]
+    )
+    assert m1.poster_url is None
+
+    # With poster_url
+    m2 = FilmMetadata(
+        title="Test Movie 2",
+        year=2024,
+        director="Jane Doe",
+        runtime_minutes=110,
+        age_rating="PG",
+        genres=["Animation"],
+        poster_url="https://image.tmdb.org/t/p/w500/sample.jpg"
+    )
+    assert m2.poster_url == "https://image.tmdb.org/t/p/w500/sample.jpg"
