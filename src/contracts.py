@@ -236,6 +236,7 @@ class UserContext(BaseModel):
     allow_rent_buy: bool = Field(default=False, description="Whether extra-cost rental/purchase is allowed.")
     intake_depth: IntakeDepth = Field(description="Selected onboarding effort level.")
     dialogue_mode: Optional[str] = Field(default="text", description="Active interface mode: 'text' or 'voice'.")
+    voice_name: Optional[str] = Field(default="Charon", description="Voice persona for audio responses.")
     tonight_signals: List[TasteSignal] = Field(
         default_factory=list,
         description="Extracted preference signals for the active session."
@@ -255,6 +256,10 @@ class VoiceTurnRequest(BaseModel):
     user_input: str = Field(description="The user's spoken or typed utterance.")
     mode: str = Field(default="text", description="Active interface mode: 'text' or 'voice'.")
     current_context: UserContext = Field(description="Current session UserContext with extracted signals.")
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Optional session identifier for analytics and transcripts."
+    )
     conversation_history: List[Dict[str, str]] = Field(
         default_factory=list,
         description="Chronological dialogue history [{'role': 'user'|'assistant', 'content': '...'}]"

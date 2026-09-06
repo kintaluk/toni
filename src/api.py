@@ -8,9 +8,16 @@ streaming availability lookups, and demo personas to Tina's frontend or external
 
 import os
 import sys
+import re
 import time
+import math
+import struct
+import base64
+import json
+import asyncio
 import traceback
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from dotenv import load_dotenv
@@ -19,7 +26,7 @@ load_dotenv(override=True)
 if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("false", "0"):
     os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
 
-from fastapi import FastAPI, Query, HTTPException, Depends, Request
+from fastapi import FastAPI, Query, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -232,7 +239,83 @@ def get_personas() -> Dict[str, Any]:
     return {"personas": DEMO_PERSONAS}
 
 
+@app.get("/api/export-logs", summary="Export Conversation Transcript Logs")
+def export_conversation_logs() -> Dict[str, Any]:
+    """Returns the JSON contents of logs/conversations.jsonl for offline analysis and refinement."""
+    log_file = Path("logs") / "conversations.jsonl"
+    if not log_file.exists():
+        return {"total_turns": 0, "turns": []}
+    turns = []
+    try:
+        with open(log_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line_str = line.strip()
+                if line_str:
+                    try:
+                        turns.append(json.loads(line_str))
+                    except json.JSONDecodeError:
+                        continue
+        return {"total_turns": len(turns), "turns": turns}
+    except Exception as e:
+        print(f"[*] Error reading conversation logs: {e}", file=sys.stderr)
+        return {"total_turns": 0, "turns": [], "error": str(e)}
+
+
 # --- VOICE & SINGLE-BRAIN DIALOGUE SERVICE ---
+
+def enforce_toni_brand_name(text: str) -> str:
+    """Enforce brand name lock: Assistant persona must always refer to itself as TONI."""
+    if not text:
+        return ""
+    cleaned = re.sub(r'\bCharon\b', 'TONI', text, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\bI am Charon\b', 'I am TONI', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\bMy name is Charon\b', 'My name is TONI', cleaned, flags=re.IGNORECASE)
+    return cleaned
+
+
+def log_conversation_turn(
+    session_id: Optional[str],
+    mode: str,
+    user_input: str,
+    assistant_reply: str,
+    signals: Any,
+    context: Any
+) -> None:
+    """Appends dialogue turn record to logs/conversations.jsonl for offline evaluation."""
+    try:
+        os.makedirs("logs", exist_ok=True)
+        log_file = Path("logs") / "conversations.jsonl"
+
+        serialized_signals = []
+        if isinstance(signals, list):
+            for s in signals:
+                if hasattr(s, "model_dump"):
+                    serialized_signals.append(s.model_dump())
+                elif isinstance(s, dict):
+                    serialized_signals.append(s)
+                else:
+                    serialized_signals.append(str(s))
+        elif hasattr(signals, "model_dump"):
+            serialized_signals = signals.model_dump()
+        else:
+            serialized_signals = signals
+
+        serialized_context = context.model_dump() if hasattr(context, "model_dump") else (context if isinstance(context, dict) else str(context))
+
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "session_id": session_id or "default_session",
+            "mode": mode or "text",
+            "user_input": user_input or "",
+            "assistant_reply": enforce_toni_brand_name(assistant_reply or ""),
+            "signals": serialized_signals,
+            "context": serialized_context
+        }
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"[*] Failed to log conversation turn: {e}", file=sys.stderr)
+
 
 class VoiceTurnLLMOutput(BaseModel):
     assistant_reply: str = Field(description="Conversational response from TONI as a knowledgeable cinema guide (1-3 sentences max).")
@@ -247,86 +330,96 @@ class VoiceTurnLLMOutput(BaseModel):
 
 
 def _process_voice_turn_fallback(turn_req: VoiceTurnRequest) -> VoiceTurnResponse:
-    user_text = turn_req.user_input.strip()
-    lower = user_text.lower()
-    ctx = turn_req.current_context.model_copy(deep=True)
-    ctx.dialogue_mode = turn_req.mode
+    try:
+        user_text = (turn_req.user_input or "").strip()
+        lower = user_text.lower()
+        ctx = turn_req.current_context.model_copy(deep=True) if turn_req.current_context else UserContext()
+        ctx.dialogue_mode = turn_req.mode or "text"
+        ctx.voice_name = getattr(ctx, "voice_name", "Charon") or "Charon"
 
-    extracted_signals = []
+        extracted_signals = []
 
-    # Ready to recommend keywords
-    ready = any(kw in lower for kw in ["recommend", "show me", "ready", "fits tonight", "let's see", "find", "suggest", "shortlist", "give me", "what to watch", "surprise me", "hit me", "let's go", "synthesize"])
+        # Ready to recommend keywords (explicit affirmative user intent)
+        ready = any(kw in lower for kw in ["recommend", "show me", "ready", "fits tonight", "let's see", "find movies", "find what fits", "suggest", "shortlist", "what to watch", "surprise me", "hit me", "let's go", "synthesize", "yes please", "bring up", "show shortlist"])
 
-    # Pacing
-    if any(kw in lower for kw in ["brisk", "fast", "quick", "rapid", "snappy"]):
-        extracted_signals.append(TasteSignal(name=SIGNAL_PACING, value="brisk", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-    elif any(kw in lower for kw in ["leisurely", "slow", "patient", "unhurried"]):
-        extracted_signals.append(TasteSignal(name=SIGNAL_PACING, value="leisurely", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+        # Pacing
+        if any(kw in lower for kw in ["brisk", "fast", "quick", "rapid", "snappy"]):
+            extracted_signals.append(TasteSignal(name=SIGNAL_PACING, value="brisk", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+        elif any(kw in lower for kw in ["leisurely", "slow", "patient", "unhurried"]):
+            extracted_signals.append(TasteSignal(name=SIGNAL_PACING, value="leisurely", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
 
-    # Tone
-    if any(kw in lower for kw in ["funny", "laugh", "hilarious", "comedy"]):
-        extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="funny", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-    elif any(kw in lower for kw in ["dark", "bleak", "gritty", "unsettling"]):
-        extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="bleak", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-    elif any(kw in lower for kw in ["intense", "tense", "thrilling", "action", "suspense"]):
-        extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="intense", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-    elif any(kw in lower for kw in ["magical", "wondrous", "whimsical", "fairytale"]):
-        extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="magical", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-    elif any(kw in lower for kw in ["warm", "heartwarming", "feel-good", "wholesome", "gentle"]):
-        extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="warm", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+        # Tone
+        if any(kw in lower for kw in ["funny", "laugh", "hilarious", "comedy"]):
+            extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="funny", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+        elif any(kw in lower for kw in ["dark", "bleak", "gritty", "unsettling"]):
+            extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="bleak", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+        elif any(kw in lower for kw in ["intense", "tense", "thrilling", "action", "suspense"]):
+            extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="intense", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+        elif any(kw in lower for kw in ["magical", "wondrous", "whimsical", "fairytale"]):
+            extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="magical", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+        elif any(kw in lower for kw in ["warm", "heartwarming", "feel-good", "wholesome", "gentle"]):
+            extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="warm", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
 
-    # Demandingness
-    if any(kw in lower for kw in ["easy", "light", "relaxing", "unwind", "turn my brain off", "not demanding"]):
-        extracted_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=2.0, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-    elif any(kw in lower for kw in ["deep", "challenging", "thought-provoking", "intellectual", "demanding", "heavy"]):
-        extracted_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=4.2, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+        # Demandingness
+        if any(kw in lower for kw in ["easy", "light", "relaxing", "unwind", "turn my brain off", "not demanding"]):
+            extracted_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=2.0, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+        elif any(kw in lower for kw in ["deep", "challenging", "thought-provoking", "intellectual", "demanding", "heavy"]):
+            extracted_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=4.2, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
 
-    # Max Runtime
-    if "under 2 hours" in lower or "under two hours" in lower or "under 120" in lower:
-        extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=120, signal_type=SignalType.HARD_CONSTRAINT))
-    elif "under 90" in lower or "under an hour and a half" in lower or "short" in lower:
-        extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=100, signal_type=SignalType.HARD_CONSTRAINT))
+        # Max Runtime
+        if "under 2 hours" in lower or "under two hours" in lower or "under 120" in lower:
+            extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=120, signal_type=SignalType.HARD_CONSTRAINT))
+        elif "under 90" in lower or "under an hour and a half" in lower or "short" in lower:
+            extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=100, signal_type=SignalType.HARD_CONSTRAINT))
 
-    # Exclude genres
-    if "no horror" in lower or "hate horror" in lower or "not horror" in lower:
-        extracted_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=["Horror"], signal_type=SignalType.HARD_CONSTRAINT))
-    if "no sci-fi" in lower or "hate sci-fi" in lower or "not sci-fi" in lower:
-        extracted_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=["Sci-Fi"], signal_type=SignalType.HARD_CONSTRAINT))
+        # Exclude genres
+        if "no horror" in lower or "hate horror" in lower or "not horror" in lower:
+            extracted_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=["Horror"], signal_type=SignalType.HARD_CONSTRAINT))
+        if "no sci-fi" in lower or "hate sci-fi" in lower or "not sci-fi" in lower:
+            extracted_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=["Sci-Fi"], signal_type=SignalType.HARD_CONSTRAINT))
 
-    # Services
-    for s_id, s_name in [("netflix", "Netflix"), ("prime", "Prime Video"), ("disney", "Disney+"), ("iplayer", "BBC iPlayer"), ("paramount", "Paramount+"), ("max", "Max"), ("apple", "Apple TV+")]:
-        if s_id in lower and s_name not in ctx.service_access:
-            ctx.service_access.append(s_name)
+        # Services
+        for s_id, s_name in [("netflix", "Netflix"), ("prime", "Prime Video"), ("disney", "Disney+"), ("iplayer", "BBC iPlayer"), ("paramount", "Paramount+"), ("max", "Max"), ("apple", "Apple TV+")]:
+            if s_id in lower and s_name not in ctx.service_access:
+                ctx.service_access.append(s_name)
 
-    # Country
-    if "uk" in lower or "british" in lower:
-        ctx.country = "UK"
-    elif "us" in lower or "american" in lower:
-        ctx.country = "US"
+        # Country
+        if "uk" in lower or "british" in lower:
+            ctx.country = "UK"
+        elif "us" in lower or "american" in lower:
+            ctx.country = "US"
 
-    # Merge signals
-    existing_names = {s.name for s in extracted_signals}
-    updated_tonight = [s for s in ctx.tonight_signals if s.name not in existing_names]
-    updated_tonight.extend(extracted_signals)
-    ctx.tonight_signals = updated_tonight
+        # Merge signals
+        existing_names = {s.name for s in extracted_signals}
+        updated_tonight = [s for s in ctx.tonight_signals if s.name not in existing_names]
+        updated_tonight.extend(extracted_signals)
+        ctx.tonight_signals = updated_tonight
 
-    if len(ctx.tonight_signals) >= 2 or ready:
-        ready = True
+        # Strict readiness: only if explicit affirmative user intent is detected
+        if ready:
+            reply = "I've locked into your viewing mood. Let's find what fits tonight across your available services!"
+        elif extracted_signals:
+            summary_parts = [f"{s.name} as {s.value}" for s in extracted_signals]
+            reply = f"Noted: {', '.join(summary_parts)}. What streaming services are we watching on tonight?"
+        else:
+            reply = "I'm TONI, and I'm listening. Tell me what kind of emotional tone, pacing, or storytelling feels right for tonight."
 
-    if ready:
-        reply = "I've locked into your viewing mood. Let's find what fits tonight across your available services!"
-    elif extracted_signals:
-        summary_parts = [f"{s.name} as {s.value}" for s in extracted_signals]
-        reply = f"Noted: {', '.join(summary_parts)}. Any runtime limit or genres you'd like to steer clear of tonight?"
-    else:
-        reply = "I'm listening. Tell me what kind of emotional tone, pacing, or storytelling feels right for tonight."
-
-    return VoiceTurnResponse(
-        assistant_reply=reply,
-        updated_context=ctx,
-        ready_to_recommend=ready,
-        mode=turn_req.mode
-    )
+        clean_reply = enforce_toni_brand_name(reply)
+        return VoiceTurnResponse(
+            assistant_reply=clean_reply,
+            updated_context=ctx,
+            ready_to_recommend=ready,
+            mode=turn_req.mode
+        )
+    except Exception as ex:
+        print(f"[!] Fallback voice turn exception: {ex}", file=sys.stderr)
+        safe_ctx = turn_req.current_context.model_copy(deep=True) if turn_req.current_context else UserContext()
+        return VoiceTurnResponse(
+            assistant_reply=enforce_toni_brand_name("I'm TONI, and I'm listening. Tell me what kind of emotional tone, pacing, or storytelling feels right for tonight."),
+            updated_context=safe_ctx,
+            ready_to_recommend=False,
+            mode=turn_req.mode or "text"
+        )
 
 
 def process_voice_turn(turn_req: VoiceTurnRequest) -> VoiceTurnResponse:
@@ -340,8 +433,25 @@ def process_voice_turn(turn_req: VoiceTurnRequest) -> VoiceTurnResponse:
         from google.genai import types
 
         client = genai.Client()
-        history_lines = [f"{m.get('role', 'user').title()}: {m.get('content', '')}" for m in turn_req.conversation_history[-6:]]
-        history_block = "\n".join(history_lines) if history_lines else "None"
+
+        # Sanitize conversation_history cleanly into plain text lines ("user: ...", "assistant: ...")
+        clean_history = []
+        for item in (turn_req.conversation_history or [])[-8:]:
+            if isinstance(item, dict):
+                role = str(item.get("role", "user")).strip().lower()
+                content = item.get("content", "")
+                if isinstance(content, list):
+                    content = " ".join(str(c) for c in content)
+                clean_history.append(f"{role}: {str(content).strip()}")
+            elif hasattr(item, "role") and hasattr(item, "content"):
+                role = str(getattr(item, "role", "user")).strip().lower()
+                content = getattr(item, "content", "")
+                if isinstance(content, list):
+                    content = " ".join(str(c) for c in content)
+                clean_history.append(f"{role}: {str(content).strip()}")
+            elif isinstance(item, str) and item.strip():
+                clean_history.append(f"dialogue: {item.strip()}")
+        history_block = "\n".join(clean_history) if clean_history else "None"
 
         ctx_summary = (
             f"Country: {turn_req.current_context.country}, "
@@ -351,6 +461,7 @@ def process_voice_turn(turn_req: VoiceTurnRequest) -> VoiceTurnResponse:
         )
 
         prompt = f"""You are TONI (Tonight's Options, Narrowed Intelligently), an agentic cinema guide helping a viewer choose what movie to watch tonight.
+Your name is TONI. You must ALWAYS refer to yourself as TONI. NEVER refer to yourself as Charon, Gemini, or any internal voice or model identifier.
 The viewer is speaking or texting with you in mode: '{turn_req.mode}'.
 
 Current Viewer Context:
@@ -363,7 +474,12 @@ Latest Viewer Utterance:
 "{turn_req.user_input}"
 
 Your task:
-1. Formulate a natural, warm, cinematic assistant reply (1-3 sentences maximum). Sound like a thoughtful film festival programmer and curator. Never lecture or quote long text.
+1. Formulate a natural, warm, cinematic assistant reply (1-3 sentences maximum) in your curator persona as TONI.
+   Follow a natural 3-turn intake progression before recommending:
+   - Turn 1: Acknowledge mood and explore desired pacing or tone.
+   - Turn 2: Check territory (UK/US) and active streaming platforms if not yet known.
+   - Turn 3: Check hard boundaries (max runtime, excluded genres) and explicitly ask if the user is ready for shortlist generation.
+   If the viewer has already answered any of these, adapt smoothly without repeating answered questions.
 2. Extract any newly stated or implied taste signals:
    - pacing: "brisk", "steady", or "leisurely" (if mentioned)
    - tone: descriptive adjective like "funny", "intense", "magical", "dark", "warm", "satirical", "tense" (if mentioned)
@@ -372,7 +488,7 @@ Your task:
    - exclude_genres: list of genres to avoid (e.g. ["Horror", "Sci-Fi"])
    - country: "UK" or "US" (if explicitly mentioned)
    - services: list of streaming service names if mentioned (e.g. ["Netflix", "Prime Video", "BBC iPlayer", "Disney+"])
-3. Determine ready_to_recommend: set to true if the user explicitly asks to see films / shortlist / recommendations, OR if enough signals (at least 2 distinct taste signals) have been identified to present a confident shortlist.
+3. Determine ready_to_recommend: set to true ONLY if the user explicitly asks to see films / shortlist / recommendations or confirms they are ready (e.g., 'show me', 'recommend', 'find movies', 'yes please', 'what should I watch', 'bring up the list', 'let\'s see'). Do NOT set to true merely because 2 or more taste signals were mentioned without explicit user confirmation to proceed.
 """
 
         response = None
@@ -398,42 +514,62 @@ Your task:
         data: VoiceTurnLLMOutput = response.parsed
         ctx = turn_req.current_context.model_copy(deep=True)
         ctx.dialogue_mode = turn_req.mode
+        ctx.voice_name = getattr(turn_req.current_context, "voice_name", "Charon") or "Charon"
 
         # Update fields
-        if data.country and data.country.upper() in ("UK", "US"):
-            ctx.country = data.country.upper()
+        if data.country and str(data.country).upper() in ("UK", "US"):
+            ctx.country = str(data.country).upper()
         if data.services:
             for s in data.services:
-                if s not in ctx.service_access:
-                    ctx.service_access.append(s)
+                s_str = str(s).strip()
+                if s_str and s_str not in ctx.service_access:
+                    ctx.service_access.append(s_str)
 
-        # Update signals
+        # Update signals with defensive casting
         new_signals = []
         if data.pacing:
-            new_signals.append(TasteSignal(name=SIGNAL_PACING, value=data.pacing, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+            new_signals.append(TasteSignal(name=SIGNAL_PACING, value=str(data.pacing).lower().strip(), signal_type=SignalType.SOFT_SESSION_PREFERENCE))
         if data.tone:
-            new_signals.append(TasteSignal(name=SIGNAL_TONE, value=data.tone, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+            new_signals.append(TasteSignal(name=SIGNAL_TONE, value=str(data.tone).lower().strip(), signal_type=SignalType.SOFT_SESSION_PREFERENCE))
         if data.demandingness is not None:
-            new_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=float(data.demandingness), signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+            try:
+                new_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=float(data.demandingness), signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+            except (ValueError, TypeError):
+                pass
         if data.max_runtime is not None:
-            new_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=int(data.max_runtime), signal_type=SignalType.HARD_CONSTRAINT))
+            try:
+                digits = re.findall(r'\d+', str(data.max_runtime))
+                if digits:
+                    new_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=int(digits[0]), signal_type=SignalType.HARD_CONSTRAINT))
+            except (ValueError, TypeError):
+                pass
         if data.exclude_genres:
-            new_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=data.exclude_genres, signal_type=SignalType.HARD_CONSTRAINT))
+            if isinstance(data.exclude_genres, list):
+                new_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=[str(g) for g in data.exclude_genres], signal_type=SignalType.HARD_CONSTRAINT))
+            elif isinstance(data.exclude_genres, str):
+                new_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=[data.exclude_genres], signal_type=SignalType.HARD_CONSTRAINT))
 
         new_names = {s.name for s in new_signals}
         merged_signals = [s for s in ctx.tonight_signals if s.name not in new_names]
         merged_signals.extend(new_signals)
         ctx.tonight_signals = merged_signals
 
+        lower_input = turn_req.user_input.lower()
+        explicit_user_ready = any(kw in lower_input for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
+        ready_flag = bool(data.ready_to_recommend) or explicit_user_ready
+
+        raw_reply = str(data.assistant_reply).strip() if data.assistant_reply else "I've updated your taste profile for tonight."
+        clean_reply = enforce_toni_brand_name(raw_reply)
+
         return VoiceTurnResponse(
-            assistant_reply=data.assistant_reply,
+            assistant_reply=clean_reply,
             updated_context=ctx,
-            ready_to_recommend=data.ready_to_recommend,
+            ready_to_recommend=ready_flag,
             mode=turn_req.mode
         )
 
     except Exception as e:
-        print(f"[!] Live Voice Turn error: {e}. Falling back to rule parser.", file=sys.stderr)
+        print(f"[*] Live Voice Turn notice: {e}. Falling back to structured rule parser.", file=sys.stderr)
         return _process_voice_turn_fallback(turn_req)
 
 
@@ -441,10 +577,21 @@ Your task:
 def get_voice_config() -> Dict[str, Any]:
     """Return runtime configuration for Gemini Live voice and audio interfaces."""
     return {
-        "model": "gemini-3.1-flash-live-preview",
-        "voice_name": "Aoede",
+        "model": "gemini-2.5-flash-native-audio-latest",
+        "voice_name": "Charon",
         "sample_rate_hz": 16000,
-        "supported_modes": ["voice", "text"]
+        "supported_modes": ["voice", "text"],
+        "turnDetection": {
+            "type": "SERVER_VAD",
+            "silenceDurationMs": 700,
+            "threshold": 0.5,
+        },
+        "audio_spec": {
+            "input_sample_rate_hz": 16000,
+            "output_sample_rate_hz": 24000,
+            "encoding": "pcm16",
+            "channels": 1,
+        },
     }
 
 
@@ -459,13 +606,313 @@ def voice_turn(
     editorial conversational replies while detecting shortlist readiness.
     """
     try:
-        return process_voice_turn(request_data)
-    except Exception as e:
-        traceback.print_exc(file=sys.stderr)
-        raise HTTPException(
-            status_code=500,
-            detail="An internal error occurred while processing dialogue turn."
+        res = process_voice_turn(request_data)
+        log_conversation_turn(
+            session_id=request_data.session_id or "web_session",
+            mode=request_data.mode,
+            user_input=request_data.user_input,
+            assistant_reply=res.assistant_reply,
+            signals=res.updated_context.tonight_signals,
+            context=res.updated_context
         )
+        return res
+    except Exception as e:
+        print(f"[*] voice_turn caught error: {e}. Returning safe fallback response.", file=sys.stderr)
+        res = _process_voice_turn_fallback(request_data)
+        log_conversation_turn(
+            session_id=request_data.session_id or "web_session_fallback",
+            mode=request_data.mode,
+            user_input=request_data.user_input,
+            assistant_reply=res.assistant_reply,
+            signals=res.updated_context.tonight_signals,
+            context=res.updated_context
+        )
+        return res
+
+
+def _generate_pcm16_tones(duration_sec: float = 0.8, sample_rate: int = 24000) -> bytes:
+    """Generate subtle warm harmonic chime PCM16 24kHz audio as synthetic fallback."""
+    num_samples = int(sample_rate * duration_sec)
+    freq1 = 220.0  # Warm A3
+    freq2 = 330.0  # Warm E4
+    freq3 = 440.0  # Warm A4
+    buf = bytearray(num_samples * 2)
+    for i in range(num_samples):
+        t = i / sample_rate
+        env = math.exp(-3.5 * t)
+        val = 0.5 * math.sin(2 * math.pi * freq1 * t) + 0.3 * math.sin(2 * math.pi * freq2 * t) + 0.2 * math.sin(2 * math.pi * freq3 * t)
+        sample = int(max(-1.0, min(1.0, val * env)) * 28000)
+        struct.pack_into("<h", buf, i * 2, sample)
+    return bytes(buf)
+
+
+@app.websocket("/api/voice/live")
+@app.websocket("/ws/voice")
+async def websocket_voice_live(websocket: WebSocket):
+    """Real-time Gemini Live WebSocket audio/text dialogue transport."""
+    await websocket.accept()
+    session_ctx = UserContext(
+        country="UK",
+        service_access=["Netflix", "BBC iPlayer"],
+        allow_rent_buy=False,
+        intake_depth=IntakeDepth.A_COUPLE_OF_QUESTIONS,
+        dialogue_mode="voice",
+        voice_name="Charon",
+        tonight_signals=[],
+    )
+    conversation_history: List[Dict[str, str]] = []
+
+    has_gemini_key = bool(os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+    gemini_session = None
+    gemini_recv_task = None
+    live_cm = None
+
+    user_transcript_buf: List[str] = []
+    assistant_transcript_buf: List[str] = []
+
+    async def forward_gemini_responses(session):
+        nonlocal session_ctx, conversation_history, user_transcript_buf, assistant_transcript_buf
+        try:
+            while True:
+                async for response in session.receive():
+                    content = response.server_content
+                    if not content:
+                        continue
+                    if content.interrupted:
+                        await websocket.send_json({"type": "interrupted"})
+                        assistant_transcript_buf.clear()
+                        continue
+                    if content.input_transcription and content.input_transcription.text:
+                        user_chunk = content.input_transcription.text
+                        user_transcript_buf.append(user_chunk)
+                        await websocket.send_json({
+                            "type": "transcript",
+                            "text": user_chunk,
+                            "role": "user"
+                        })
+                    if content.model_turn:
+                        for part in content.model_turn.parts:
+                            if part.inline_data and part.inline_data.data:
+                                raw_data = part.inline_data.data
+                                audio_b64 = raw_data if isinstance(raw_data, str) else base64.b64encode(raw_data).decode("ascii")
+                                await websocket.send_json({
+                                    "type": "audio",
+                                    "data": audio_b64,
+                                    "mime_type": "audio/pcm;rate=24000"
+                                })
+                    if content.output_transcription and content.output_transcription.text:
+                        bot_chunk = enforce_toni_brand_name(content.output_transcription.text)
+                        assistant_transcript_buf.append(bot_chunk)
+                        await websocket.send_json({
+                            "type": "transcript",
+                            "text": bot_chunk,
+                            "role": "assistant"
+                        })
+                    if content.turn_complete:
+                        full_user = "".join(user_transcript_buf).strip()
+                        full_bot = enforce_toni_brand_name("".join(assistant_transcript_buf).strip())
+                        ready_flag = False
+                        if full_user:
+                            conversation_history.append({"role": "user", "content": full_user})
+                            try:
+                                turn_req = VoiceTurnRequest(
+                                    user_input=full_user,
+                                    mode="voice",
+                                    current_context=session_ctx,
+                                    conversation_history=conversation_history
+                                )
+                                turn_res = await asyncio.to_thread(process_voice_turn, turn_req)
+                                session_ctx = turn_res.updated_context
+                                ready_flag = turn_res.ready_to_recommend
+                            except Exception as ex:
+                                print(f"[*] Voice turn context update notice: {ex}", file=sys.stderr)
+                        if full_bot:
+                            conversation_history.append({"role": "assistant", "content": full_bot})
+
+                        user_transcript_buf.clear()
+                        assistant_transcript_buf.clear()
+
+                        lower_user = full_user.lower() if full_user else ""
+                        explicit_user_ready = any(kw in lower_user for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
+                        final_ready = ready_flag or explicit_user_ready
+
+                        log_conversation_turn(
+                            session_id=f"ws_{id(websocket)}",
+                            mode="voice",
+                            user_input=full_user,
+                            assistant_reply=full_bot,
+                            signals=session_ctx.tonight_signals,
+                            context=session_ctx
+                        )
+
+                        await websocket.send_json({
+                            "type": "turn_complete",
+                            "assistant_reply": full_bot,
+                            "updated_context": session_ctx.model_dump(),
+                            "ready_to_recommend": final_ready
+                        })
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"[!] Gemini Live receiver error: {e}", file=sys.stderr)
+
+    if has_gemini_key:
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client()
+            config = types.LiveConnectConfig(
+                response_modalities=[types.Modality.AUDIO],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name="Charon"
+                        )
+                    )
+                ),
+                system_instruction=types.Content(
+                    parts=[types.Part(text="""You are TONI (Tonight's Options, Narrowed Intelligently), an agentic cinema guide helping a viewer choose what movie to watch tonight. You speak in a warm, thoughtful, film-festival programmer persona as TONI (1-3 sentences maximum per turn). Your name is always TONI. Never refer to yourself as Charon, Gemini, or any internal voice or model identifier. Never lecture or recite long lists.
+
+Guide the viewer through a natural 3-turn intake before recommending:
+- Turn 1: Acknowledge their viewing mood and inquire about the pacing or emotional tone they desire tonight.
+- Turn 2: Inquire about their country (UK or US) and what streaming platforms they have active access to tonight (e.g. Netflix, Prime Video, BBC iPlayer, Disney+, etc.) so availability can be guaranteed.
+- Turn 3: Inquire about any hard boundaries (such as a maximum runtime or genres they want to avoid tonight), and explicitly check if they are ready for you to synthesize tonight's shortlist.
+
+Always wait for the viewer to confirm they are ready before offering to reveal the shortlist. If the viewer provides multiple details up front, adapt smoothly without repeating answered questions.""")]
+                ),
+                input_audio_transcription=types.AudioTranscriptionConfig(),
+                output_audio_transcription=types.AudioTranscriptionConfig(),
+                realtime_input_config=types.RealtimeInputConfig(
+                    automatic_activity_detection=types.AutomaticActivityDetection(
+                        disabled=False,
+                        silence_duration_ms=700,
+                    )
+                )
+            )
+            connected_model = None
+            live_models = [
+                "gemini-2.5-flash-native-audio-latest",
+                "gemini-2.0-flash-exp",
+                "gemini-2.5-flash"
+            ]
+            for m in live_models:
+                try:
+                    live_cm = client.aio.live.connect(model=m, config=config)
+                    gemini_session = await live_cm.__aenter__()
+                    gemini_recv_task = asyncio.create_task(forward_gemini_responses(gemini_session))
+                    connected_model = m
+                    print(f"[*] Gemini Live session established with model: {m}", file=sys.stderr)
+                    break
+                except Exception as ex:
+                    print(f"[*] Gemini Live model {m} connect attempt notice: {ex}", file=sys.stderr)
+        except Exception as e:
+            print(f"[*] Gemini Live session fallback notice: {e}", file=sys.stderr)
+            gemini_session = None
+
+    try:
+        while True:
+            msg = await websocket.receive_text()
+            try:
+                data = json.loads(msg)
+            except Exception:
+                continue
+
+            msg_type = data.get("type", "")
+
+            if msg_type == "init":
+                if "context" in data:
+                    try:
+                        session_ctx = UserContext.model_validate(data["context"])
+                    except Exception:
+                        pass
+                if "conversation_history" in data and isinstance(data["conversation_history"], list):
+                    conversation_history = data["conversation_history"]
+                await websocket.send_json({
+                    "type": "init_ack",
+                    "status": "ready" if gemini_session else "fallback",
+                    "voice_name": session_ctx.voice_name or "Charon",
+                    "live_model": connected_model or "offline-fallback"
+                })
+
+            elif msg_type == "interrupt":
+                await websocket.send_json({"type": "interrupted"})
+
+            elif msg_type == "audio":
+                pcm_b64 = data.get("data", "")
+                if gemini_session and pcm_b64:
+                    try:
+                        pcm_bytes = base64.b64decode(pcm_b64)
+                        from google.genai import types
+                        await gemini_session.send_realtime_input(
+                            audio=types.Blob(data=pcm_bytes, mime_type="audio/pcm;rate=16000")
+                        )
+                    except Exception as e:
+                        print(f"[*] Audio forward error: {e}", file=sys.stderr)
+
+            elif msg_type in ("text", "utterance"):
+                user_text = data.get("text", "") or data.get("user_input", "")
+                if gemini_session:
+                    try:
+                        user_transcript_buf.append(user_text)
+                        await websocket.send_json({
+                            "type": "transcript",
+                            "text": user_text,
+                            "role": "user"
+                        })
+                        from google.genai import types
+                        user_content = types.Content(role="user", parts=[types.Part.from_text(text=user_text)])
+                        await gemini_session.send_client_content(turns=user_content, turn_complete=True)
+                    except Exception as e:
+                        print(f"[*] Send client content notice: {e}", file=sys.stderr)
+                else:
+                    turn_req = VoiceTurnRequest(
+                        user_input=user_text,
+                        mode="voice",
+                        current_context=session_ctx,
+                        conversation_history=conversation_history
+                    )
+                    turn_res = await asyncio.to_thread(process_voice_turn, turn_req)
+                    session_ctx = turn_res.updated_context
+                    conversation_history.append({"role": "user", "content": user_text})
+                    conversation_history.append({"role": "assistant", "content": turn_res.assistant_reply})
+
+                    lower_u = user_text.lower()
+                    explicit_ready = any(kw in lower_u for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
+                    final_ready = turn_res.ready_to_recommend or explicit_ready
+
+                    fallback_pcm = _generate_pcm16_tones(duration_sec=1.2)
+                    fallback_b64 = base64.b64encode(fallback_pcm).decode("ascii")
+
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "text": turn_res.assistant_reply,
+                        "role": "assistant"
+                    })
+                    await websocket.send_json({
+                        "type": "audio",
+                        "data": fallback_b64,
+                        "mime_type": "audio/pcm;rate=24000"
+                    })
+                    await websocket.send_json({
+                        "type": "turn_complete",
+                        "assistant_reply": turn_res.assistant_reply,
+                        "updated_context": session_ctx.model_dump(),
+                        "ready_to_recommend": final_ready
+                    })
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"[!] WebSocket live notice: {e}", file=sys.stderr)
+    finally:
+        if gemini_recv_task:
+            gemini_recv_task.cancel()
+        if gemini_session and live_cm:
+            try:
+                await live_cm.__aexit__(None, None, None)
+            except Exception:
+                pass
 
 
 @app.post("/api/recommend", response_model=RecommendationResponse, summary="Generate Movie Recommendations")

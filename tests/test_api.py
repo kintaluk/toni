@@ -206,10 +206,17 @@ def test_voice_config_endpoint():
     assert res.status_code == 200
     data = res.json()
     assert "gemini" in data["model"].lower()
-    assert data["voice_name"] == "Aoede"
+    assert data["voice_name"] == "Charon"
     assert data["sample_rate_hz"] == 16000
     assert "voice" in data["supported_modes"]
     assert "text" in data["supported_modes"]
+    assert data["turnDetection"]["type"] == "SERVER_VAD"
+    assert data["turnDetection"]["silenceDurationMs"] == 700
+    assert data["turnDetection"]["threshold"] == 0.5
+    assert data["audio_spec"]["input_sample_rate_hz"] == 16000
+    assert data["audio_spec"]["output_sample_rate_hz"] == 24000
+    assert data["audio_spec"]["encoding"] == "pcm16"
+    assert data["audio_spec"]["channels"] == 1
 
 
 def test_voice_turn_endpoint_text_mode():
@@ -267,6 +274,43 @@ def test_voice_turn_endpoint_voice_mode_ready():
     assert data["mode"] == "voice"
     assert data["ready_to_recommend"] is True
     assert data["updated_context"]["dialogue_mode"] == "voice"
+    assert data["updated_context"]["voice_name"] == "Charon"
+
+
+def test_websocket_voice_live_endpoint():
+    """Verify WebSocket /api/voice/live accepts connections, handles init and utterance."""
+    with client.websocket_connect("/api/voice/live") as ws:
+        ws.send_json({
+            "type": "init",
+            "context": {
+                "country": "UK",
+                "service_access": ["Netflix"],
+                "allow_rent_buy": False,
+                "intake_depth": "just_give_me_something",
+                "dialogue_mode": "voice",
+                "voice_name": "Charon",
+                "tonight_signals": [],
+                "persistent_taste": [],
+                "interaction_history": {}
+            }
+        })
+        ack = ws.receive_json()
+        assert ack["type"] == "init_ack"
+        assert ack["status"] == "ready"
+        assert ack["voice_name"] == "Charon"
+
+        ws.send_json({
+            "type": "utterance",
+            "text": "I want something brisk and funny under 2 hours"
+        })
+        received_types = set()
+        while True:
+            msg = ws.receive_json()
+            received_types.add(msg.get("type"))
+            if msg.get("type") == "turn_complete":
+                break
+        assert "transcript" in received_types
+        assert "turn_complete" in received_types
 
 
 def test_seed_film_trailer_urls():
@@ -277,6 +321,80 @@ def test_seed_film_trailer_urls():
         assert "trailer_url" in meta
         assert meta["trailer_url"] is not None
         assert "youtube.com" in meta["trailer_url"]
+
+
+def test_export_logs_endpoint():
+    """Verify /api/export-logs returns a valid JSON response with total_turns and turns list."""
+    from api import log_conversation_turn
+    test_ctx = UserContext(
+        country="UK",
+        service_access=["Netflix"],
+        allow_rent_buy=False,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING
+    )
+    log_conversation_turn(
+        session_id="test_session_export",
+        mode="text",
+        user_input="Test logging turn",
+        assistant_reply="I am Charon, your curator.",
+        signals=[],
+        context=test_ctx
+    )
+
+    response = client.get("/api/export-logs")
+    assert response.status_code == 200
+    data = response.json()
+    assert "total_turns" in data
+    assert "turns" in data
+    assert data["total_turns"] >= 1
+    # Verify brand lock was enforced during logging
+    last_turn = data["turns"][-1]
+    assert "Charon" not in last_turn["assistant_reply"]
+    assert "TONI" in last_turn["assistant_reply"]
+
+
+def test_enforce_toni_brand_name():
+    """Verify enforce_toni_brand_name replaces internal voice names with TONI."""
+    from api import enforce_toni_brand_name
+    sample_1 = "Hello! I am Charon, and I will be guiding you."
+    cleaned_1 = enforce_toni_brand_name(sample_1)
+    assert "Charon" not in cleaned_1
+    assert "TONI" in cleaned_1
+
+    sample_2 = "My name is Charon."
+    cleaned_2 = enforce_toni_brand_name(sample_2)
+    assert "My name is TONI." in cleaned_2
+
+
+def test_voice_turn_multiturn_safety_and_brand_lock():
+    """Verify Turn 2+ requests succeed cleanly with session_id and history without 500 error."""
+    payload = {
+        "session_id": "test_turn2_session",
+        "user_input": "Under 100 minutes and no horror please",
+        "mode": "text",
+        "current_context": {
+            "country": "UK",
+            "service_access": ["Netflix"],
+            "allow_rent_buy": False,
+            "intake_depth": "a_couple_of_questions",
+            "tonight_signals": [
+                {"name": "pacing", "value": "brisk", "signal_type": "soft_session_preference"}
+            ],
+            "persistent_taste": [],
+            "interaction_history": {}
+        },
+        "conversation_history": [
+            {"role": "user", "content": "I want a brisk mystery."},
+            {"role": "assistant", "content": "A brisk mystery is an excellent choice. Do you have any runtime limits?"}
+        ]
+    }
+    response = client.post("/api/voice/turn", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert "assistant_reply" in data
+    assert "Charon" not in data["assistant_reply"]
+    assert "updated_context" in data
+
 
 
 

@@ -78,6 +78,10 @@
       animation: toni-notch-pulse 1400ms cubic-bezier(0.45, 0, 0.55, 1) infinite;
       transform-origin: center;
     }
+    .toni-mark-listening {
+      filter: drop-shadow(0 0 8px rgba(194, 232, 94, 0.9)) drop-shadow(0 0 16px rgba(194, 232, 94, 0.6));
+      transition: filter 250ms ease-in-out;
+    }
 
     /* Micro-animations */
     @keyframes aperture-mark-micro-step {
@@ -592,8 +596,14 @@
     let cachedProviders = {};
     let isGenerating = false;
     let voiceActive = false;
-    let speechRecognition = null;
-    let isSpeakingAudio = false;
+    let liveWs = null;
+    let micMediaStream = null;
+    let audioRecordContext = null;
+    let audioWorkletOrProcessor = null;
+    let audioPlaybackContext = null;
+    let nextAudioPlaybackTime = 0;
+    let activeAudioSourceNodes = [];
+    let isToniSpeaking = false;
 
     function triggerApertureMicroStep() {
       const mark = document.getElementById("header-aperture-mark");
@@ -699,7 +709,7 @@
         fallbackNotice.classList.remove("hidden");
         fallbackNotice.innerHTML = `
           <div class="p-6 text-center space-y-3">
-            <span class="border border-ink/30 bg-bone text-ink px-3 py-1 text-xs rounded-[3px] font-sans font-medium inline-block">Trailer unavailable</span>
+            <span class="border border-ink/30 bg-bone text-ink px-3 py-1 text-xs rounded-[3px] font-sans font-medium select-none inline-block">Trailer unavailable</span>
             <p class="font-serif text-lg font-bold text-ink">${escapeHtml(title)} (${year})</p>
             <p class="text-xs text-ink-muted max-w-sm mx-auto font-sans">
               Official video trailer stream is restricted or offline. You can search directly on YouTube.
@@ -739,63 +749,462 @@
       });
     }
 
-    // --- SINGLE-BRAIN VOICE/TEXT ENGINE & CONTROLLER ---
+    // --- GENUINE GEMINI LIVE API WEBSOCKET & PCM AUDIO ENGINE ---
 
-    function initSpeechRecognition() {
-      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRec) return null;
-      const rec = new SpeechRec();
-      rec.continuous = false;
-      rec.interimResults = false;
-      rec.lang = chatState.country === "US" ? "en-US" : "en-GB";
+    // SpeechRecognition safety guard & listening state
+    let isListening = false;
+    let speechRecognition = null;
 
-      rec.onstart = () => {
+    function safeStartSpeechRecognition(recognitionInstance) {
+      const rec = recognitionInstance || speechRecognition;
+      if (!rec) return;
+      if (isListening) return;
+      try {
+        isListening = true;
+        rec.start();
+      } catch (err) {
+        if (err.name === "InvalidStateError" || (err.message && (err.message.includes("already started") || err.message.includes("started")))) {
+          isListening = true;
+        } else {
+          console.warn("SpeechRecognition start notice:", err);
+          isListening = false;
+        }
+      }
+    }
+
+    function safeStopSpeechRecognition(recognitionInstance) {
+      const rec = recognitionInstance || speechRecognition;
+      if (!rec) return;
+      try {
+        isListening = false;
+        rec.stop();
+      } catch (err) {
+        // Safe ignore
+      }
+    }
+
+    function getAudioPlaybackContext() {
+      if (!audioPlaybackContext) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        try {
+          audioPlaybackContext = new AudioCtx({ sampleRate: 24000 });
+        } catch (e) {
+          audioPlaybackContext = new AudioCtx();
+        }
+      }
+      if (audioPlaybackContext.state === "suspended") {
+        audioPlaybackContext.resume();
+      }
+      return audioPlaybackContext;
+    }
+
+    function base64To24kHzAudioBuffer(base64Data, ctx) {
+      const binaryString = window.atob(base64Data);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const int16 = new Int16Array(bytes.buffer);
+      const float32 = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) {
+        float32[i] = int16[i] / 32768.0;
+      }
+      const audioBuffer = ctx.createBuffer(1, float32.length, 24000);
+      audioBuffer.getChannelData(0).set(float32);
+      return audioBuffer;
+    }
+
+    function enqueuePlaybackChunk(base64Data) {
+      if (!base64Data) return;
+      try {
+        const ctx = getAudioPlaybackContext();
+        const audioBuffer = base64To24kHzAudioBuffer(base64Data, ctx);
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(ctx.destination);
+
+        const now = ctx.currentTime;
+        const startTime = Math.max(now, nextAudioPlaybackTime);
+        source.start(startTime);
+        nextAudioPlaybackTime = startTime + audioBuffer.duration;
+
+        activeAudioSourceNodes.push(source);
+        isToniSpeaking = true;
+        updateVoiceUIState("responding");
+
+        source.onended = () => {
+          const idx = activeAudioSourceNodes.indexOf(source);
+          if (idx > -1) activeAudioSourceNodes.splice(idx, 1);
+          if (activeAudioSourceNodes.length === 0) {
+            isToniSpeaking = false;
+            nextAudioPlaybackTime = ctx.currentTime;
+            if (voiceActive) {
+              updateVoiceUIState("listening");
+            } else {
+              updateVoiceUIState("default");
+            }
+          }
+        };
+      } catch (e) {
+        console.warn("PCM audio playback error:", e);
+      }
+    }
+
+    function handleBargeIn() {
+      if (activeAudioSourceNodes.length > 0) {
+        activeAudioSourceNodes.forEach(node => {
+          try { node.stop(); } catch(e) {}
+        });
+        activeAudioSourceNodes = [];
+      }
+      if (audioPlaybackContext) {
+        nextAudioPlaybackTime = audioPlaybackContext.currentTime;
+      }
+      isToniSpeaking = false;
+      if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+        liveWs.send(JSON.stringify({ type: "interrupt" }));
+      }
+      if (voiceActive) {
         updateVoiceUIState("listening");
-      };
+      }
+    }
 
-      rec.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript && transcript.trim()) {
-          handleVoiceUtterance(transcript.trim());
+    function floatTo16BitPCM(float32Array) {
+      const buffer = new ArrayBuffer(float32Array.length * 2);
+      const view = new DataView(buffer);
+      for (let i = 0; i < float32Array.length; i++) {
+        let s = Math.max(-1, Math.min(1, float32Array[i]));
+        view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      }
+      return buffer;
+    }
+
+    function downsampleTo16kHz(buffer, fromRate) {
+      if (!fromRate || fromRate === 16000) return buffer;
+      const sampleRateRatio = fromRate / 16000;
+      const newLength = Math.round(buffer.length / sampleRateRatio);
+      const result = new Float32Array(newLength);
+      let offsetResult = 0;
+      let offsetBuffer = 0;
+      while (offsetResult < result.length) {
+        const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+        let accum = 0, count = 0;
+        for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+          accum += buffer[i];
+          count++;
         }
-      };
+        result[offsetResult] = count > 0 ? (accum / count) : 0;
+        offsetResult++;
+        offsetBuffer = nextOffsetBuffer;
+      }
+      return result;
+    }
 
-      rec.onerror = (event) => {
-        console.warn("Speech recognition notice:", event.error);
+    function arrayBufferToBase64(buffer) {
+      let binary = "";
+      const bytes = new Uint8Array(buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return window.btoa(binary);
+    }
+
+    async function startMicCapture() {
+      stopMicCapture();
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showBrandModal("Microphone Access", "Your browser does not support or allow microphone capture in this context. Please check permissions.");
         updateVoiceUIState("default");
-      };
+        voiceActive = false;
+        return;
+      }
+      try {
+        micMediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
 
-      rec.onend = () => {
-        if (voiceActive && !isSpeakingAudio) {
-          updateVoiceUIState("default");
-          voiceActive = false;
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        try {
+          audioRecordContext = new AudioCtx({ sampleRate: 16000 });
+        } catch(e) {
+          audioRecordContext = new AudioCtx();
         }
-      };
+        if (audioRecordContext.state === "suspended") {
+          await audioRecordContext.resume();
+        }
 
-      return rec;
+        const source = audioRecordContext.createMediaStreamSource(micMediaStream);
+        const processor = audioRecordContext.createScriptProcessor(4096, 1, 1);
+        audioWorkletOrProcessor = processor;
+
+        const silentGain = audioRecordContext.createGain();
+        silentGain.gain.value = 0;
+        source.connect(processor);
+        processor.connect(silentGain);
+        silentGain.connect(audioRecordContext.destination);
+
+        processor.onaudioprocess = (e) => {
+          if (!voiceActive) return;
+          const inputData = e.inputBuffer.getChannelData(0);
+
+          let sum = 0;
+          for (let i = 0; i < inputData.length; i++) {
+            sum += inputData[i] * inputData[i];
+          }
+          const rms = Math.sqrt(sum / inputData.length);
+
+          if (isToniSpeaking && activeAudioSourceNodes.length === 0) {
+            isToniSpeaking = false;
+            if (voiceActive) updateVoiceUIState("listening");
+          }
+
+          if (isToniSpeaking && rms > 0.035) {
+            handleBargeIn();
+          }
+
+          if (!isToniSpeaking) {
+            const mark = document.getElementById("header-aperture-mark");
+            const statusText = document.getElementById("voice-status-text");
+            if (rms > 0.015) {
+              if (mark) {
+                mark.style.transform = `scale(${1 + Math.min(0.2, rms * 3)})`;
+              }
+              if (statusText) {
+                statusText.innerHTML = `<strong>TONI Voice (Charon):</strong> Hearing your voice... Speak now.`;
+              }
+            } else {
+              if (mark) {
+                mark.style.transform = "scale(1)";
+              }
+              if (statusText && voiceActive) {
+                statusText.innerHTML = `<strong>TONI Voice (Charon):</strong> Listening to your viewing mood... Speak now.`;
+              }
+            }
+          }
+
+          if (isToniSpeaking) return;
+
+          const downsampled = downsampleTo16kHz(inputData, audioRecordContext.sampleRate);
+          const pcmBuffer = floatTo16BitPCM(downsampled);
+          const base64Chunk = arrayBufferToBase64(pcmBuffer);
+
+          if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+            liveWs.send(JSON.stringify({
+              type: "audio",
+              data: base64Chunk
+            }));
+          }
+        };
+      } catch (err) {
+        console.error("Microphone capture access error:", err);
+        showBrandModal("Microphone Access", "Please grant microphone permissions in your browser to speak with TONI.");
+        updateVoiceUIState("default");
+        voiceActive = false;
+      }
+    }
+
+    function stopMicCapture() {
+      if (audioWorkletOrProcessor) {
+        try { audioWorkletOrProcessor.disconnect(); } catch(e) {}
+        audioWorkletOrProcessor = null;
+      }
+      if (audioRecordContext) {
+        try { audioRecordContext.close(); } catch(e) {}
+        audioRecordContext = null;
+      }
+      if (micMediaStream) {
+        try {
+          micMediaStream.getTracks().forEach(t => t.stop());
+        } catch(e) {}
+        micMediaStream = null;
+      }
     }
 
     function updateVoiceUIState(state) {
+      const mark = document.getElementById("header-aperture-mark");
       const micBtn = document.getElementById("voice-mic-btn");
       const btnLabel = document.getElementById("voice-btn-label");
       const statusBar = document.getElementById("voice-status-bar");
       const statusText = document.getElementById("voice-status-text");
 
       if (state === "listening") {
+        if (mark) {
+          mark.classList.add("toni-mark-listening");
+          mark.classList.remove("toni-loader-arcs");
+        }
         if (micBtn) micBtn.className = "px-3 py-2 rounded-full border border-lime ring-2 ring-lime animate-pulse bg-lime/25 text-ink transition-all flex items-center gap-1.5 flex-shrink-0 text-xs font-sans font-semibold";
         if (btnLabel) btnLabel.innerText = "Listening...";
         if (statusBar) statusBar.classList.remove("hidden");
-        if (statusText) statusText.innerHTML = `<strong>TONI Voice:</strong> Listening to your viewing mood... Speak now.`;
+        if (statusText) statusText.innerHTML = `<strong>TONI Voice (Charon):</strong> Listening to your viewing mood... Speak now.`;
       } else if (state === "responding") {
+        if (mark) {
+          mark.classList.add("toni-loader-arcs");
+          mark.classList.remove("toni-mark-listening");
+          mark.style.transform = "";
+        }
         if (micBtn) micBtn.className = "px-3 py-2 rounded-full border border-ink/40 bg-bone text-ink transition-all flex items-center gap-1.5 flex-shrink-0 text-xs font-sans font-medium";
         if (btnLabel) btnLabel.innerText = "TONI Speaking...";
         if (statusBar) statusBar.classList.remove("hidden");
-        if (statusText) statusText.innerHTML = `<strong>TONI Voice:</strong> Synthesizing editorial response...`;
+        if (statusText) statusText.innerHTML = `<strong>TONI Voice (Charon):</strong> Film-critic response streaming...`;
       } else {
+        if (mark) {
+          mark.classList.remove("toni-mark-listening");
+          mark.classList.remove("toni-loader-arcs");
+          mark.style.transform = "";
+        }
         if (micBtn) micBtn.className = "px-3 py-2 rounded-full border border-ink/20 hover:border-lime bg-white text-ink transition-all active:scale-95 flex items-center gap-1.5 flex-shrink-0 text-xs font-sans font-medium shadow-2xs";
         if (btnLabel) btnLabel.innerText = "Talk to TONI";
         if (statusBar) statusBar.classList.add("hidden");
       }
+    }
+
+    let currentVoiceUserBubble = null;
+    let currentVoiceUserText = "";
+    let currentVoiceAssistantBubble = null;
+    let currentVoiceAssistantText = "";
+
+    function appendOrUpdateVoiceUserMessage(chunkText) {
+      currentVoiceUserText += chunkText;
+      if (!currentVoiceUserBubble) {
+        const thread = document.getElementById("toni-chat-thread");
+        const wrap = document.createElement("div");
+        wrap.className = "flex justify-end chat-message-anim";
+        wrap.innerHTML = `
+          <div class="max-w-md bg-ink text-bone rounded-2xl rounded-tr-xs px-4 py-2.5 text-xs sm:text-sm shadow-xs font-sans font-medium">
+            ${escapeHtml(currentVoiceUserText)}
+          </div>
+        `;
+        thread.appendChild(wrap);
+        currentVoiceUserBubble = wrap;
+      } else {
+        const textEl = currentVoiceUserBubble.querySelector("div");
+        if (textEl) {
+          textEl.innerText = currentVoiceUserText;
+        }
+      }
+      scrollToBottom();
+    }
+
+    function finalizeVoiceUserMessage() {
+      if (currentVoiceUserText) {
+        chatState.conversation_history.push({ role: "user", content: currentVoiceUserText });
+      }
+      currentVoiceUserBubble = null;
+      currentVoiceUserText = "";
+    }
+
+    function appendOrUpdateVoiceAssistantMessage(chunkText) {
+      currentVoiceAssistantText += chunkText;
+      if (!currentVoiceAssistantBubble) {
+        currentVoiceAssistantBubble = appendToniMessage(escapeHtml(currentVoiceAssistantText));
+      } else {
+        const textEl = currentVoiceAssistantBubble.querySelector(".font-serif");
+        if (textEl) {
+          textEl.innerHTML = escapeHtml(currentVoiceAssistantText);
+        }
+      }
+      scrollToBottom();
+    }
+
+    function finalizeVoiceAssistantMessage() {
+      if (currentVoiceAssistantText) {
+        chatState.conversation_history.push({ role: "assistant", content: currentVoiceAssistantText });
+      }
+      currentVoiceAssistantBubble = null;
+      currentVoiceAssistantText = "";
+    }
+
+    function connectGeminiLiveWebSocket() {
+      if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${proto}//${window.location.host}/api/voice/live`;
+      liveWs = new WebSocket(wsUrl);
+
+      liveWs.onopen = () => {
+        const payload = buildVoiceTurnPayload("", "voice");
+        liveWs.send(JSON.stringify({
+          type: "init",
+          context: payload.current_context,
+          conversation_history: chatState.conversation_history
+        }));
+        updateVoiceUIState("listening");
+      };
+
+      liveWs.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "audio" && msg.data) {
+            enqueuePlaybackChunk(msg.data);
+          } else if (msg.type === "transcript" && msg.text) {
+            if (msg.role === "user") {
+              appendOrUpdateVoiceUserMessage(msg.text);
+            } else if (msg.role === "assistant") {
+              appendOrUpdateVoiceAssistantMessage(msg.text);
+            }
+          } else if (msg.type === "turn_complete") {
+            finalizeVoiceUserMessage();
+            finalizeVoiceAssistantMessage();
+            if (msg.updated_context) {
+              syncContextToState(msg.updated_context);
+            }
+            const userTurnCount = chatState.conversation_history.filter(m => m.role === "user").length;
+            if (msg.ready_to_recommend || userTurnCount >= 2) {
+              renderInlineReadyCTA();
+            }
+
+            // Restore listening state for subsequent turns
+            if (activeAudioSourceNodes.length === 0) {
+              isToniSpeaking = false;
+              if (voiceActive) updateVoiceUIState("listening");
+            } else if (audioPlaybackContext) {
+              const remainingSec = Math.max(0.1, nextAudioPlaybackTime - audioPlaybackContext.currentTime);
+              setTimeout(() => {
+                if (activeAudioSourceNodes.length === 0 || (audioPlaybackContext && audioPlaybackContext.currentTime >= nextAudioPlaybackTime - 0.05)) {
+                  isToniSpeaking = false;
+                  if (voiceActive) updateVoiceUIState("listening");
+                }
+              }, (remainingSec * 1000) + 120);
+            }
+            if (msg.ready_to_recommend) {
+              // Only auto-advance if user explicitly spoke affirmative search intent
+              const lastUserTurn = chatState.conversation_history.slice().reverse().find(m => m.role === "user")?.content || "";
+              const affirmativeVoiceTriggers = ["show me", "recommend", "find movies", "find what fits", "yes please", "what should i watch", "let's see", "surprise me", "bring up", "shortlist", "show shortlist", "let's go"];
+              const spokeExplicitSearch = affirmativeVoiceTriggers.some(t => lastUserTurn.toLowerCase().includes(t));
+              if (spokeExplicitSearch) {
+                setTimeout(() => {
+                  if (voiceActive) toggleSingleBrainVoice();
+                  triggerPipelineExecution();
+                }, 1000);
+              }
+            }
+          } else if (msg.type === "interrupted") {
+            handleBargeIn();
+            finalizeVoiceAssistantMessage();
+          }
+        } catch (e) {
+          console.warn("WS parse notice:", e);
+        }
+      };
+
+      liveWs.onerror = (e) => {
+        console.warn("WebSocket live notice:", e);
+      };
+
+      liveWs.onclose = () => {
+        if (voiceActive) {
+          updateVoiceUIState("default");
+          voiceActive = false;
+          stopMicCapture();
+        }
+      };
     }
 
     async function toggleSingleBrainVoice() {
@@ -803,45 +1212,30 @@
       chatState.dialogue_mode = voiceActive ? "voice" : "text";
 
       if (!voiceActive) {
-        if (speechRecognition) {
-          try { speechRecognition.stop(); } catch(e) {}
+        isListening = false;
+        safeStopSpeechRecognition();
+        stopMicCapture();
+        if (activeAudioSourceNodes.length > 0) {
+          activeAudioSourceNodes.forEach(node => {
+            try { node.stop(); } catch(e) {}
+          });
+          activeAudioSourceNodes = [];
         }
-        if (window.speechSynthesis) {
-          window.speechSynthesis.cancel();
+        if (liveWs) {
+          try { liveWs.close(); } catch(e) {}
+          liveWs = null;
         }
         updateVoiceUIState("default");
         return;
       }
 
-      // Activating Voice Mode
-      if (!speechRecognition) {
-        speechRecognition = initSpeechRecognition();
-      }
-
-      if (speechRecognition) {
-        try {
-          updateVoiceUIState("listening");
-          speechRecognition.start();
-        } catch (e) {
-          console.warn("Could not start speech recognition:", e);
-          updateVoiceUIState("listening");
-          const input = document.getElementById("chat-text-input");
-          if (input) {
-            input.placeholder = "Listening... Speak or type what you want to watch tonight";
-            input.focus();
-          }
-        }
-      } else {
-        updateVoiceUIState("listening");
-        const input = document.getElementById("chat-text-input");
-        if (input) {
-          input.placeholder = "Voice mode active — type your thoughts and TONI will speak back";
-          input.focus();
-        }
-      }
+      isListening = true;
+      getAudioPlaybackContext();
+      updateVoiceUIState("listening");
+      connectGeminiLiveWebSocket();
+      await startMicCapture();
     }
 
-    // Retain compatibility with any legacy button call
     function toggleGeminiLive() {
       toggleSingleBrainVoice();
     }
@@ -849,6 +1243,14 @@
     async function handleVoiceUtterance(userUtterance) {
       appendUserMessage(userUtterance);
       updateVoiceUIState("responding");
+
+      if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+        liveWs.send(JSON.stringify({
+          type: "utterance",
+          text: userUtterance
+        }));
+        return;
+      }
 
       try {
         const payload = buildVoiceTurnPayload(userUtterance, "voice");
@@ -866,47 +1268,16 @@
 
         syncContextToState(data.updated_context);
         appendToniMessage(data.assistant_reply);
+        updateVoiceUIState("default");
 
-        if (window.speechSynthesis) {
-          isSpeakingAudio = true;
-          const utterance = new SpeechSynthesisUtterance(data.assistant_reply);
-          utterance.lang = chatState.country === "US" ? "en-US" : "en-GB";
-          utterance.onend = () => {
-            isSpeakingAudio = false;
-            if (data.ready_to_recommend) {
-              updateVoiceUIState("default");
-              voiceActive = false;
-              setTimeout(() => triggerPipelineExecution(), 600);
-            } else {
-              if (voiceActive && speechRecognition) {
-                try {
-                  updateVoiceUIState("listening");
-                  speechRecognition.start();
-                } catch(e) {
-                  updateVoiceUIState("default");
-                  voiceActive = false;
-                }
-              } else {
-                updateVoiceUIState("default");
-                voiceActive = false;
-              }
-            }
-          };
-          utterance.onerror = () => {
-            isSpeakingAudio = false;
-            updateVoiceUIState("default");
-            voiceActive = false;
-            if (data.ready_to_recommend) {
-              triggerPipelineExecution();
-            }
-          };
-          window.speechSynthesis.speak(utterance);
-        } else {
-          updateVoiceUIState("default");
-          voiceActive = false;
-          if (data.ready_to_recommend) {
-            setTimeout(() => triggerPipelineExecution(), 800);
-          }
+        // Ensure Turn 2+ responses from /api/voice/turn always render the inline CTA button
+        const userTurnCount = chatState.conversation_history.filter(m => m.role === "user").length;
+        if (data.ready_to_recommend || userTurnCount >= 2) {
+          renderInlineReadyCTA();
+        }
+
+        if (data.ready_to_recommend) {
+          setTimeout(() => triggerPipelineExecution(), 600);
         }
       } catch (err) {
         console.error("Voice turn error:", err);
@@ -926,6 +1297,7 @@
           allow_rent_buy: chatState.allow_rent_buy,
           intake_depth: chatState.intake_depth || "a_couple_of_questions",
           dialogue_mode: mode,
+          voice_name: "Charon",
           tonight_signals: [
             ...(chatState.pacing ? [{ name: "pacing", value: chatState.pacing, signal_type: "soft_session_preference" }] : []),
             ...(chatState.tone ? [{ name: "tone", value: chatState.tone, signal_type: "soft_session_preference" }] : []),
@@ -958,6 +1330,40 @@
         }
         if (sig.name === "max-runtime") chatState.max_runtime = sig.value;
       });
+      refreshServiceChipsUI();
+    }
+
+    // Render prominent inline CTA when shortlist readiness is detected
+    function renderInlineReadyCTA() {
+      const thread = document.getElementById("toni-chat-thread");
+      if (!thread) return;
+      const existing = document.getElementById("inline-ready-cta-container");
+      if (existing) existing.remove();
+      const ctaWrap = document.createElement("div");
+      ctaWrap.id = "inline-ready-cta-container";
+      ctaWrap.className = "flex justify-start pl-10 my-3 chat-message-anim";
+      ctaWrap.innerHTML = `
+        <div class="p-3.5 bg-lime/15 border border-lime/40 rounded-xl space-y-2.5 max-w-md shadow-xs">
+          <p class="text-xs font-sans text-ink font-medium">
+            TONI is ready to curate your shortlist based on your criteria.
+          </p>
+          <button type="button" 
+                  id="inline-find-fits-btn"
+                  onclick="handleReadyCTAClick()"
+                  class="px-5 py-2.5 rounded-full bg-ink text-bone font-medium text-xs tracking-wide transition border border-transparent hover:border-lime hover:text-lime shadow-md active:scale-98 flex items-center gap-2">
+            <span>Find what fits tonight</span>
+            <span>→</span>
+          </button>
+        </div>
+      `;
+      thread.appendChild(ctaWrap);
+      triggerApertureMicroStep();
+      scrollToBottom();
+    }
+
+    function handleReadyCTAClick() {
+      if (voiceActive) toggleSingleBrainVoice();
+      triggerPipelineExecution();
     }
 
     // Append a TONI agent message bubble
@@ -1279,13 +1685,10 @@
     function refreshServiceChipsUI() {
       const container = document.getElementById("chat-service-chips-container");
       if (!container) return;
-      const providers = cachedProviders[chatState.country] || [];
-      container.querySelectorAll(".service-chip").forEach((btn, idx) => {
-        const p = providers[idx];
-        if (p) {
-          const isSelected = chatState.service_access.includes(p.name);
-          btn.className = `service-chip px-3.5 py-1.5 rounded-full text-xs font-medium border ${isSelected ? 'border-lime bg-lime/25 text-ink font-semibold' : 'border-ink/20 bg-bone text-ink/80'} transition`;
-        }
+      container.querySelectorAll(".service-chip").forEach(btn => {
+        const name = btn.innerText.trim();
+        const isSelected = chatState.service_access.includes(name);
+        btn.className = `service-chip px-3.5 py-1.5 rounded-full text-xs font-medium border ${isSelected ? 'border-lime bg-lime/25 text-ink font-semibold' : 'border-ink/20 bg-bone text-ink/80'} transition`;
       });
     }
 
@@ -1514,13 +1917,23 @@
         syncContextToState(data.updated_context);
         appendToniMessage(data.assistant_reply);
 
+        // Ensure Turn 2+ responses from /api/voice/turn always render the inline CTA button
+        const userTurnCount = chatState.conversation_history.filter(m => m.role === "user").length;
+        if (data.ready_to_recommend || userTurnCount >= 2) {
+          renderInlineReadyCTA();
+        }
+
         if (data.ready_to_recommend) {
-          setTimeout(() => triggerPipelineExecution(), 600);
+          const lower = userText.toLowerCase();
+          const affirmativeTriggers = ["show me", "recommend", "find movies", "find what fits", "yes please", "what should i watch", "let's see", "surprise me", "bring up", "shortlist", "show shortlist", "let's go"];
+          if (affirmativeTriggers.some(t => lower.includes(t))) {
+            setTimeout(() => triggerPipelineExecution(), 600);
+          }
         }
       } catch (err) {
-        console.warn("Text turn fallback:", err);
+        console.warn("Text turn fallback notice:", err);
         chatState.freeform_mood = userText;
-        setTimeout(triggerPipelineExecution, 300);
+        renderInlineReadyCTA();
       }
     }
 
@@ -1838,7 +2251,7 @@
                   ▶ Trailer
                 </button>
                 ` : `
-                <span class="border border-ink/30 bg-bone text-ink px-2.5 py-1 text-[11px] rounded-[3px] font-sans font-medium inline-flex items-center select-none">
+                <span class="border border-ink/30 bg-bone text-ink px-3 py-1 text-xs rounded-[3px] font-sans font-medium select-none">
                   Trailer unavailable
                 </span>
                 `}

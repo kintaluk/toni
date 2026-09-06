@@ -178,3 +178,17 @@ def test_film_metadata_poster_url():
         poster_url="https://image.tmdb.org/t/p/w500/sample.jpg"
     )
     assert m2.poster_url == "https://image.tmdb.org/t/p/w500/sample.jpg"
+
+
+def test_user_context_voice_and_dialogue_mode_defaults():
+    """Verify UserContext defaults voice_name to 'Charon' and dialogue_mode to 'text'."""
+    uc = UserContext(
+        country="UK",
+        service_access=["Netflix"],
+        allow_rent_buy=False,
+        intake_depth=IntakeDepth.A_COUPLE_OF_QUESTIONS,
+    )
+    assert uc.voice_name == "Charon"
+    assert uc.dialogue_mode == "text"
+    assert uc.tonight_signals == []
+
