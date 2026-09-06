@@ -1,0 +1,14 @@
+{
+  "name": "toni-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TONI Frontend Stylesheet and Asset Pipeline",
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/styles/input.css -o ./static/assets/toni.bundle.css --minify",
+    "version:assets": "python scripts/version_assets.py",
+    "build": "npm run build:css && npm run version:assets"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}

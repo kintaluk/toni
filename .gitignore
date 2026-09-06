@@ -22,3 +22,5 @@ logs/
 spikes/
 .agents/
 
+# Node build dependencies
+node_modules/

@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY src/ ./src/
 COPY static/ ./static/
+COPY licenses/ ./licenses/
 
 # Create runtime logs directory and ensure permissions
 RUN mkdir -p logs && chown -R 1000:1000 /app

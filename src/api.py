@@ -31,8 +31,9 @@ if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("false", "0"):
 
 from fastapi import FastAPI, Query, Header, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from pydantic import BaseModel, Field
 
@@ -297,10 +298,46 @@ def export_conversation_logs(
 # --- VOICE & SINGLE-BRAIN DIALOGUE SERVICE ---
 
 def enforce_toni_brand_name(text: str) -> str:
-    """Enforce brand name lock: Assistant persona must always refer to itself as TONI."""
+    """Enforce brand name lock and speaker identity contract:
+    - Assistant persona refers to itself as TONI (never Charon or Gemini).
+    - Assistant NEVER addresses the viewer as TONI, Tony, or Charon.
+    """
     if not text:
         return ""
-    return re.sub(r'\bCharon\b', 'TONI', text, flags=re.IGNORECASE)
+
+    # 1. Strip vocative addressing of the viewer as TONI, Tony, or Charon
+    # e.g., "I'm here, TONI." -> "I'm here."
+    # e.g., "I'm right here, Charon." -> "I'm right here."
+    # e.g., "Hello, TONI!" -> "Hello!"
+    # e.g., "Sure, TONI, what can I do?" -> "Sure, what can I do?"
+    cleaned = re.sub(
+        r',\s*(?:TONI|Tony|Charon)\s*,',
+        ',',
+        text,
+        flags=re.IGNORECASE
+    )
+    cleaned = re.sub(
+        r',\s*(?:TONI|Tony|Charon)(?=[.!?,;]|$)',
+        '',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+    cleaned = re.sub(
+        r'\b(I[\'’]m(?:\s+right)?\s+here|hello|hi|hey|sure thing|sure|no problem|understood|got it)[,\s]+(?:TONI|Tony|Charon)\b',
+        r'\1',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+
+    # 2. Assistant self-identification: replace leaked internal engine names with TONI
+    cleaned = re.sub(r'\b(?:I am|I[\'’]m|This is|call me)\s+Charon\b', r"I am TONI", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\bCharon\b', 'TONI', cleaned, flags=re.IGNORECASE)
+
+    # Clean up duplicate punctuation or trailing spaces
+    cleaned = re.sub(r'\s+([.!?])', r'\1', cleaned)
+    cleaned = re.sub(r'([.!?]){2,}', r'\1', cleaned)
+
+    return cleaned.strip()
 
 
 def log_conversation_turn(
@@ -419,14 +456,39 @@ def _merge_signals_into_context(ctx: UserContext, data: Any) -> UserContext:
     return ctx
 
 
+def check_explicit_search_intent(user_text: str) -> bool:
+    """Evaluates whether the user explicitly gave permission/intent to search for recommendations.
+    Decouples 'enough information gathered' from 'permission to search'.
+    Negative phrases ('don't recommend yet', 'not yet', 'wait', 'hold on') prevent search.
+    Answering service questions ('yes', 'yes please') without explicit search words does not authorize search."""
+    if not user_text:
+        return False
+    lower = user_text.lower()
+    negative_intents = [
+        "don't recommend", "do not recommend", "not yet", "don't show",
+        "wait", "hold on", "stop", "don't start", "not now"
+    ]
+    if any(neg in lower for neg in negative_intents):
+        return False
+
+    search_triggers = [
+        "find what fits", "show me", "recommend", "find movies",
+        "bring up the shortlist", "bring up the list", "bring up shortlist", "bring up",
+        "what should i watch", "show shortlist", "shortlist", "let's see what fits",
+        "see what fits", "let's see", "fits tonight", "surprise me", "hit me",
+        "let's go", "synthesize", "show me what you got"
+    ]
+    return any(st in lower for st in search_triggers)
+
+
 def _extract_voice_context_fallback(user_text: str, current_ctx: UserContext) -> Tuple[UserContext, bool]:
     """Local deterministic fallback for extracting signals from user text."""
     ctx = current_ctx.model_copy(deep=True)
     lower = (user_text or "").lower()
     extracted_signals = []
 
-    # Ready to recommend keywords
-    ready = any(kw in lower for kw in ["recommend", "show me", "ready", "fits tonight", "let's see", "find movies", "find what fits", "suggest", "shortlist", "what to watch", "surprise me", "hit me", "let's go", "synthesize", "yes please", "bring up", "show shortlist"])
+    # Ready to recommend via contextual search intent
+    ready = check_explicit_search_intent(lower)
 
     # Pacing
     if any(kw in lower for kw in ["brisk", "fast", "quick", "rapid", "snappy"]):
@@ -452,11 +514,14 @@ def _extract_voice_context_fallback(user_text: str, current_ctx: UserContext) ->
     elif any(kw in lower for kw in ["deep", "challenging", "thought-provoking", "intellectual", "demanding", "heavy"]):
         extracted_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=4.2, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
 
-    # Max Runtime
-    if "under 90" in lower or "under an hour and a half" in lower:
-        extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=90, signal_type=SignalType.HARD_CONSTRAINT))
-    elif "under 2 hours" in lower or "under two hours" in lower or "under 120" in lower:
+    # Max Runtime (enhanced with flexible phrasing: nothing over, no more than, less than, under)
+    runtime_m = re.search(r'(?:under|less than|nothing over|no more than|max(?:imum)?)\s+(\d+)\s*(?:min|minute|m\b)', lower)
+    if runtime_m:
+        extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=int(runtime_m.group(1)), signal_type=SignalType.HARD_CONSTRAINT))
+    elif any(p in lower for p in ["under 2 hours", "under two hours", "nothing over 2 hours", "nothing over two hours", "no more than 2 hours", "less than 2 hours", "under 120"]):
         extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=120, signal_type=SignalType.HARD_CONSTRAINT))
+    elif any(p in lower for p in ["under 90", "under an hour and a half", "nothing over 90", "no more than 90"]):
+        extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=90, signal_type=SignalType.HARD_CONSTRAINT))
     elif ("short film" in lower or "keep it short" in lower or re.search(r'\bshort\b', lower)) and "shortlist" not in lower:
         extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=100, signal_type=SignalType.HARD_CONSTRAINT))
 
@@ -525,10 +590,13 @@ def extract_voice_context(
     user_input: str,
     current_context: UserContext,
     conversation_history: Optional[List[Dict[str, str]]] = None,
-    timeout: float = 3.5
-) -> Tuple[UserContext, bool]:
+    timeout: float = 6.0,
+    return_mode: bool = False
+) -> Union[Tuple[UserContext, bool], Tuple[UserContext, bool, str]]:
     """Extracts structured signals and shortlist readiness from spoken input without generating a redundant conversational reply."""
     if not user_input or not user_input.strip():
+        if return_mode:
+            return current_context, False, "noop"
         return current_context, False
 
     ctx = current_context.model_copy(deep=True)
@@ -566,14 +634,16 @@ Rules:
 6. Extract country ('UK' or 'US') and services (e.g. Netflix, Prime Video, BBC iPlayer, etc.) if mentioned.
 7. Set ready_to_recommend to True ONLY if the user explicitly asks to see films / recommendations or confirms they are ready."""
 
-            timeout_ms = int(timeout * 1000) if timeout else 3500
+            timeout_ms = int(timeout * 1000) if timeout else 10000
+            if not str(os.environ.get("GEMINI_API_KEY", "")).startswith("mock"):
+                timeout_ms = max(timeout_ms, 10000)
             http_opts = types.HttpOptions(
                 timeout=timeout_ms,
                 retry_options=types.HttpRetryOptions(attempts=1)
             )
 
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.6-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -588,22 +658,30 @@ Rules:
                 lower_input = user_input.lower()
                 explicit_ready = any(kw in lower_input for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
                 ready = bool(extracted.ready_to_recommend) or explicit_ready
+                if return_mode:
+                    return ctx, ready, "llm"
                 return ctx, ready
         except Exception as ex:
             print(f"[*] Structured context extraction notice: {ex}", file=sys.stderr)
 
-    return _extract_voice_context_fallback(user_input, ctx)
+    fallback_ctx, fallback_ready = _extract_voice_context_fallback(user_input, ctx)
+    if return_mode:
+        return fallback_ctx, fallback_ready, "fallback"
+    return fallback_ctx, fallback_ready
 
 
 async def extract_voice_context_async(
     user_input: str,
     current_context: UserContext,
     conversation_history: Optional[List[Dict[str, str]]] = None,
-    timeout: float = 3.5,
-    client: Optional[Any] = None
-) -> Tuple[UserContext, bool]:
+    timeout: float = 6.0,
+    client: Optional[Any] = None,
+    return_mode: bool = False
+) -> Union[Tuple[UserContext, bool], Tuple[UserContext, bool, str]]:
     """Extracts structured signals and shortlist readiness asynchronously with enforced request deadline."""
     if not user_input or not user_input.strip():
+        if return_mode:
+            return current_context, False, "noop"
         return current_context, False
 
     ctx = current_context.model_copy(deep=True)
@@ -642,16 +720,18 @@ Rules:
 6. Extract country ('UK' or 'US') and services (e.g. Netflix, Prime Video, BBC iPlayer, etc.) if mentioned.
 7. Set ready_to_recommend to True ONLY if the user explicitly asks to see films / recommendations or confirms they are ready."""
 
-            timeout_ms = int(timeout * 1000) if timeout else 3500
+            timeout_ms = int(timeout * 1000) if timeout else 10000
+            if not str(os.environ.get("GEMINI_API_KEY", "")).startswith("mock"):
+                timeout_ms = max(timeout_ms, 10000)
             http_opts = types.HttpOptions(
                 timeout=timeout_ms,
                 retry_options=types.HttpRetryOptions(attempts=1)
             )
 
-            overall_deadline = (timeout or 3.5) + 0.5
+            overall_deadline = (timeout or 6.0) + (1.0 if (timeout or 6.0) >= 4.0 else 0.2)
             response = await asyncio.wait_for(
                 client.aio.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model="gemini-3.6-flash",
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
@@ -668,13 +748,18 @@ Rules:
                 lower_input = user_input.lower()
                 explicit_ready = any(kw in lower_input for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
                 ready = bool(extracted.ready_to_recommend) or explicit_ready
+                if return_mode:
+                    return ctx, ready, "llm"
                 return ctx, ready
         except asyncio.CancelledError:
             raise
         except Exception as ex:
             print(f"[*] Async structured context extraction notice: {ex}", file=sys.stderr)
 
-    return _extract_voice_context_fallback(user_input, ctx)
+    fallback_ctx, fallback_ready = _extract_voice_context_fallback(user_input, ctx)
+    if return_mode:
+        return fallback_ctx, fallback_ready, "fallback"
+    return fallback_ctx, fallback_ready
 
 
 class TurnWorkItem:
@@ -718,6 +803,7 @@ class LiveExtractionPipeline:
         self.in_flight_item: Optional[TurnWorkItem] = None
         self.in_flight_cancelled_for_overload: bool = False
         self.is_disconnected: bool = False
+        self.last_committed_turn_id: int = 0
         self.worker_task = asyncio.create_task(self._worker_loop())
 
     def update_context(self, ctx: UserContext):
@@ -776,6 +862,7 @@ class LiveExtractionPipeline:
 
                 extracted_ctx = self.session_ctx
                 ready_flag = False
+                extraction_mode = "fallback"
 
                 # If overload cancelled earlier extraction, or queue has backlog, or forced fallback:
                 # Use fast deterministic fallback rather than launching slow model calls
@@ -789,31 +876,48 @@ class LiveExtractionPipeline:
                 if full_user:
                     if use_fallback:
                         extracted_ctx, ready_flag = _extract_voice_context_fallback(full_user, self.session_ctx)
+                        extraction_mode = "fallback"
                     else:
                         try:
+                            import inspect
+                            sig = inspect.signature(extract_voice_context_async)
+                            call_kwargs = {
+                                "user_input": full_user,
+                                "current_context": self.session_ctx,
+                                "conversation_history": history_snapshot,
+                                "timeout": 6.0,
+                                "client": self.client,
+                            }
+                            if "return_mode" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+                                call_kwargs["return_mode"] = True
+
                             self.in_flight_task = asyncio.create_task(
-                                extract_voice_context_async(
-                                    user_input=full_user,
-                                    current_context=self.session_ctx,
-                                    conversation_history=history_snapshot,
-                                    timeout=3.5,
-                                    client=self.client
-                                )
+                                extract_voice_context_async(**call_kwargs)
                             )
-                            res_ctx, res_ready = await self.in_flight_task
+                            raw_res = await self.in_flight_task
+                            if isinstance(raw_res, tuple) and len(raw_res) == 3:
+                                res_ctx, res_ready, res_mode = raw_res
+                            else:
+                                res_ctx, res_ready = raw_res
+                                res_mode = "llm"
+
                             if self.in_flight_cancelled_for_overload:
                                 # Invalidate late model result! Substitute deterministic fallback
                                 extracted_ctx, ready_flag = _extract_voice_context_fallback(full_user, self.session_ctx)
+                                extraction_mode = "fallback"
                             else:
                                 extracted_ctx, ready_flag = res_ctx, res_ready
+                                extraction_mode = res_mode
                         except asyncio.CancelledError:
                             if self.is_disconnected:
                                 break
                             # Cancelled due to overload: substitute deterministic fallback
                             extracted_ctx, ready_flag = _extract_voice_context_fallback(full_user, self.session_ctx)
+                            extraction_mode = "fallback"
                         except Exception as ex:
                             print(f"[*] Extraction worker error: {ex}", file=sys.stderr)
                             extracted_ctx, ready_flag = _extract_voice_context_fallback(full_user, self.session_ctx)
+                            extraction_mode = "fallback"
                         finally:
                             self.in_flight_task = None
 
@@ -832,12 +936,7 @@ class LiveExtractionPipeline:
                 if self.queue.empty():
                     self.in_flight_cancelled_for_overload = False
 
-                lower_user = full_user.lower() if full_user else ""
-                explicit_user_ready = any(kw in lower_user for kw in [
-                    "show me", "recommend", "find movies", "yes please", "bring up",
-                    "find what fits", "what to watch", "let's see", "shortlist",
-                    "show shortlist", "let's go"
-                ])
+                explicit_user_ready = check_explicit_search_intent(full_user)
                 final_ready = ready_flag or explicit_user_ready
 
                 log_conversation_turn(
@@ -851,13 +950,15 @@ class LiveExtractionPipeline:
 
                 if not self.is_disconnected:
                     try:
+                        self.last_committed_turn_id = turn_id
                         await self.websocket.send_json({
                             "type": "turn_complete",
                             "turn_id": turn_id,
                             "user_text": full_user,
                             "assistant_reply": full_bot,
                             "updated_context": self.session_ctx.model_dump(),
-                            "ready_to_recommend": final_ready
+                            "ready_to_recommend": final_ready,
+                            "extraction_mode": extraction_mode
                         })
                     except Exception:
                         pass
@@ -923,8 +1024,13 @@ def process_voice_turn(turn_req: VoiceTurnRequest) -> VoiceTurnResponse:
             f"Existing Signals: {[(s.name, s.value) for s in turn_req.current_context.tonight_signals]}"
         )
 
-        prompt = f"""You are TONI, a cinema guide helping someone choose what to watch.
-Your name is TONI. You must ALWAYS refer to yourself as TONI. NEVER refer to yourself as Charon, Gemini, or any internal voice or model identifier.
+        prompt = f"""You are TONI, an expert cinema guide helping a viewer choose what to watch tonight.
+Your name is TONI. You are the assistant. You must ALWAYS refer to yourself as TONI. NEVER refer to yourself as Charon, Gemini, or any internal voice or model identifier.
+SPEAKER IDENTITY CONTRACT:
+- The person speaking/texting with you is the VIEWER.
+- The viewer's name is completely unknown unless they explicitly say 'My name is [Name]'.
+- When the viewer greets you with 'Hi Tony', 'Hello TONI', etc., they are greeting YOU by your name. It does NOT name the viewer.
+- You must NEVER address the viewer as 'TONI' or 'Tony'. Never say "I'm here, TONI" or call the viewer TONI.
 The viewer is speaking or texting with you in mode: '{turn_req.mode}'.
 
 Current Viewer Context:
@@ -950,12 +1056,13 @@ Your task:
    - max_runtime: integer minutes, e.g. 100, 120 (if mentioned)
    - exclude_genres: list of genres to avoid (e.g. ["Horror", "Sci-Fi"])
    - country: "UK" or "US" (if explicitly mentioned)
-   - channels / services: list of channel or service names if mentioned (e.g. ["Netflix", "Prime Video", "BBC iPlayer", "Disney+"])
-3. Determine ready_to_recommend: set to true ONLY if the user explicitly asks to see films / recommendations or confirms they are ready (e.g., 'show me', 'recommend', 'find movies', 'yes please', 'what should I watch', 'bring up the list', 'let\'s see', 'find what fits'). Do NOT set to true merely because 2 or more taste signals were mentioned without explicit user confirmation to proceed.
+    - channels / services: list of channel or service names if mentioned (e.g. ["Netflix", "Prime Video", "BBC iPlayer", "Disney+"])
+3. Determine ready_to_recommend: set to true ONLY if the user explicitly asks to see films / recommendations or confirms they are ready (e.g., 'show me', 'recommend', 'find movies', 'bring up the list', 'find what fits'). Do NOT set to true merely because 2 or more taste signals were mentioned without explicit user confirmation to proceed. Negative phrases ('don't recommend yet', 'wait', 'not yet') must NEVER trigger ready.
+MANDATORY: You must NEVER recommend, pitch, name, or list specific film titles or shortlists to watch tonight. Recommendations are searched live by the application and displayed visually on screen. You may acknowledge films the viewer mentions as reference taste signals (e.g., 'Alien has great dread'), but never propose films for tonight. When the viewer confirms readiness, reply ONLY with a brief transition (e.g. 'I\'ll find what fits.') and conclude your turn.
 """
 
         response = None
-        for model_candidate in ["gemini-2.5-flash", "gemini-flash-latest", "gemini-pro-latest"]:
+        for model_candidate in ["gemini-3.6-flash", "gemini-flash-latest", "gemini-pro-latest"]:
             try:
                 response = client.models.generate_content(
                     model=model_candidate,
@@ -981,12 +1088,16 @@ Your task:
 
         ctx = _merge_signals_into_context(ctx, data)
 
-        lower_input = turn_req.user_input.lower()
-        explicit_user_ready = any(kw in lower_input for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
-        ready_flag = bool(data.ready_to_recommend) or explicit_user_ready
+        explicit_user_ready = check_explicit_search_intent(turn_req.user_input)
+        ready_flag = (bool(data.ready_to_recommend) or explicit_user_ready) and not any(
+            neg in (turn_req.user_input or "").lower() for neg in ["don't recommend", "not yet", "wait", "hold on", "stop"]
+        )
 
-        raw_reply = str(data.assistant_reply).strip() if data.assistant_reply else "I've noted what you're in the mood for."
-        clean_reply = enforce_toni_brand_name(raw_reply)
+        if ready_flag:
+            clean_reply = "I've got a good sense of what you're after. Let's see what fits."
+        else:
+            raw_reply = str(data.assistant_reply).strip() if data.assistant_reply else "I've noted what you're in the mood for."
+            clean_reply = enforce_toni_brand_name(raw_reply)
 
         return VoiceTurnResponse(
             assistant_reply=clean_reply,
@@ -1218,14 +1329,24 @@ async def websocket_voice_live(websocket: WebSocket):
                     )
                 ),
                 system_instruction=types.Content(
-                    parts=[types.Part(text="""You are TONI, a cinema guide helping someone choose what to watch. You speak in a warm, thoughtful, discerning persona as TONI (1-3 sentences maximum per turn). Your name is always TONI. Never refer to yourself as Charon, Gemini, or any internal voice or model identifier. Never lecture or recite long lists.
+                    parts=[types.Part(text="""You are TONI, an expert cinema guide helping someone choose what to watch tonight. You speak in a warm, thoughtful, discerning persona as TONI (1-3 sentences maximum per turn). Your name is always TONI. Never refer to yourself as Charon, Gemini, or any internal voice or model identifier. Never lecture or recite long lists.
+
+SPEAKER IDENTITY CONTRACT:
+- Your name is TONI. You are the assistant.
+- The person speaking to you is the VIEWER. The viewer's name is completely unknown unless they explicitly state "My name is [Name]".
+- When the viewer greets you with "Hi Tony", "Hello TONI", or addresses you by name, they are speaking TO YOU. Never assume their name is Tony or TONI.
+- You must NEVER address the viewer as "TONI" or "Tony". Never say "I'm here, TONI" or address the viewer as TONI.
 
 Gather the minimum missing information naturally. Do not force a fixed question order. Ask only what is still needed to make a useful recommendation:
 - The pace or mood / feeling they are in the mood for.
 - Their country (UK or US) and what channels they have access to (e.g. Netflix, Prime Video, BBC iPlayer, Disney+, etc.) so availability can be guaranteed.
 - Any runtime limits or genres they definitely want to rule out, and check if they are ready to see what fits.
 
-Always wait for the viewer to confirm they are ready before offering to reveal recommendations. If the viewer provides multiple details up front, adapt smoothly without repeating answered questions.""")]
+MANDATORY RULES:
+1. You must NEVER recommend, pitch, name, or invent film titles or shortlists to watch tonight. The application performs live search and displays recommendation cards visually on screen.
+2. You may acknowledge films the viewer mentions as reference taste signals (e.g., 'Alien has great atmosphere; are you looking for sci-fi suspense, or something lighter?'), but never propose films for tonight.
+3. When the viewer confirms they are ready to search (or says 'find what fits'), reply ONLY with a brief transition (such as 'I'll find what fits.') and conclude your turn immediately without generating or naming films.
+4. Always wait for the viewer to confirm they are ready before concluding intake. If the viewer provides multiple details up front, adapt smoothly without repeating answered questions.""")]
                 ),
                 input_audio_transcription=types.AudioTranscriptionConfig(),
                 output_audio_transcription=types.AudioTranscriptionConfig(),
@@ -1309,6 +1430,58 @@ Always wait for the viewer to confirm they are ready before offering to reveal r
                     except Exception as e:
                         print(f"[*] Audio forward error: {e}", file=sys.stderr)
 
+            elif msg_type == "finalize_turn":
+                client_req_id = data.get("request_id", "")
+                has_pending_audio = data.get("has_pending_audio", False)
+                last_socket_turn_id = data.get("last_socket_turn_id", turn_counter)
+
+                last_committed = extraction_pipeline.last_committed_turn_id if extraction_pipeline else 0
+
+                if not has_pending_audio:
+                    await websocket.send_json({
+                        "type": "finalize_ack",
+                        "request_id": client_req_id,
+                        "target_turn_id": last_committed,
+                        "status": "already_committed"
+                    })
+                else:
+                    send_failed = False
+                    if gemini_session:
+                        from google.genai import types
+                        try:
+                            # Primary supported method: audio_stream_end
+                            await gemini_session.send_realtime_input(audio_stream_end=True)
+                        except Exception as ex1:
+                            print(f"[*] Upstream finalize audio_stream_end notice: {ex1}", file=sys.stderr)
+                            try:
+                                # Fallback: silent burst to finalize activity detection
+                                silent_pcm = bytes(6400)
+                                await gemini_session.send_realtime_input(
+                                    audio=types.Blob(data=silent_pcm, mime_type="audio/pcm;rate=16000")
+                                )
+                            except Exception as ex2:
+                                print(f"[*] Upstream finalize silent burst failed: {ex2}", file=sys.stderr)
+                                send_failed = True
+                    else:
+                        send_failed = True
+
+                    if send_failed:
+                        await websocket.send_json({
+                            "type": "finalize_ack",
+                            "request_id": client_req_id,
+                            "target_turn_id": last_committed,
+                            "status": "send_failed",
+                            "error": "Upstream session input finalization failed"
+                        })
+                    else:
+                        target_id = max(turn_counter, last_socket_turn_id, last_committed + 1)
+                        await websocket.send_json({
+                            "type": "finalize_ack",
+                            "request_id": client_req_id,
+                            "target_turn_id": target_id,
+                            "status": "finalizing"
+                        })
+
             elif msg_type in ("text", "utterance"):
                 user_text = data.get("text", "") or data.get("user_input", "")
                 if gemini_session:
@@ -1339,8 +1512,7 @@ Always wait for the viewer to confirm they are ready before offering to reveal r
                     conversation_history.append({"role": "user", "content": user_text})
                     conversation_history.append({"role": "assistant", "content": turn_res.assistant_reply})
 
-                    lower_u = user_text.lower()
-                    explicit_ready = any(kw in lower_u for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
+                    explicit_ready = check_explicit_search_intent(user_text)
                     final_ready = turn_res.ready_to_recommend or explicit_ready
 
                     fallback_pcm = _generate_pcm16_tones(duration_sec=1.2)
@@ -1431,10 +1603,47 @@ def recommend_movies(
         )
 
 
+class VersionedStaticFiles(StaticFiles):
+    """
+    Subclass of StaticFiles that enforces immutable caching for verified,
+    content-hashed assets, and revalidation headers for mutable/error assets.
+    """
+    RECOGNISED_HASH_PATTERN = re.compile(
+        r"^(toni\.bundle|TONI_Design_Tokens|TONI_Mark_Aperture_Notch_Primary|TONI_Favicon_16px_Deep_Ink|TONI_Favicon|TONI_Apple_Touch_Icon_180px_Deep_Ink)\.[a-f0-9]{8}\.(css|svg|ico|png)$"
+    )
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        filename = Path(path).name
+
+        # If it's a 404 or any non-200 response, do NOT set immutable cache headers
+        if response.status_code != 200:
+            return response
+
+        # If it's an HTML file or root, enforce no-cache
+        if filename.endswith(".html") or filename == "":
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            return response
+
+        # If it is a recognised content-hashed asset, set immutable caching
+        if self.RECOGNISED_HASH_PATTERN.match(filename):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+
+        return response
+
+
 # Serve static web demo UI if static directory exists
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+ASSETS_DIR = STATIC_DIR / "assets"
 if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    app.mount("/static", VersionedStaticFiles(directory=str(STATIC_DIR)), name="static")
+    if ASSETS_DIR.exists():
+        # Mount /assets specifically against static/assets per Amendment 4
+        app.mount("/assets", VersionedStaticFiles(directory=str(ASSETS_DIR)), name="assets")
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     def serve_index() -> HTMLResponse:

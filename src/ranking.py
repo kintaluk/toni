@@ -549,7 +549,7 @@ Requirements:
 
         client = genai.Client()
         response = None
-        for model_candidate in ["gemini-flash-latest", "gemini-2.5-flash"]:
+        for model_candidate in ["gemini-flash-latest", "gemini-3.6-flash"]:
             try:
                 response = client.models.generate_content(
                     model=model_candidate,

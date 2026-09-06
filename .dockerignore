@@ -10,6 +10,11 @@ tests/
 logs/
 *.log
 .env*
+node_modules/
+package.json
+package-lock.json
+tailwind.config.js
 static/assets/*.png
+!static/assets/TONI_Apple_Touch_Icon_180px_Deep_Ink*.png
 *.md
 !README.md

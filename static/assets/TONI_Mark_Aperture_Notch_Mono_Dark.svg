@@ -1,8 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
-  <rect width="100%" height="100%" fill="#F6F4EE"/>
-  <g fill="none" stroke="#1A1D20" stroke-width="8" stroke-linecap="round">
-    <path d="M 32,108 C 65,62 145,62 178,102" />
-    <path d="M 22,98 C 55,138 135,138 168,92" />
-  </g>
-  <polygon points="88,80 116,82 110,112 92,108" fill="#1A1D20" />
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" width="600" height="400" role="img" aria-labelledby="title"><title id="title">TONI Mark logo</title><rect width="600" height="400" fill="#F6F4EE"/><g transform="translate(66.0 57.565217391304344) scale(0.40695652173913044) translate(-200 -160)"><g fill="none" stroke="#1A1D20" stroke-width="70" stroke-linecap="round"><path d="M343 328 C605 148 1053 192 1275 465"/><path d="M275 566 C474 810 951 879 1208 689"/></g><path d="M679 391 L868 412 L812 617 L718 593 Z" fill="#1A1D20"/></g></svg>

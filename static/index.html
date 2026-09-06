@@ -6,44 +6,17 @@
   <title>TONI | What fits?</title>
   <meta name="description" content="TONI (Tonight's Options, Narrowed Intelligently) - Your personal guide to what's worth watching next.">
   
-  <!-- Favicon & Design Tokens -->
-  <link rel="icon" type="image/svg+xml" href="static/assets/TONI_Favicon_16px_Deep_Ink.svg" onerror="this.href='assets/TONI_Favicon_16px_Deep_Ink.svg'">
-  <link rel="stylesheet" href="static/assets/TONI_Design_Tokens.css" onerror="this.href='assets/TONI_Design_Tokens.css'">
-  <link rel="stylesheet" href="static/assets/toni.bundle.css" onerror="this.href='assets/toni.bundle.css'">
+  <!-- Favicon & Icons -->
+  <link rel="icon" type="image/svg+xml" href="static/assets/TONI_Favicon_16px_Deep_Ink.03a7a55f.svg" onerror="this.href='assets/TONI_Favicon_16px_Deep_Ink.03a7a55f.svg'">
+  <link rel="alternate icon" href="static/assets/TONI_Favicon.b2a70f4f.ico">
+  <link rel="apple-touch-icon" href="static/assets/TONI_Apple_Touch_Icon_180px_Deep_Ink.a1ed45de.png">
+  <link rel="stylesheet" href="static/assets/TONI_Design_Tokens.4dc3ef46.css" onerror="this.href='assets/TONI_Design_Tokens.4dc3ef46.css'">
+  <link rel="stylesheet" href="static/assets/toni.bundle.5e0155ee.css" onerror="this.href='assets/toni.bundle.5e0155ee.css'">
   
   <!-- Typography: Newsreader (Editorial Serif) & Plus Jakarta Sans (Modern Interface) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            'bone': '#F6F4EE',
-            'bone-card': '#FAF8F3',
-            'bone-surface': '#FFFFFF',
-            'bone-dark': '#ECE8DE',
-            'ink': '#1A1D20',
-            'ink-muted': '#555C63',
-            'ink-subtle': '#8A929A',
-            'ink-border': 'rgba(26, 29, 32, 0.12)',
-            'ink-border-strong': 'rgba(26, 29, 32, 0.28)',
-            'lime': '#C2E85E',
-            'lime-hover': '#B6DC51',
-            'lime-dark': '#8DAF29'
-          },
-          fontFamily: {
-            serif: ['Newsreader', 'Georgia', 'serif'],
-            sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
-          }
-        }
-      }
-    }
-  </script>
 
   <style>
     /* Base Editorial Defaults */
@@ -64,23 +37,25 @@
 
     /* Optical Focus Breathing Keyframes */
     @keyframes toni-focus-breathe {
-      0%, 100% { transform: scale(0.95); opacity: 0.85; }
-      50% { transform: scale(1.05); opacity: 1; }
+      0%, 100% { transform: scale(0.97); opacity: 0.88; }
+      50% { transform: scale(1.03); opacity: 1; }
     }
     @keyframes toni-notch-pulse {
-      0%, 100% { opacity: 0.55; }
-      50% { opacity: 1; }
+      0%, 100% { opacity: 0.7; transform: scale(0.96); }
+      50% { opacity: 1; transform: scale(1.04); }
     }
     .toni-loader-arcs {
-      animation: toni-focus-breathe 1400ms cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      animation: toni-focus-breathe 1800ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      transform-box: fill-box;
       transform-origin: center;
     }
     .toni-loader-notch {
-      animation: toni-notch-pulse 1400ms cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      animation: toni-notch-pulse 1800ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      transform-box: fill-box;
       transform-origin: center;
     }
     .toni-mark-listening {
-      filter: drop-shadow(0 0 8px rgba(194, 232, 94, 0.9)) drop-shadow(0 0 16px rgba(194, 232, 94, 0.6));
+      filter: drop-shadow(0 0 6px rgba(194, 232, 94, 0.85)) drop-shadow(0 0 12px rgba(194, 232, 94, 0.5));
       transition: filter 250ms ease-in-out;
     }
 
@@ -145,8 +120,8 @@
     <div class="max-w-4xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
       <a href="/" class="group flex items-center gap-2.5 no-underline" aria-label="TONI - What fits?">
         <img id="header-aperture-mark"
-             src="static/assets/TONI_Mark_Aperture_Notch_Primary.svg" 
-             onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.svg';}"
+             src="static/assets/TONI_Mark_Aperture_Notch_Primary.19589a31.svg" 
+             onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.19589a31.svg';}"
              alt="TONI Aperture Mark" 
              class="aperture-mark h-7 sm:h-8 w-auto transition-transform duration-200 origin-center">
         <div>
@@ -210,15 +185,18 @@
       <section id="loading-view" class="hidden my-16 text-center max-w-lg mx-auto chat-message-anim">
         <div class="bg-white/90 rounded-[8px] border border-ink/15 p-8 sm:p-10 shadow-sm space-y-5">
           <!-- Authentic Brand Aperture Focus Breathing Loader -->
-          <div class="relative w-24 h-24 mx-auto flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" class="w-24 h-24">
-              <!-- Outer Focus Breathing Arcs -->
-              <g class="toni-loader-arcs" fill="none" stroke="#1A1D20" stroke-width="10" stroke-linecap="round">
-                <path d="M 32,108 C 65,62 145,62 178,102" />
-                <path d="M 22,98 C 55,138 135,138 168,92" />
+          <div class="relative w-36 h-24 mx-auto flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" class="w-36 h-24" role="img" aria-label="TONI cinematic loading indicator">
+              <!-- Outer positioning and scaling transform from approved asset (never animated) -->
+              <g transform="translate(66.0 57.565217391304344) scale(0.40695652173913044) translate(-200 -160)">
+                <!-- Outer Focus Breathing Arcs -->
+                <g class="toni-loader-arcs" fill="none" stroke="#1A1D20" stroke-width="70" stroke-linecap="round">
+                  <path d="M343 328 C605 148 1053 192 1275 465"/>
+                  <path d="M275 566 C474 810 951 879 1208 689"/>
+                </g>
+                <!-- Center Notch Pulse Blade -->
+                <path class="toni-loader-notch" d="M679 391 L868 412 L812 617 L718 593 Z" fill="#C2E85E"/>
               </g>
-              <!-- Center Notch Pulse Blade -->
-              <polygon class="toni-loader-notch" points="88,80 116,82 110,112 92,108" fill="#C2E85E" stroke="#1A1D20" stroke-width="3" />
             </svg>
           </div>
 
@@ -351,10 +329,10 @@
   <div id="toni-brand-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs hidden p-4" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="bg-white rounded-[4px] border-l-4 border-l-lime border-y border-r border-ink/15 shadow-xl max-w-md w-full p-6 relative chat-message-anim">
       <div class="flex items-start gap-3">
-        <img src="static/assets/TONI_Mark_Aperture_Notch_Primary.svg" 
-             onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.svg';}"
+        <img src="static/assets/TONI_Mark_Aperture_Notch_Primary.19589a31.svg" 
+             onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.19589a31.svg';}"
              alt="TONI Eye Mark" 
-             class="w-6 h-6 flex-shrink-0 mt-0.5">
+             class="h-5 w-auto flex-shrink-0 mt-0.5">
         <div class="flex-1 min-w-0">
           <h4 id="modal-title" class="font-serif text-lg font-bold text-ink">TONI Notice</h4>
           <p id="modal-message" class="text-xs text-ink/80 mt-1.5 font-sans leading-relaxed"></p>
@@ -373,10 +351,10 @@
     <div class="bg-white rounded-[6px] border-l-4 border-l-lime border-y border-r border-ink/20 shadow-2xl max-w-2xl w-full p-4 sm:p-6 relative chat-message-anim">
       <div class="flex items-center justify-between pb-3 mb-3 border-b border-ink/10">
         <div class="flex items-center gap-2">
-          <img src="static/assets/TONI_Mark_Aperture_Notch_Primary.svg" 
-               onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.svg';}"
+          <img src="static/assets/TONI_Mark_Aperture_Notch_Primary.19589a31.svg" 
+               onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.19589a31.svg';}"
                alt="TONI Eye Mark" 
-               class="w-5 h-5 flex-shrink-0">
+               class="h-5 w-auto flex-shrink-0">
           <h4 id="trailer-modal-title" class="font-serif text-lg font-bold text-ink truncate">Trailer</h4>
         </div>
         <button type="button" onclick="closeTrailerModal()" class="text-xs font-bold text-ink-muted hover:text-ink px-2.5 py-1 rounded-[3px] hover:bg-black/5 transition">
@@ -646,16 +624,22 @@
       parent.replaceWith(fallback);
     };
 
+    // View state
+    let currentView = "intake";
+
     // Conversational State Machine
     const chatState = {
       step: 1,
       country: "UK",
+      country_confirmed: false,
       allow_rent_buy: false,
       intake_depth: "",
       service_access: [],
       pacing: "measured",
+      pacing_explicitly_set: false,
       tone: "",
       demandingness: 3.0,
+      demandingness_explicitly_set: false,
       _exclude_genres: [],
       get exclude_genre() {
         return this._exclude_genres.length ? (this._exclude_genres.length === 1 ? this._exclude_genres[0] : this._exclude_genres) : "";
@@ -987,7 +971,18 @@
       return audioPlaybackContext;
     }
 
+    const MAX_TURN_AUDIO_BUFFER_BYTES = 384 * 1024; // ~8.0s of 24kHz 16-bit mono PCM (~48KB/sec)
+    let currentTurnAudioChunks = [];
+    let currentTurnAudioByteCount = 0;
+    let audioPlaybackAuthorized = true;
+
+    function clearTurnAudioBuffer() {
+      currentTurnAudioChunks = [];
+      currentTurnAudioByteCount = 0;
+    }
+
     function stopPlaybackAudio() {
+      clearTurnAudioBuffer();
       if (activeAudioSourceNodes.length > 0) {
         activeAudioSourceNodes.forEach(node => {
           try {
@@ -1004,6 +999,109 @@
       }
       isToniSpeaking = false;
       nextAudioPlaybackTime = 0;
+    }
+
+    function validateAssistantAudioOutput(transcript) {
+      if (!transcript || typeof transcript !== "string" || !transcript.trim()) {
+        return { valid: false, reason: "missing_transcript" };
+      }
+      const clean = transcript.trim();
+      const lower = clean.toLowerCase();
+
+      // If search handoff has been initiated or voice session is not active in intake
+      if (searchHandoffActive || !audioPlaybackAuthorized || currentView !== "intake") {
+        return { valid: false, reason: "search_handoff_active" };
+      }
+
+      // 1. Direct and heuristic recommendation pitches, imperatives, proposals of fit, or shortlists
+      // ARCHITECTURAL NOTE: This client-side pattern matching is a defense-in-depth heuristic filter
+      // designed to catch known speech pitches before buffered audio is handed to Web Audio.
+      // It is a heuristic safeguard, not a formal semantic guarantee. Primary prevention is enforced
+      // upstream via strict Gemini Live system instructions and server-side dialogue extraction.
+      const directRecommendationPatterns = [
+        /\b(?:i|we)\s+(?:recommend|suggest)\b/i,
+        /\b(?:suggest|suggesting)\s+(?:you\s+watch|the\s+film|the\s+movie|watching)\b/i,
+        /\byou\s+should\s+watch\b/i,
+        /\btonight(?:'s)?\s+(?:recommendation|pick|shortlist|selection)\b/i,
+        /\bmy\s+pick\s+for\s+you\b/i,
+        /\bhere\s+(?:is|are)\s+(?:a\s+|some\s+)?(?:movie|movies|film|films|shortlist|picks?)\b/i,
+        // Declarations of title fit/suitability: e.g. 'Paddington would suit you. Interested?'
+        /\b[A-Z][a-zA-Z0-9'\s]{1,30}?\s+(?:would|will|might|could)?\s*(?:suit|fit|work\s+well\s+for|be\s+(?:a\s+)?(?:great|good|solid|perfect|ideal|nice)\s+fit\s+for|be\s+right\s+for)\s+(?:you|your\s+mood|tonight)\b/i,
+        /\b[A-Z][a-zA-Z0-9'\s]{1,30}?\s+(?:is|would\s+be)\s+(?:perfect|great|ideal|a\s+great\s+fit)\s+for\s+(?:tonight|your\s+mood|you)\b/i,
+        // Imperatives directing the viewer to a specific title: e.g. 'Watch Paddington tonight'
+        // Uses negative lookahead so general intake inquiries ('watch something', 'watch a movie', 'watch a film', 'watch tonight', etc.) are preserved
+        /(?:^|[.!?]\s+)(?:[Gg]o\s+)?(?:[Ww]atch|[Ss]tream|[Pp]ut\s+on)\s+(?!something\b|anything\b|a\s+movie\b|a\s+film\b|movies\b|films\b|tonight\b)[A-Z][a-zA-Z0-9'\s]+/,
+        // Pitch invitations & nudges
+        /\b[Ww]hy\s+not\s+(?:try|watch|put\s+on)\s+[A-Z]/,
+        /\bshall\s+we\s+go\s+with\s+(?:that|[A-Z])/i,
+        /\b[Ll]et['’]?s\s+go\s+with\s+[A-Z]/,
+        /\b[Pp]utting\s+on\s+[A-Z]/,
+        /\b[Cc]heck\s+out\s+(?!our|the|these|any|what)[A-Z]/,
+        /\b[Hh]ow\s+about\s+(?!asking|checking|looking|starting|we|if|sharing|telling)[A-Z][a-zA-Z0-9'\s]+?\s*(?:\?|$|\s+tonight)/,
+        /\b[Ww]hat\s+about\s+(?!asking|checking|looking|starting|we|if|sharing|telling|pacing|services|streaming|runtime|genres?|tonight|today)[A-Z][a-zA-Z0-9'\s]+?\s*(?:\?|$|\s+tonight)/
+      ];
+
+      for (const pattern of directRecommendationPatterns) {
+        if (pattern.test(clean)) {
+          return { valid: false, reason: "unsolicited_recommendation" };
+        }
+      }
+
+      // 2. Unprompted film title proposal check: e.g. "The Matrix (1999)"
+      if (/\b[A-Z][a-zA-Z0-9\s]{2,30}\s+\(\d{4}\)/.test(clean)) {
+        return { valid: false, reason: "film_title_with_year_proposal" };
+      }
+
+      // 3. Conversational intake characteristic check
+      // Allows:
+      // a) Brief transitions
+      const isBriefTransition = /find\s+what\s+fits|let['’]?s\s+see|finding\s+movies/i.test(lower);
+      // b) Probing questions clarifying taste, boundaries, runtime, services
+      const isIntakeQuestion = clean.includes("?") || /\b(?:tell\s+me|what|which|how|do\s+you|let\s+me\s+know|any|pace|service|genre|mood)\b/i.test(lower);
+      // c) Natural greetings and assistant presence
+      const isGreetingOrPresence = /\b(?:hello|hi|hey|i['’]m\s+(?:here|toni|right\s+here)|welcome|greetings)\b/i.test(clean);
+      // d) Conversational acknowledgements of viewer input
+      const isConversationalAck = /\b(?:got\s+it|understood|sounds\s+good|sure\s+thing|right\s+away|no\s+problem|i\s+can\s+help\s+with\s+that)\b/i.test(clean);
+
+      if (!isIntakeQuestion && !isBriefTransition && !isGreetingOrPresence && !isConversationalAck) {
+        return { valid: false, reason: "uncertain_intake_structure" };
+      }
+
+      return { valid: true, reason: "authorized_intake" };
+    }
+
+    function ensureRecoverableIntakePrompt() {
+      // Avoid unexplained dead silence when audio is suppressed:
+      // Show visual intake guidance so viewer can easily continue
+      const thread = document.getElementById("toni-chat-thread");
+      const hasPrompt = thread && (thread.innerText || thread.innerHTML || "").includes("tuning in to your tastes");
+      if (!hasPrompt) {
+        appendToniMessage("I’m tuning in to your tastes. Tell me any streaming services, time limits, or genres you'd like to include or avoid tonight.");
+      }
+      if (typeof syncReadinessUI === "function") {
+        syncReadinessUI();
+      }
+    }
+
+    function releaseTurnAudioBuffer(assistantText) {
+      if (!audioPlaybackAuthorized || searchHandoffActive) {
+        clearTurnAudioBuffer();
+        return;
+      }
+      const validation = validateAssistantAudioOutput(assistantText);
+      if (validation.valid) {
+        const chunks = currentTurnAudioChunks;
+        clearTurnAudioBuffer();
+        for (const chunk of chunks) {
+          enqueuePlaybackChunk(chunk);
+        }
+      } else {
+        clearTurnAudioBuffer();
+        if (validation.reason !== "search_handoff_active") {
+          console.warn("[TONI Audio Validator] Spoken output withheld:", validation.reason);
+          ensureRecoverableIntakePrompt();
+        }
+      }
     }
 
     function base64To24kHzAudioBuffer(base64Data, ctx) {
@@ -1167,6 +1265,11 @@
         activeVoiceTurnDeferred.resolve();
         activeVoiceTurnDeferred = null;
       }
+      if (activeHandoffBarrier) {
+        const barrier = activeHandoffBarrier;
+        activeHandoffBarrier = null;
+        barrier.reject(new Error("VoiceSessionTornDown"));
+      }
       const terminatingGen = voiceSessionGeneration;
       voiceSessionGeneration++;
       voiceActive = false;
@@ -1187,6 +1290,8 @@
 
       stopMicCapture();
       stopPlaybackAudio();
+      clearTurnAudioBuffer();
+      audioPlaybackAuthorized = false;
 
       if (liveWs) {
         try {
@@ -1351,7 +1456,9 @@
           const pcmBuffer = floatTo16BitPCM(downsampled);
           const base64Chunk = arrayBufferToBase64(pcmBuffer);
 
-          if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+          if (liveWs && liveWs.readyState === WebSocket.OPEN && !searchHandoffActive) {
+            lastMicAudioSentTime = Date.now();
+            isMicAudioInFlight = true;
             liveWs.send(JSON.stringify({
               type: "audio",
               data: base64Chunk
@@ -1583,7 +1690,35 @@
             console.warn("WebSocket voice error from upstream:", msg);
             teardownVoiceSession(currentVoiceGen, "Upstream voice connection encountered an issue. You can continue speaking or typing your preferences.");
           } else if (msg.type === "audio" && msg.data) {
-            enqueuePlaybackChunk(msg.data);
+            if (!audioPlaybackAuthorized || searchHandoffActive) {
+              return;
+            }
+            const chunkLen = msg.data.length;
+            if (currentTurnAudioByteCount + chunkLen > MAX_TURN_AUDIO_BUFFER_BYTES) {
+              console.warn("Turn audio buffer exceeded 8s limit; discarding buffer.");
+              clearTurnAudioBuffer();
+              return;
+            }
+            currentTurnAudioChunks.push(msg.data);
+            currentTurnAudioByteCount += chunkLen;
+          } else if (msg.type === "finalize_ack") {
+            if (activeHandoffBarrier && activeHandoffBarrier.requestId === msg.request_id) {
+              if (msg.status === "send_failed") {
+                activeHandoffBarrier.reject(new Error("UpstreamFinalizeFailed"));
+                return;
+              }
+              const targetSocketId = msg.target_turn_id;
+              activeHandoffBarrier.targetSocketTurnId = targetSocketId;
+              const targetConvTurnId = (targetSocketId !== undefined && targetSocketId !== null && socketTurnMap.has(targetSocketId))
+                ? socketTurnMap.get(targetSocketId)
+                : (targetSocketId !== undefined && targetSocketId !== null ? getOrCreateConvTurnId(targetSocketId) : activeHandoffBarrier.targetTurnId);
+              activeHandoffBarrier.targetTurnId = targetConvTurnId;
+              activeHandoffBarrier.targetConvTurnId = targetConvTurnId;
+              activeHandoffBarrier.acknowledged = true;
+              if (msg.status === "already_committed" || (targetConvTurnId !== null && targetConvTurnId !== undefined && completedDialogueTurnId >= targetConvTurnId)) {
+                activeHandoffBarrier.resolve();
+              }
+            }
           } else if (msg.type === "speech_complete") {
             const speechTurnId = (msg.turn_id !== undefined && msg.turn_id !== null && socketTurnMap.has(msg.turn_id))
               ? socketTurnMap.get(msg.turn_id)
@@ -1645,7 +1780,7 @@
             const isLatestTurn = completedTurnId === latestDialogueTurnId;
             const turnUserText = voiceTurnUserText || currentVoiceUserText;
             const turnBotText = currentVoiceAssistantText;
-            const wasValidTurn = !voiceTurnInterrupted && voiceTurnAssistantStarted && (!currentVoiceUserBubble || currentVoiceTurnId === completedTurnId);
+            const wasValidTurn = !voiceTurnInterrupted && (voiceTurnAssistantStarted || Boolean(msg.assistant_reply)) && (!currentVoiceUserBubble || currentVoiceTurnId === completedTurnId);
 
             if (isLatestTurn || currentVoiceTurnId === completedTurnId) {
               finalizeVoiceUserMessage();
@@ -1669,7 +1804,7 @@
             }
 
             if (msg.updated_context) {
-              syncContextToState(msg.updated_context, completedTurnId);
+              syncContextToState(msg.updated_context, completedTurnId, uText);
             }
             completedDialogueTurnId = Math.max(completedDialogueTurnId, completedTurnId);
 
@@ -1679,10 +1814,19 @@
               activeVoiceTurnDeferred = null;
             }
 
-            const userTurnCount = chatState.conversation_history.filter(m => m.role === "user").length;
-            if (msg.ready_to_recommend || userTurnCount >= 2) {
-              renderInlineReadyCTA();
+            isMicAudioInFlight = false;
+
+            // Check if active handoff barrier is awaiting this turn completion
+            if (activeHandoffBarrier && activeHandoffBarrier.acknowledged && activeHandoffBarrier.targetTurnId !== undefined && activeHandoffBarrier.targetTurnId !== null) {
+              if (completedDialogueTurnId >= activeHandoffBarrier.targetTurnId) {
+                activeHandoffBarrier.resolve();
+              }
             }
+
+            // Validate and release buffered assistant audio, or withhold it
+            releaseTurnAudioBuffer(aText || msg.assistant_reply);
+
+            syncReadinessUI();
 
             // Restore listening state for subsequent turns
             if (activeAudioSourceNodes.length === 0) {
@@ -1699,11 +1843,11 @@
               }, (remainingSec * 1000) + 120);
             }
             if (msg.ready_to_recommend && wasValidTurn && isLatestTurn) {
-              // Only auto-advance if user explicitly spoke affirmative search intent in this turn,
-              // AND this turn is still the latest dialogue turn
-              const userTextToCheck = turnUserText;
-              const affirmativeVoiceTriggers = ["show me", "recommend", "find movies", "find what fits", "yes please", "what should i watch", "let's see", "surprise me", "bring up", "shortlist", "show shortlist", "let's go"];
-              const spokeExplicitSearch = affirmativeVoiceTriggers.some(t => userTextToCheck.toLowerCase().includes(t));
+              // Only auto-advance if user explicitly spoke affirmative search intent in this turn
+              const userTextToCheck = (uText || turnUserText || "").toLowerCase();
+              const hasNegative = ["don't recommend", "not yet", "wait", "hold on", "stop"].some(neg => userTextToCheck.includes(neg));
+              const affirmativeVoiceTriggers = ["find what fits", "show me", "recommend", "find movies", "what should i watch", "show shortlist", "let's see what fits", "bring up the shortlist", "bring up the list"];
+              const spokeExplicitSearch = !hasNegative && affirmativeVoiceTriggers.some(t => userTextToCheck.includes(t));
               if (spokeExplicitSearch &&
                   completedTurnId === latestDialogueTurnId &&
                   completedTurnId > lastConsumedDialogueTurnId &&
@@ -1723,13 +1867,13 @@
                       voiceSessionGeneration !== targetVoiceGen ||
                       !voiceActive ||
                       sessionGeneration !== targetSessionGen) return;
-                  teardownVoiceSession(targetVoiceGen);
-                  triggerPipelineExecution();
-                }, 1000);
+                  executeVoiceSearchHandoff("voice_affirmation");
+                }, 600);
               }
             }
           } else if (msg.type === "interrupted") {
             cancelLocalPlayback();
+            clearTurnAudioBuffer();
             finalizeVoiceUserMessage();
             finalizeVoiceAssistantMessage();
             cancelAutoRecommendationTimer();
@@ -1746,6 +1890,9 @@
       };
 
       ws.onerror = (e) => {
+        if (activeHandoffBarrier) {
+          activeHandoffBarrier.reject(new Error("SocketDisconnected"));
+        }
         if (activeVoiceTurnDeferred) {
           activeVoiceTurnDeferred.resolve();
           activeVoiceTurnDeferred = null;
@@ -1756,6 +1903,9 @@
       };
 
       ws.onclose = () => {
+        if (activeHandoffBarrier) {
+          activeHandoffBarrier.reject(new Error("SocketDisconnected"));
+        }
         if (activeVoiceTurnDeferred) {
           activeVoiceTurnDeferred.resolve();
           activeVoiceTurnDeferred = null;
@@ -1778,6 +1928,9 @@
       isListening = false;
       liveWsReady = false;
       micReady = false;
+      audioPlaybackAuthorized = true;
+      searchHandoffActive = false;
+      clearTurnAudioBuffer();
       chatState.dialogue_mode = "voice";
 
       getAudioPlaybackContext();
@@ -1823,16 +1976,12 @@
         chatState.conversation_history.push({ role: "user", content: userUtterance });
         chatState.conversation_history.push({ role: "assistant", content: data.assistant_reply });
 
-        syncContextToState(data.updated_context, turnId);
+        syncContextToState(data.updated_context, turnId, userUtterance);
         completedDialogueTurnId = Math.max(completedDialogueTurnId, turnId);
         appendToniMessage(data.assistant_reply);
         updateVoiceUIState("default");
 
-        // Ensure Turn 2+ responses from /api/voice/turn always render the inline CTA button
-        const userTurnCount = chatState.conversation_history.filter(m => m.role === "user").length;
-        if (data.ready_to_recommend || userTurnCount >= 2) {
-          renderInlineReadyCTA();
-        }
+        syncReadinessUI();
 
         if (data.ready_to_recommend) {
           if (turnId === latestDialogueTurnId && turnId > lastConsumedDialogueTurnId && turnGen === sessionGeneration && turnVoiceGen === voiceSessionGeneration && voiceActive) {
@@ -1857,13 +2006,13 @@
 
     function buildVoiceTurnPayload(userInput, mode) {
       const tonight_signals = [];
-      if (chatState.pacing) {
+      if (chatState.pacing_explicitly_set && chatState.pacing) {
         tonight_signals.push({ name: "pacing", value: chatState.pacing, signal_type: "soft_session_preference" });
       }
-      if (chatState.tone) {
+      if (chatState.tone && chatState.tone !== "balanced") {
         tonight_signals.push({ name: "tone", value: chatState.tone, signal_type: "soft_session_preference" });
       }
-      if (chatState.demandingness) {
+      if (chatState.demandingness_explicitly_set && chatState.demandingness) {
         tonight_signals.push({ name: "demandingness", value: chatState.demandingness, signal_type: "soft_session_preference" });
       }
       const excludeList = getEffectiveExcludedGenres();
@@ -1882,7 +2031,8 @@
         mode: mode,
         current_context: {
           country: chatState.country || "UK",
-          service_access: chatState.service_access.length ? chatState.service_access : ["Netflix"],
+          country_confirmed: Boolean(chatState.country_confirmed),
+          service_access: [...(chatState.service_access || [])],
           allow_rent_buy: Boolean(chatState.allow_rent_buy),
           intake_depth: chatState.intake_depth || "a_couple_of_questions",
           dialogue_mode: mode,
@@ -1895,10 +2045,22 @@
       };
     }
 
-    function syncContextToState(ctx, turnId = 0) {
+    function syncContextToState(ctx, turnId = 0, userText = "") {
       if (!ctx) return;
+      if (userText) {
+        if (/\b(?:uk|united\s+kingdom|britain|england)\b/i.test(userText)) {
+          chatState.country = "UK";
+          chatState.country_confirmed = true;
+        } else if (/\b(?:us|united\s+states|america)\b/i.test(userText)) {
+          chatState.country = "US";
+          chatState.country_confirmed = true;
+        }
+      }
       if (ctx.country && (turnId === 0 || turnId >= (fieldVersions.country || 0))) {
         chatState.country = ctx.country;
+        if (ctx.country_confirmed || (userText && /\b(?:uk|united\s+kingdom|britain|england|us|united\s+states|america)\b/i.test(userText))) {
+          chatState.country_confirmed = true;
+        }
         if (turnId > 0) fieldVersions.country = turnId;
       }
       if (ctx.service_access && ctx.service_access.length && (turnId === 0 || turnId >= (fieldVersions.service_access || 0))) {
@@ -1909,9 +2071,16 @@
         chatState.allow_rent_buy = ctx.allow_rent_buy;
         if (turnId > 0) fieldVersions.allow_rent_buy = turnId;
       }
+      if (ctx.tonight_signals) {
+        chatState.tonight_signals = ctx.tonight_signals;
+      }
       (ctx.tonight_signals || []).forEach(sig => {
         if (sig.name === "pacing" && (turnId === 0 || turnId >= (fieldVersions.pacing || 0))) {
+          const isExplicitPacingValue = sig.value && sig.value !== "measured";
+          const userMentionedPacing = Boolean(userText && /\b(?:measured|pacing|pace|tempo|steady|speed)\b/i.test(userText));
+          const isExplicitPacing = Boolean(chatState.pacing_explicitly_set || isExplicitPacingValue || userMentionedPacing);
           chatState.pacing = sig.value;
+          chatState.pacing_explicitly_set = isExplicitPacing;
           if (turnId > 0) fieldVersions.pacing = turnId;
         }
         if (sig.name === "tone" && (turnId === 0 || turnId >= (fieldVersions.tone || 0))) {
@@ -1919,7 +2088,11 @@
           if (turnId > 0) fieldVersions.tone = turnId;
         }
         if (sig.name === "demandingness" && (turnId === 0 || turnId >= (fieldVersions.demandingness || 0))) {
+          const isExplicitDemandingnessValue = sig.value !== undefined && sig.value !== null && Number(sig.value) !== 3 && Number(sig.value) !== 3.0;
+          const userMentionedDemandingness = Boolean(userText && /\b(?:demanding|intellectual|turn\s+(?:my\s+)?brain\s+off|light|heavy|deep|easy|challenging)\b/i.test(userText));
+          const isExplicitDemandingness = Boolean(chatState.demandingness_explicitly_set || isExplicitDemandingnessValue || userMentionedDemandingness);
           chatState.demandingness = sig.value;
+          chatState.demandingness_explicitly_set = isExplicitDemandingness;
           if (turnId > 0) fieldVersions.demandingness = turnId;
         }
         if ((sig.name === "exclude-genre" || sig.name === "exclude_genre" || sig.name === "exclude_genres") && (turnId === 0 || turnId >= (fieldVersions.exclude_genres || 0))) {
@@ -1930,12 +2103,33 @@
           chatState.max_runtime = parseInt(sig.value, 10);
           if (turnId > 0) fieldVersions.max_runtime = turnId;
         }
-        if (sig.name === "freeform_mood" && (turnId === 0 || turnId >= (fieldVersions.freeform_mood || 0))) {
+        if ((sig.name === "freeform_mood" || sig.name === "mood") && (turnId === 0 || turnId >= (fieldVersions.freeform_mood || 0))) {
           chatState.freeform_mood = sig.value;
           if (turnId > 0) fieldVersions.freeform_mood = turnId;
         }
       });
       refreshServiceChipsUI();
+      syncReadinessUI();
+    }
+
+    function removeInlineReadyCTA() {
+      const existing = document.getElementById("inline-ready-cta-container");
+      if (existing) {
+        if (existing.parentElement && typeof existing.parentElement.removeChild === "function") {
+          existing.parentElement.removeChild(existing);
+        } else if (typeof existing.remove === "function") {
+          existing.remove();
+        }
+        existing.parentElement = null;
+      }
+    }
+
+    function syncReadinessUI() {
+      if (typeof hasSufficientContext === "function" && hasSufficientContext()) {
+        renderInlineReadyCTA();
+      } else {
+        removeInlineReadyCTA();
+      }
     }
 
     // Render prominent inline CTA when shortlist readiness is detected
@@ -1943,7 +2137,7 @@
       const thread = document.getElementById("toni-chat-thread");
       if (!thread) return;
       const existing = document.getElementById("inline-ready-cta-container");
-      if (existing) existing.remove();
+      if (existing && (existing.isConnected || existing.parentElement)) return; // Already visible in DOM
       const ctaWrap = document.createElement("div");
       ctaWrap.id = "inline-ready-cta-container";
       ctaWrap.className = "flex justify-start pl-10 my-3 chat-message-anim";
@@ -1967,8 +2161,19 @@
     }
 
     function handleReadyCTAClick() {
-      if (voiceActive) toggleSingleBrainVoice();
-      triggerPipelineExecution();
+      // Retain deduplication after barrier clears:
+      // If already generating with identical payload key, suppress duplicate CTA click
+      const currentPayloadKey = getSearchPayloadKey();
+      if (isGenerating && lastHandledSearchPayloadKey && lastHandledSearchPayloadKey === currentPayloadKey) {
+        console.warn("[TONI Search] Suppressed duplicate CTA click while generating:", currentPayloadKey);
+        return Promise.resolve();
+      }
+
+      if (voiceActive) {
+        return executeVoiceSearchHandoff("cta_button_click");
+      } else {
+        return triggerPipelineExecution();
+      }
     }
 
     // Append a TONI agent message bubble (escapes content by default for safety)
@@ -1981,10 +2186,10 @@
       const safeContent = isTrustedHtml ? content : escapeHtml(content);
 
       wrap.innerHTML = `
-        <img src="static/assets/TONI_Mark_Aperture_Notch_Primary.svg" 
-             onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.svg';}"
+        <img src="static/assets/TONI_Mark_Aperture_Notch_Primary.19589a31.svg" 
+             onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.19589a31.svg';}"
              alt="TONI Eye Mark" 
-             class="w-7 h-7 flex-shrink-0 mt-0.5">
+             class="h-6 w-auto flex-shrink-0 mt-0.5">
         <div class="flex-1 max-w-xl bg-white/85 rounded-[6px] border border-ink/15 p-4 sm:p-5 shadow-xs space-y-3">
           <div class="text-[11px] font-bold text-ink uppercase tracking-wider font-sans">TONI</div>
           <div class="text-xs sm:text-sm text-ink font-serif leading-relaxed">
@@ -2167,6 +2372,7 @@
 
     function selectMarket(country) {
       chatState.country = country;
+      chatState.country_confirmed = true;
       const btnUk = document.getElementById("btn-market-uk");
       const btnUs = document.getElementById("btn-market-us");
       if (btnUk && btnUs) {
@@ -2179,6 +2385,7 @@
         }
       }
       triggerApertureMicroStep();
+      syncReadinessUI();
     }
 
     function selectRentBuy(allow) {
@@ -2195,10 +2402,12 @@
         }
       }
       triggerApertureMicroStep();
+      syncReadinessUI();
     }
 
     function confirmStep2() {
       if (chatState.step > 2) return;
+      chatState.country_confirmed = true;
       chatState.step = 3;
       const rentText = chatState.allow_rent_buy ? "Include rentals & purchases" : "Included only";
       appendUserMessage(`${chatState.country}, ${rentText}`);
@@ -2291,12 +2500,14 @@
 
     function refreshServiceChipsUI() {
       const container = document.getElementById("chat-service-chips-container");
-      if (!container) return;
-      container.querySelectorAll(".service-chip").forEach(btn => {
-        const name = btn.innerText.trim();
-        const isSelected = chatState.service_access.includes(name);
-        btn.className = `service-chip px-3.5 py-1.5 rounded-full text-xs font-medium border ${isSelected ? 'border-lime bg-lime/25 text-ink font-semibold' : 'border-ink/20 bg-bone text-ink/80'} transition`;
-      });
+      if (container) {
+        container.querySelectorAll(".service-chip").forEach(btn => {
+          const name = btn.innerText.trim();
+          const isSelected = chatState.service_access.includes(name);
+          btn.className = `service-chip px-3.5 py-1.5 rounded-full text-xs font-medium border ${isSelected ? 'border-lime bg-lime/25 text-ink font-semibold' : 'border-ink/20 bg-bone text-ink/80'} transition`;
+        });
+      }
+      syncReadinessUI();
     }
 
     function confirmStep3() {
@@ -2418,14 +2629,18 @@
 
     function setPacing(val, btn) {
       chatState.pacing = val;
+      chatState.pacing_explicitly_set = true;
       const group = document.getElementById("pacing-btn-group");
       if (group) {
         group.querySelectorAll("button").forEach(b => {
           b.className = "px-3 py-1.5 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition";
         });
       }
-      btn.className = "px-3 py-1.5 rounded-full text-xs font-semibold border border-lime bg-lime/25 text-ink transition";
+      if (btn) {
+        btn.className = "px-3 py-1.5 rounded-full text-xs font-semibold border border-lime bg-lime/25 text-ink transition";
+      }
       triggerApertureMicroStep();
+      syncReadinessUI();
     }
 
     function setTone(val, btn) {
@@ -2447,6 +2662,7 @@
         setExcludeGenre(selectEl.value);
       }
       chatState.step = 5;
+      chatState.pacing_explicitly_set = true;
       const desc = `${chatState.pacing} pace${chatState.tone ? ', ' + chatState.tone : ''}`;
       appendUserMessage(desc);
       setTimeout(renderReadyTurn, 350);
@@ -2465,7 +2681,7 @@
         <div class="pt-3">
           <button type="button" 
                   id="final-generate-btn"
-                  onclick="triggerPipelineExecution()"
+                  onclick="handleReadyCTAClick()"
                   class="px-6 py-3 rounded-full bg-ink text-bone font-medium text-xs tracking-wide transition border border-transparent hover:border-lime hover:text-lime shadow-md active:scale-98 flex items-center gap-2">
             <span>Find what fits</span>
             <span>→</span>
@@ -2576,15 +2792,11 @@
         chatState.conversation_history.push({ role: "user", content: userText });
         chatState.conversation_history.push({ role: "assistant", content: data.assistant_reply });
 
-        syncContextToState(data.updated_context, turnId);
+        syncContextToState(data.updated_context, turnId, userText);
         completedDialogueTurnId = Math.max(completedDialogueTurnId, turnId);
         appendToniMessage(data.assistant_reply);
 
-        // Ensure Turn 2+ responses from /api/voice/turn always render the inline CTA button
-        const userTurnCount = chatState.conversation_history.filter(m => m.role === "user").length;
-        if (data.ready_to_recommend || userTurnCount >= 2) {
-          renderInlineReadyCTA();
-        }
+        syncReadinessUI();
 
         if (data.ready_to_recommend) {
           const lower = userText.toLowerCase();
@@ -2617,6 +2829,7 @@
 
     // Transition between views
     function switchToView(viewName) {
+      currentView = viewName;
       const intakeView = document.getElementById("intake-view");
       const loadingView = document.getElementById("loading-view");
       const resultsView = document.getElementById("results-view");
@@ -2651,6 +2864,171 @@
       scrollToBottom();
       const input = document.getElementById("chat-text-input");
       if (input) input.focus();
+    }
+
+    let searchHandoffActive = false;
+    let inFlightHandoffPromise = null;
+    let activeHandoffBarrier = null;
+    let lastHandledSearchIntentId = -1;
+    let lastHandledSearchPayloadKey = "";
+    let lastMicAudioSentTime = 0;
+    let isMicAudioInFlight = false;
+
+    function hasSufficientContext() {
+      const hasCountry = Boolean(chatState.country_confirmed && (chatState.country === "UK" || chatState.country === "US"));
+      const hasAccess = Boolean((chatState.service_access && chatState.service_access.length > 0) || chatState.allow_rent_buy);
+      const hasExplicitPacing = Boolean(chatState.pacing_explicitly_set && chatState.pacing);
+      const hasExplicitDemandingness = Boolean(chatState.demandingness_explicitly_set && chatState.demandingness);
+      const hasExplicitTonightSignal = Boolean(
+        chatState.tonight_signals && chatState.tonight_signals.some(s => {
+          if (s.name === "pacing") return Boolean(chatState.pacing_explicitly_set);
+          if (s.name === "demandingness") return Boolean(chatState.demandingness_explicitly_set);
+          if (s.name === "tone") return Boolean(chatState.tone && chatState.tone !== "" && chatState.tone !== "balanced");
+          return true;
+        })
+      );
+      const hasTaste = Boolean(
+        (chatState.freeform_mood && chatState.freeform_mood.trim().length > 0) ||
+        hasExplicitTonightSignal ||
+        (chatState.exclude_genres && chatState.exclude_genres.length > 0) ||
+        (chatState.tone && chatState.tone !== "" && chatState.tone !== "balanced") ||
+        hasExplicitPacing ||
+        hasExplicitDemandingness
+      );
+      return hasCountry && hasAccess && hasTaste;
+    }
+
+    function getSearchPayloadKey() {
+      return JSON.stringify({
+        pacing: chatState.pacing,
+        tone: chatState.tone,
+        demandingness: chatState.demandingness,
+        runtime: chatState.max_runtime,
+        services: [...(chatState.service_access || [])].sort(),
+        country: chatState.country,
+        exclude: [...(chatState.exclude_genres || [])].sort(),
+        freeform: chatState.freeform_mood
+      });
+    }
+
+    function executeVoiceSearchHandoff(sourceIntent = "cta_click") {
+      if (!voiceActive) {
+        return triggerPipelineExecution();
+      }
+
+      // If a handoff is already executing, share the active promise
+      if (inFlightHandoffPromise) {
+        return inFlightHandoffPromise;
+      }
+
+      // Check deduplication of identical intent & payload while generation is active
+      const currentPayloadKey = getSearchPayloadKey();
+      if (isGenerating &&
+          completedDialogueTurnId > 0 &&
+          completedDialogueTurnId <= lastHandledSearchIntentId &&
+          currentPayloadKey === lastHandledSearchPayloadKey &&
+          !isMicAudioInFlight) {
+        return Promise.resolve();
+      }
+
+      // 1. Establish handoff ownership synchronously BEFORE any await
+      searchHandoffActive = true;
+      audioPlaybackAuthorized = false;
+
+      // Immediately silence audio hardware and microphone capture
+      stopMicCapture();
+      stopPlaybackAudio();
+      clearTurnAudioBuffer();
+      cancelAutoRecommendationTimer();
+
+      // Switch to loading view immediately for responsive visual feedback
+      switchToView("loading");
+      triggerApertureMicroStep();
+
+      // Check if mic audio was actively pending
+      const now = Date.now();
+      const hasPendingSpeech = isMicAudioInFlight || (now - lastMicAudioSentTime < 1500) || Boolean(currentVoiceUserBubble);
+
+      const handoffReqId = "hnd_" + Math.random().toString(36).substring(2, 9);
+      const startingSessionGen = sessionGeneration;
+
+      inFlightHandoffPromise = new Promise((resolve, reject) => {
+        // Overall recovery budget: 8500ms covering VAD silence (~700ms) + transcription (~500ms) + queued replacement model extraction (~6000-7000ms) + transit/delivery (~500ms)
+        const handoffTimeout = setTimeout(() => {
+          if (activeHandoffBarrier && activeHandoffBarrier.requestId === handoffReqId) {
+            activeHandoffBarrier.reject(new Error("HandoffTimeout"));
+          }
+        }, 8500);
+
+        activeHandoffBarrier = {
+          requestId: handoffReqId,
+          targetSocketTurnId: null,
+          targetConvTurnId: hasPendingSpeech ? null : completedDialogueTurnId,
+          targetTurnId: hasPendingSpeech ? null : completedDialogueTurnId,
+          acknowledged: !hasPendingSpeech,
+          hasPendingSpeech: hasPendingSpeech,
+          timeoutId: handoffTimeout,
+          resolve: () => {
+            clearTimeout(handoffTimeout);
+            resolve();
+          },
+          reject: (err) => {
+            clearTimeout(handoffTimeout);
+            reject(err);
+          }
+        };
+
+        // Send acknowledged finalization to upstream backend
+        if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+          try {
+            liveWs.send(JSON.stringify({
+              type: "finalize_turn",
+              request_id: handoffReqId,
+              has_pending_audio: hasPendingSpeech,
+              last_socket_turn_id: currentVoiceTurnId || 0
+            }));
+          } catch(e) {
+            console.warn("Failed to send finalize_turn:", e);
+          }
+        }
+
+        // If no pending speech was in-flight, resolve barrier immediately
+        if (!hasPendingSpeech) {
+          activeHandoffBarrier.resolve();
+        }
+      })
+      .then(() => {
+        if (sessionGeneration !== startingSessionGen) return;
+
+        lastHandledSearchIntentId = completedDialogueTurnId;
+        lastHandledSearchPayloadKey = getSearchPayloadKey();
+        inFlightHandoffPromise = null;
+        searchHandoffActive = false;
+        activeHandoffBarrier = null;
+
+        // Clean teardown of voice session now that context is committed
+        teardownVoiceSession();
+
+        // Launch single authoritative recommendation search
+        return triggerPipelineExecution();
+      })
+      .catch((err) => {
+        inFlightHandoffPromise = null;
+        searchHandoffActive = false;
+        activeHandoffBarrier = null;
+
+        if (sessionGeneration !== startingSessionGen || (err && err.message === "ConversationRestarted")) {
+          return;
+        }
+
+        console.warn("[TONI Handoff] Final turn completion could not settle:", err);
+        // Settle handoff in a visible, recoverable state
+        switchToView("intake");
+        isGenerating = false;
+        teardownVoiceSession(null, "Earlier confirmed preferences have been retained, but your last response may need repeating. You can speak again or click 'Find what fits' to search with your current preferences.");
+      });
+
+      return inFlightHandoffPromise;
     }
 
     // Pipeline Execution
@@ -2695,6 +3073,8 @@
 
       // This request is authoritative
       isGenerating = true;
+      lastHandledSearchPayloadKey = getSearchPayloadKey();
+      lastHandledSearchIntentId = completedDialogueTurnId;
       activeRecommendationAbortController = new AbortController();
       const signal = activeRecommendationAbortController.signal;
 
@@ -3069,6 +3449,21 @@
         allow_rent_buy: 0
       };
 
+      if (activeHandoffBarrier) {
+        try {
+          if (activeHandoffBarrier.timeoutId) clearTimeout(activeHandoffBarrier.timeoutId);
+          activeHandoffBarrier.reject(new Error("ConversationRestarted"));
+        } catch(e) {}
+        activeHandoffBarrier = null;
+      }
+      searchHandoffActive = false;
+      inFlightHandoffPromise = null;
+      lastHandledSearchIntentId = -1;
+      lastHandledSearchPayloadKey = "";
+      clearTurnAudioBuffer();
+      removeInlineReadyCTA();
+      audioPlaybackAuthorized = false;
+
       // Stop voice session & audio hardware cleanly
       teardownVoiceSession();
       isGenerating = false;
@@ -3076,12 +3471,15 @@
       // Full reset of conversational state
       chatState.step = 1;
       chatState.country = "UK";
+      chatState.country_confirmed = false;
       chatState.service_access = [];
       chatState.allow_rent_buy = false;
       chatState.intake_depth = "";
       chatState.pacing = "measured";
+      chatState.pacing_explicitly_set = false;
       chatState.tone = "";
       chatState.demandingness = 3.0;
+      chatState.demandingness_explicitly_set = false;
       setExcludeGenre("");
       dropdownExclusionUserModified = false;
       chatState.max_runtime = null;
@@ -3208,9 +3606,39 @@
     window.triggerPipelineExecution = triggerPipelineExecution;
     window.restartConversation = restartConversation;
     window.returnToChat = returnToChat;
+    window.switchToView = switchToView;
+    window.appendToniMessage = appendToniMessage;
+    window.createEditorialFallbackElement = createEditorialFallbackElement;
+    window.renderStep3 = renderStep3;
     window.enqueueTextDialogueTurn = enqueueTextDialogueTurn;
     window.processTextDialogueTurn = processTextDialogueTurn;
     window.handleVoiceUtterance = handleVoiceUtterance;
+    window.executeVoiceSearchHandoff = executeVoiceSearchHandoff;
+    window.validateAssistantAudioOutput = validateAssistantAudioOutput;
+    window.releaseTurnAudioBuffer = releaseTurnAudioBuffer;
+    window.clearTurnAudioBuffer = clearTurnAudioBuffer;
+    window.handleReadyCTAClick = handleReadyCTAClick;
+    window.hasSufficientContext = hasSufficientContext;
+    window.syncReadinessUI = syncReadinessUI;
+    window.toggleService = toggleService;
+    window.clearAllServicesInChat = clearAllServicesInChat;
+    window.selectMarket = selectMarket;
+    window.setPacing = setPacing;
+    window.buildVoiceTurnPayload = buildVoiceTurnPayload;
+    window.syncContextToState = syncContextToState;
+    window.chatState = chatState;
+    window.getHandoffState = () => ({
+      searchHandoffActive,
+      inFlightHandoffPromise: Boolean(inFlightHandoffPromise),
+      activeHandoffBarrier: Boolean(activeHandoffBarrier),
+      barrierTargetTurnId: activeHandoffBarrier ? activeHandoffBarrier.targetTurnId : null,
+      lastHandledSearchIntentId,
+      lastHandledSearchPayloadKey,
+      isMicAudioInFlight,
+      audioPlaybackAuthorized,
+      turnAudioChunksCount: currentTurnAudioChunks.length,
+      turnAudioByteCount: currentTurnAudioByteCount
+    });
     window.getRecommendationState = () => ({
       recommendationRequestId,
       isGenerating,

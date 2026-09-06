@@ -420,7 +420,7 @@ def test_export_logs_endpoint(monkeypatch):
 
 
 def test_enforce_toni_brand_name():
-    """Verify enforce_toni_brand_name replaces internal voice names with TONI."""
+    """Verify enforce_toni_brand_name replaces internal voice names with TONI and prevents addressing viewer as TONI."""
     from api import enforce_toni_brand_name
     sample_1 = "Hello! I am Charon, and I will be guiding you."
     cleaned_1 = enforce_toni_brand_name(sample_1)
@@ -430,6 +430,18 @@ def test_enforce_toni_brand_name():
     sample_2 = "My name is Charon."
     cleaned_2 = enforce_toni_brand_name(sample_2)
     assert "My name is TONI." in cleaned_2
+
+    # Prevent incorrectly addressing the user as TONI
+    sample_3 = "I'm here, TONI."
+    cleaned_3 = enforce_toni_brand_name(sample_3)
+    assert "here, TONI" not in cleaned_3
+    assert "I'm here." in cleaned_3
+
+    sample_4 = "I'm right here, Charon."
+    cleaned_4 = enforce_toni_brand_name(sample_4)
+    assert "Charon" not in cleaned_4
+    assert "TONI" not in cleaned_4
+    assert "I'm right here." in cleaned_4
 
 
 def test_voice_turn_multiturn_safety_and_brand_lock():
@@ -462,5 +474,153 @@ def test_voice_turn_multiturn_safety_and_brand_lock():
     assert "updated_context" in data
 
 
+def test_voice_turn_hi_tony_does_not_inject_default_taste_signals():
+    """Verify /api/voice/turn with 'Hi Tony' does not fabricate pacing or demandingness signals."""
+    payload = {
+        "user_input": "Hi Tony",
+        "mode": "voice",
+        "current_context": {
+            "country": "UK",
+            "service_access": ["Netflix"],
+            "allow_rent_buy": False,
+            "intake_depth": "a_couple_of_questions",
+            "dialogue_mode": "voice",
+            "tonight_signals": [],
+            "persistent_taste": [],
+            "interaction_history": {}
+        },
+        "conversation_history": []
+    }
+    res = client.post("/api/voice/turn", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ready_to_recommend"] is False
+    # No pacing or demandingness signals should be injected
+    returned_signals = data["updated_context"]["tonight_signals"]
+    sig_names = [s["name"] for s in returned_signals]
+    assert "pacing" not in sig_names
+    assert "demandingness" not in sig_names
 
+
+def test_actual_structured_extraction_sync_gemini_3_6_flash(monkeypatch):
+    """Verify synchronous extract_voice_context uses gemini-3.6-flash and merges parsed output."""
+    import api as api_mod
+    from unittest.mock import MagicMock
+    import google.genai
+
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-api-key")
+    monkeypatch.delenv("TONI_TESTING", raising=False)
+
+    captured = {}
+    mock_parsed = api_mod.ContextExtractionLLMOutput(
+        pacing="brisk",
+        tone="funny",
+        demandingness=2.5,
+        max_runtime=95,
+        exclude_genres=["horror"],
+        country="UK",
+        services=["Netflix"],
+        ready_to_recommend=False
+    )
+
+    class MockModels:
+        def generate_content(self, model, contents, config=None):
+            captured["model"] = model
+            res = MagicMock()
+            res.parsed = mock_parsed
+            return res
+
+    class MockClient:
+        models = MockModels()
+
+    monkeypatch.setattr(google.genai, "Client", lambda *args, **kwargs: MockClient())
+
+    ctx = UserContext(country="UK", service_access=["Netflix"], intake_depth=IntakeDepth.A_COUPLE_OF_QUESTIONS)
+    res_ctx, ready = api_mod.extract_voice_context("I want a brisk funny movie under 95 mins, no horror", ctx)
+
+    assert captured["model"] == "gemini-3.6-flash"
+    assert ready is False
+    sig_map = {s.name: s.value for s in res_ctx.tonight_signals}
+    assert sig_map[api_mod.SIGNAL_PACING] == "brisk"
+    assert sig_map[api_mod.SIGNAL_TONE] == "funny"
+    assert sig_map[api_mod.SIGNAL_DEMANDINGNESS] == 2.5
+    assert sig_map[api_mod.SIGNAL_MAX_RUNTIME] == 95
+    assert sig_map[api_mod.SIGNAL_EXCLUDE_GENRE] == ["horror"]
+
+
+@pytest.mark.anyio
+async def test_actual_structured_extraction_async_gemini_3_6_flash(monkeypatch):
+    """Verify asynchronous extract_voice_context_async uses gemini-3.6-flash and merges parsed output."""
+    import api as api_mod
+    from unittest.mock import MagicMock
+
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-api-key")
+    monkeypatch.delenv("TONI_TESTING", raising=False)
+
+    captured = {}
+    mock_parsed = api_mod.ContextExtractionLLMOutput(
+        pacing="leisurely",
+        tone="intense",
+        demandingness=4.0,
+        max_runtime=130,
+        exclude_genres=["romance"],
+        country="US",
+        services=["Max"],
+        ready_to_recommend=True
+    )
+
+    class MockAioModels:
+        async def generate_content(self, model, contents, config=None):
+            captured["model"] = model
+            res = MagicMock()
+            res.parsed = mock_parsed
+            return res
+
+    class MockAio:
+        models = MockAioModels()
+
+    class MockClient:
+        aio = MockAio()
+
+    ctx = UserContext(country="US", service_access=["Max"], intake_depth=IntakeDepth.A_COUPLE_OF_QUESTIONS)
+    res_ctx, ready = await api_mod.extract_voice_context_async(
+        user_input="Show me something intense and slow over 2 hours on Max, no romance",
+        current_context=ctx,
+        client=MockClient()
+    )
+
+    assert captured["model"] == "gemini-3.6-flash"
+    assert ready is True
+    sig_map = {s.name: s.value for s in res_ctx.tonight_signals}
+    assert sig_map[api_mod.SIGNAL_PACING] == "leisurely"
+    assert sig_map[api_mod.SIGNAL_TONE] == "intense"
+    assert sig_map[api_mod.SIGNAL_DEMANDINGNESS] == 4.0
+    assert sig_map[api_mod.SIGNAL_MAX_RUNTIME] == 130
+
+
+def test_structured_extraction_fallback_on_llm_failure(monkeypatch):
+    """Verify extract_voice_context executes deterministic regex fallback when LLM fails."""
+    import api as api_mod
+    import google.genai
+
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-api-key")
+    monkeypatch.delenv("TONI_TESTING", raising=False)
+
+    class FailingModels:
+        def generate_content(self, *args, **kwargs):
+            raise RuntimeError("Upstream Gemini API 500 error")
+
+    class FailingClient:
+        models = FailingModels()
+
+    monkeypatch.setattr(google.genai, "Client", lambda *args, **kwargs: FailingClient())
+
+    ctx = UserContext(country="UK", service_access=["Netflix"], intake_depth=IntakeDepth.A_COUPLE_OF_QUESTIONS)
+    res_ctx, ready = api_mod.extract_voice_context("Under 90 minutes and funny with brisk pacing", ctx)
+
+    # Fallback must still successfully extract signals deterministically
+    sig_map = {s.name: s.value for s in res_ctx.tonight_signals}
+    assert sig_map.get(api_mod.SIGNAL_MAX_RUNTIME) == 90
+    assert sig_map.get(api_mod.SIGNAL_TONE) == "funny"
+    assert sig_map.get(api_mod.SIGNAL_PACING) == "brisk"
 

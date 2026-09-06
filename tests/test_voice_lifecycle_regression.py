@@ -820,10 +820,15 @@ def test_playback_context_closed_and_callbacks_invalidated():
     socket.simulateOpen();
     socket.simulateMessage({ type: 'init_ack', status: 'ready' });
 
-    // Simulate incoming audio chunk (starts playback node)
+    // Simulate incoming audio chunk (buffered until turn complete)
     socket.simulateMessage({
       type: 'audio',
       data: Buffer.from(new Uint8Array(4800)).toString('base64')
+    });
+    socket.simulateMessage({
+      type: 'turn_complete',
+      turn_id: 1,
+      assistant_reply: 'What genres or streaming platforms would you like tonight?'
     });
 
     const playbackCtx = window.getAudioPlaybackContext();
@@ -891,6 +896,13 @@ def test_actual_playback_under_browser_global_semantics():
     socket.simulateMessage({
       type: 'audio',
       data: base64Audio
+    });
+
+    // Validated turn completion releases buffered audio
+    socket.simulateMessage({
+      type: 'turn_complete',
+      turn_id: 1,
+      assistant_reply: 'What pace or mood feels right for tonight?'
     });
 
     // Incoming audio chunk must have invoked production getAudioPlaybackContext()
