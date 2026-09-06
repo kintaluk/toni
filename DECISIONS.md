@@ -69,12 +69,12 @@ Its purpose is to preserve why decisions were made, not just what the current co
 * **Decision:** We introduce a local hybrid mock adapter for our seed pool movies that activates when API keys are absent, or when the `TONI_USE_MOCK_AVAILABILITY` environment variable is explicitly set to `"true"`.
 * **Why:** This ensures credentials-free local evaluation, offline capability, rapid testing, and robust test isolation. In the test suite, we force `TONI_USE_MOCK_AVAILABILITY="true"` and stub the `Parallel` client globally to prevent live API leaks, ensuring unit and integration tests run deterministically in under 1 second without making outbound network queries regardless of the environment.
 
-### DEC-009: Static Film Profiles and Consensus in Hackathon MVP (Hackathon-only)
-* **Date:** 2026-09-02
+### DEC-010: Live Runtime Gemini LLM Profiling with Transparent Fallback Telemetry
+* **Date:** 2026-09-06
 * **Status:** Confirmed / Hackathon-only
 * **Area:** Recommendation Model / AI Profiling
-* **Decision:** We use high-fidelity, static, pre-calculated 6-dimension Film Profiles and Evidence States for the canonical seed movie pool in the MVP, rather than invoking live Gemini LLM profiling requests on every user session.
-* **Why:** This ensures lightning-fast user response times, lower api credit burn, and guaranteed deterministic evaluations during the hackathon judging. The dynamic LLM profiling function (`generate_film_profile` in `src/profiling.py`) is fully designed and contract-compliant, but remains deliberately unwired for this round as a strategic product decision.
+* **Decision:** Dynamic LLM profiling via `generate_film_profile()` (`src/profiling.py`) is wired directly into the runtime recommendation path in `src/ranking.py` (`process_candidate_full`) for every candidate film, synthesizing 6-dimension Film Profiles and Evidence State from Parallel's live-extracted critical reviews using Gemini models (`gemini-pro-latest`, `gemini-flash-latest`, `gemini-2.5-pro`). If Gemini profiling fails or credentials are unauthenticated, candidate-level errors are logged explicitly to stderr and the system transparently falls back to a deterministic baseline profile accompanied by an honest fallback explanation (`concise_reason`) rather than masking the failure as a genuine consensus evaluation.
+* **Why:** Satisfies the Stage One hackathon requirement ("applies partner data and Google Cloud products appropriately" at runtime) while preserving system resilience and truthful, observable API telemetry. Supersedes the static profiling decision in DEC-009.
 
 ---
 
@@ -86,6 +86,13 @@ Its purpose is to preserve why decisions were made, not just what the current co
 * **Area:** Recommendation Model
 * **Decision:** Use a 7-dimension rubric (Story, Pacing, Performances, Tone, Craft, Accessibility, Rewatch value) implemented in `src/score_rubric.py` to evaluate films.
 * **Why:** Initial draft of movie profiling from Brief 1. Superseded in Brief 2 to align with professional reviews and separate consensus/divergence evidence state from static film profiles, removing "Rewatch value".
+
+### DEC-009: Static Film Profiles and Consensus in Hackathon MVP (Hackathon-only)
+* **Date:** 2026-09-02
+* **Status:** Superseded by DEC-010
+* **Area:** Recommendation Model / AI Profiling
+* **Decision:** We use high-fidelity, static, pre-calculated 6-dimension Film Profiles and Evidence States for the canonical seed movie pool in the MVP, rather than invoking live Gemini LLM profiling requests on every user session.
+* **Why:** Initial pragmatic decision to avoid API credit burn and latency during early prototyping. Superseded by DEC-010 when live Gemini profiling was wired into `src/ranking.py` for runtime hackathon compliance.
 
 ---
 
