@@ -125,11 +125,16 @@ def normalize_service_name(name: str) -> str:
     return SERVICE_NAME_MAP.get(alt, alt)
 
 
-def make_request(url: str, headers: dict = None) -> tuple[int, dict]:
+class ProviderAPIError(Exception):
+    """Raised when an external streaming provider fails due to HTTP 5xx, timeout, or network error."""
+    pass
+
+
+def make_request(url: str, headers: dict = None, timeout: float = 3.0) -> tuple[int, dict]:
     """Perform a safe HTTP GET request and parse JSON."""
     req = urllib.request.Request(url, headers=headers or {})
     try:
-        with urllib.request.urlopen(req, timeout=3.0) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             return response.status, json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="ignore")
@@ -141,15 +146,27 @@ def make_request(url: str, headers: dict = None) -> tuple[int, dict]:
         return 500, {"error": str(e)}
 
 
+def _safe_make_request(url: str, headers: dict = None, timeout: float = 3.0) -> tuple[int, dict]:
+    """Helper to safely call make_request while remaining compatible with mocks lacking a timeout kwarg."""
+    try:
+        return make_request(url, headers=headers, timeout=timeout)
+    except TypeError as te:
+        if "unexpected keyword argument 'timeout'" in str(te) or "timeout" in str(te):
+            return make_request(url, headers=headers)
+        raise
+
+
 # --- WATCHMODE CLIENT ---
 
-def watchmode_search(title: str, year: int) -> Optional[str]:
-    """Search Watchmode for a movie and return its title_id."""
+def watchmode_search(title: str, year: int, timeout: float = 3.0) -> Optional[str]:
+    """Search Watchmode for a movie and return its title_id, raising ProviderAPIError on 5xx/network error."""
     if not _watchmode_api_key():
         return None
     safe_title = urllib.parse.quote(title)
     url = f"https://api.watchmode.com/v1/search/?apiKey={_watchmode_api_key()}&search_field=name&search_value={safe_title}&types=movie"
-    code, res = make_request(url)
+    code, res = _safe_make_request(url, timeout=timeout)
+    if code >= 500 or code == 429:
+        raise ProviderAPIError(f"Watchmode search failed with HTTP {code}: {res.get('error', '')}")
     if code != 200 or "error" in res:
         return None
     results = res.get("title_results", [])
@@ -160,50 +177,154 @@ def watchmode_search(title: str, year: int) -> Optional[str]:
     return None
 
 
-def watchmode_get_sources(title_id: str) -> List[Dict[str, Any]]:
-    """Retrieve sources for a specific Watchmode title_id."""
+def watchmode_get_sources(title_id: str, timeout: float = 3.0) -> List[Dict[str, Any]]:
+    """Retrieve sources for a specific Watchmode title_id, raising ProviderAPIError on 5xx/network error."""
     if not _watchmode_api_key() or not title_id:
         return []
     url = f"https://api.watchmode.com/v1/title/{title_id}/sources/?apiKey={_watchmode_api_key()}"
-    code, res = make_request(url)
+    code, res = _safe_make_request(url, timeout=timeout)
+    if code >= 500 or code == 429:
+        raise ProviderAPIError(f"Watchmode sources failed with HTTP {code}: {res.get('error', '') if isinstance(res, dict) else ''}")
     if code != 200:
         return []
     return res if isinstance(res, list) else []
 
 
-# --- TMDB CLIENT ---
+# --- TMDB CLIENT WITH SHARED CACHE & IN-FLIGHT DEDUPLICATION ---
 
-def tmdb_search(title: str, year: int) -> Optional[int]:
-    """Search TMDB for a movie and return its unique movie ID."""
+import threading
+import time
+
+_TMDB_CACHE_LOCK = threading.RLock()
+_TMDB_SEARCH_CACHE: Dict[str, Dict[str, Any]] = {}
+_TMDB_IN_FLIGHT: Dict[str, threading.Event] = {}
+_TMDB_IN_FLIGHT_RESULTS: Dict[str, Any] = {}
+
+TMDB_CACHE_TTL = 86400.0            # 24 hours for successful search
+TMDB_NEGATIVE_TTL_PERMANENT = 3600.0 # 1 hour for authoritative 404 / 0 results
+TMDB_NEGATIVE_TTL_TRANSIENT = 30.0   # 30 seconds for transient 5xx errors
+
+
+def tmdb_search(title: str, year: int, timeout: float = 3.0) -> Optional[int]:
+    """Search TMDB for a movie and return its unique movie ID.
+
+    Uses shared in-memory bounded cache with in-flight deduplication and TTL.
+    Raises ProviderAPIError on 5xx or transient provider failure.
+    """
     if not _tmdb_api_key():
         return None
-    safe_title = urllib.parse.quote(title)
-    url = f"https://api.themoviedb.org/3/search/movie?api_key={_tmdb_api_key()}&query={safe_title}&primary_release_year={year}"
-    code, res = make_request(url)
-    if code != 200:
-        return None
-    results = res.get("results", [])
-    for r in results:
-        t_match = r.get("title", "").lower() == title.lower() or r.get("original_title", "").lower() == title.lower()
-        if t_match:
-            release_date = r.get("release_date", "")
-            r_year = 0
-            if release_date and len(release_date) >= 4:
-                try:
-                    r_year = int(release_date[:4])
-                except ValueError:
-                    pass
-            if r_year == 0 or abs(r_year - year) <= 1:
-                return r.get("id")
-    return None
+
+    key = f"{title.lower().strip()}:{year}"
+    now = time.time()
+
+    evt_to_wait = None
+    with _TMDB_CACHE_LOCK:
+        if key in _TMDB_SEARCH_CACHE:
+            entry = _TMDB_SEARCH_CACHE[key]
+            if now - entry["timestamp"] < entry["ttl"]:
+                val = entry.get("movie_id")
+                if entry.get("is_transient_error"):
+                    raise ProviderAPIError(f"TMDB recent transient error for '{title}' cached")
+                return val
+            else:
+                del _TMDB_SEARCH_CACHE[key]
+
+        if key in _TMDB_IN_FLIGHT:
+            evt_to_wait = _TMDB_IN_FLIGHT[key]
+        else:
+            evt = threading.Event()
+            _TMDB_IN_FLIGHT[key] = evt
+
+    if evt_to_wait is not None:
+        evt_to_wait.wait(timeout=timeout + 1.0)
+        with _TMDB_CACHE_LOCK:
+            if key in _TMDB_IN_FLIGHT_RESULTS:
+                res_val = _TMDB_IN_FLIGHT_RESULTS[key]
+                if isinstance(res_val, Exception):
+                    raise res_val
+                return res_val.get("movie_id") if isinstance(res_val, dict) else None
+
+    # Perform external search
+    try:
+        safe_title = urllib.parse.quote(title)
+        url = f"https://api.themoviedb.org/3/search/movie?api_key={_tmdb_api_key()}&query={safe_title}&primary_release_year={year}"
+        code, res = _safe_make_request(url, timeout=timeout)
+        if code >= 500 or code == 429:
+            err = ProviderAPIError(f"TMDB search failed with HTTP {code}")
+            with _TMDB_CACHE_LOCK:
+                # Short-lived negative caching for transient failure
+                _TMDB_SEARCH_CACHE[key] = {
+                    "movie_id": None,
+                    "poster_path": None,
+                    "timestamp": time.time(),
+                    "ttl": TMDB_NEGATIVE_TTL_TRANSIENT,
+                    "is_transient_error": True
+                }
+                _TMDB_IN_FLIGHT_RESULTS[key] = err
+                if key in _TMDB_IN_FLIGHT:
+                    _TMDB_IN_FLIGHT[key].set()
+                    del _TMDB_IN_FLIGHT[key]
+            raise err
+
+        matched_id = None
+        poster_path = None
+        if code == 200:
+            results = res.get("results", [])
+            for r in results:
+                t_match = r.get("title", "").lower() == title.lower() or r.get("original_title", "").lower() == title.lower()
+                if t_match:
+                    release_date = r.get("release_date", "")
+                    r_year = 0
+                    if release_date and len(release_date) >= 4:
+                        try:
+                            r_year = int(release_date[:4])
+                        except ValueError:
+                            pass
+                    if r_year == 0 or abs(r_year - year) <= 1:
+                        matched_id = r.get("id")
+                        poster_path = r.get("poster_path")
+                        break
+
+        with _TMDB_CACHE_LOCK:
+            # Bound cache size to 200 entries
+            if len(_TMDB_SEARCH_CACHE) > 200:
+                oldest_k = min(_TMDB_SEARCH_CACHE.keys(), key=lambda k: _TMDB_SEARCH_CACHE[k].get("timestamp", 0))
+                del _TMDB_SEARCH_CACHE[oldest_k]
+
+            ttl = TMDB_CACHE_TTL if matched_id is not None else TMDB_NEGATIVE_TTL_PERMANENT
+            cache_val = {
+                "movie_id": matched_id,
+                "poster_path": poster_path,
+                "timestamp": time.time(),
+                "ttl": ttl,
+                "is_transient_error": False
+            }
+            _TMDB_SEARCH_CACHE[key] = cache_val
+            _TMDB_IN_FLIGHT_RESULTS[key] = cache_val
+            if key in _TMDB_IN_FLIGHT:
+                _TMDB_IN_FLIGHT[key].set()
+                del _TMDB_IN_FLIGHT[key]
+
+        return matched_id
+    except Exception as exc:
+        with _TMDB_CACHE_LOCK:
+            _TMDB_IN_FLIGHT_RESULTS[key] = exc
+            if key in _TMDB_IN_FLIGHT:
+                _TMDB_IN_FLIGHT[key].set()
+                del _TMDB_IN_FLIGHT[key]
+        if isinstance(exc, ProviderAPIError):
+            raise
+        raise ProviderAPIError(f"TMDB search request error: {str(exc)}") from exc
 
 
-def tmdb_get_watch_providers(movie_id: int) -> Dict[str, Any]:
-    """Retrieve watch providers for a TMDB movie ID."""
+def tmdb_get_watch_providers(movie_id: int, timeout: float = 3.0) -> Dict[str, Any]:
+    """Retrieve watch providers for a TMDB movie ID, raising ProviderAPIError on 5xx/network error."""
     if not _tmdb_api_key() or not movie_id:
         return {}
     url = f"https://api.themoviedb.org/3/movie/{movie_id}/watch/providers?api_key={_tmdb_api_key()}"
-    code, res = make_request(url)
+    code, res = _safe_make_request(url, timeout=timeout)
+    if code >= 500 or code == 429:
+        raise ProviderAPIError(f"TMDB providers failed with HTTP {code}")
     if code != 200:
         return {}
     return res.get("results", {})
@@ -394,10 +515,11 @@ def get_mock_availability(title: str, year: int, country: str, context: UserCont
 
 # --- MAIN ENDPOINT ---
 
-def get_film_availability(title: str, year: int, context: UserContext) -> AvailabilityResult:
+def get_film_availability(title: str, year: int, context: UserContext, timeout: float = 6.0) -> AvailabilityResult:
     """Check a film's availability in the user's country using active keys,
 
-    falling back to the local hybrid mock for seed films or returning unverified on failure.
+    falling back to TMDB on Watchmode error, returning UNVERIFIED if both fail.
+    Never promotes mock availability during a failed live check.
     """
     user_country = "UK" if context.country.upper() in ("UK", "GB") else "US"
     api_country = "GB" if user_country == "UK" else "US"
@@ -419,12 +541,19 @@ def get_film_availability(title: str, year: int, context: UserContext) -> Availa
             mock_res.country = user_country
             return mock_res
 
-    # Fallback to Live Watchmode API
+    # Overall operation deadline
+    deadline = time.time() + timeout
+    watchmode_failed = False
+    tmdb_failed = False
+
+    # 1. Try Live Watchmode API
     if _watchmode_api_key():
+        remaining = max(0.5, deadline - time.time())
         try:
-            title_id = watchmode_search(title, year)
+            title_id = watchmode_search(title, year, timeout=min(3.0, remaining))
             if title_id:
-                sources = watchmode_get_sources(title_id)
+                rem_sources = max(0.5, deadline - time.time())
+                sources = watchmode_get_sources(title_id, timeout=min(3.0, rem_sources))
                 matched_services = []
                 for s in sources:
                     if s.get("region") != api_country:
@@ -448,16 +577,24 @@ def get_film_availability(title: str, year: int, context: UserContext) -> Availa
                     country=user_country,
                     matched_services=matched_services,
                 )
-        except Exception:
-            # Fall through to TMDB on failure or unverified
-            pass
+            else:
+                # Title genuinely not found in Watchmode search -> fall through to TMDB to check!
+                pass
+        except ProviderAPIError as pe:
+            print(f"[!] Watchmode provider error for {title}: {pe}", file=sys.stderr)
+            watchmode_failed = True
+        except Exception as e:
+            print(f"[!] Watchmode unexpected failure for {title}: {e}", file=sys.stderr)
+            watchmode_failed = True
 
-    # Fallback to Live TMDB API
+    # 2. Fallback to Live TMDB API
     if _tmdb_api_key():
+        remaining = max(0.5, deadline - time.time())
         try:
-            movie_id = tmdb_search(title, year)
+            movie_id = tmdb_search(title, year, timeout=min(3.0, remaining))
             if movie_id:
-                providers = tmdb_get_watch_providers(movie_id)
+                rem_providers = max(0.5, deadline - time.time())
+                providers = tmdb_get_watch_providers(movie_id, timeout=min(3.0, rem_providers))
                 market_providers = providers.get(api_country, {})
                 matched_services = []
 
@@ -492,10 +629,40 @@ def get_film_availability(title: str, year: int, context: UserContext) -> Availa
                     country=user_country,
                     matched_services=matched_services,
                 )
-        except Exception:
-            pass
+            else:
+                # Movie not found in TMDB
+                if watchmode_failed:
+                    # Watchmode had an error, and TMDB didn't have the movie -> UNVERIFIED
+                    return AvailabilityResult(
+                        status=AvailabilityStatus.UNVERIFIED,
+                        provider="None",
+                        country=user_country,
+                        matched_services=[],
+                    )
+                return AvailabilityResult(
+                    status=AvailabilityStatus.UNAVAILABLE,
+                    provider="TMDB",
+                    country=user_country,
+                    matched_services=[],
+                )
+        except ProviderAPIError as pe:
+            print(f"[!] TMDB provider error for {title}: {pe}", file=sys.stderr)
+            tmdb_failed = True
+        except Exception as e:
+            print(f"[!] TMDB unexpected failure for {title}: {e}", file=sys.stderr)
+            tmdb_failed = True
 
-    # If keys are missing and it is not in the mock seed database, return unverified
+    # If live providers failed:
+    if watchmode_failed or tmdb_failed or has_live_keys:
+        # Never promote mock availability during a failed live check!
+        return AvailabilityResult(
+            status=AvailabilityStatus.UNVERIFIED,
+            provider="None",
+            country=user_country,
+            matched_services=[],
+        )
+
+    # Missing keys and not in mock database
     return AvailabilityResult(
         status=AvailabilityStatus.UNVERIFIED,
         provider="None",
@@ -527,6 +694,7 @@ def get_film_poster_url(title: str, year: int) -> Optional[str]:
     """Retrieve poster image URL for a film using TMDB or Watchmode, with canonical seed fallback.
 
     Returns full-resolution image URL e.g. 'https://image.tmdb.org/t/p/w500/...' or None.
+    Reuses shared TMDB search results when available.
     """
     key = f"{title.lower().strip()}_{year}"
     if key in _POSTER_CACHE:
@@ -537,20 +705,22 @@ def get_film_poster_url(title: str, year: int) -> Optional[str]:
         _POSTER_CACHE[key] = SEED_POSTERS[clean_title]
         return SEED_POSTERS[clean_title]
 
-    # 1. Try TMDB search for poster_path
+    # 1. Try TMDB search for poster_path via shared search cache
     if _tmdb_api_key():
         try:
-            safe_title = urllib.parse.quote(title)
-            url = f"https://api.themoviedb.org/3/search/movie?api_key={_tmdb_api_key()}&query={safe_title}&primary_release_year={year}"
-            code, res = make_request(url)
-            if code == 200:
-                results = res.get("results", [])
-                for r in results:
-                    poster_path = r.get("poster_path")
-                    if poster_path:
-                        poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
-                        _POSTER_CACHE[key] = poster_url
-                        return poster_url
+            cache_key = f"{title.lower().strip()}:{year}"
+            with _TMDB_CACHE_LOCK:
+                if cache_key in _TMDB_SEARCH_CACHE and _TMDB_SEARCH_CACHE[cache_key].get("poster_path"):
+                    poster_url = f"https://image.tmdb.org/t/p/w500{_TMDB_SEARCH_CACHE[cache_key]['poster_path']}"
+                    _POSTER_CACHE[key] = poster_url
+                    return poster_url
+
+            tmdb_search(title, year)
+            with _TMDB_CACHE_LOCK:
+                if cache_key in _TMDB_SEARCH_CACHE and _TMDB_SEARCH_CACHE[cache_key].get("poster_path"):
+                    poster_url = f"https://image.tmdb.org/t/p/w500{_TMDB_SEARCH_CACHE[cache_key]['poster_path']}"
+                    _POSTER_CACHE[key] = poster_url
+                    return poster_url
         except Exception:
             pass
 
@@ -604,23 +774,19 @@ def get_film_trailer_url(title: str, year: int) -> Optional[str]:
         _TRAILER_CACHE[key] = SEED_TRAILERS[clean_title]
         return SEED_TRAILERS[clean_title]
 
-    # Try TMDB for video / trailer key
+    # Try TMDB for video / trailer key using cached movie_id
     if _tmdb_api_key():
         try:
-            safe_title = urllib.parse.quote(title)
-            search_url = f"https://api.themoviedb.org/3/search/movie?api_key={_tmdb_api_key()}&query={safe_title}&primary_release_year={year}"
-            code, res = make_request(search_url)
-            if code == 200 and res.get("results"):
-                movie_id = res["results"][0].get("id")
-                if movie_id:
-                    videos_url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos?api_key={_tmdb_api_key()}"
-                    v_code, v_res = make_request(videos_url)
-                    if v_code == 200 and v_res.get("results"):
-                        for vid in v_res["results"]:
-                            if vid.get("site") == "YouTube" and vid.get("type") in ("Trailer", "Teaser") and vid.get("key"):
-                                trailer_url = f"https://www.youtube.com/watch?v={vid['key']}"
-                                _TRAILER_CACHE[key] = trailer_url
-                                return trailer_url
+            movie_id = tmdb_search(title, year)
+            if movie_id:
+                videos_url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos?api_key={_tmdb_api_key()}"
+                v_code, v_res = make_request(videos_url)
+                if v_code == 200 and v_res.get("results"):
+                    for vid in v_res["results"]:
+                        if vid.get("site") == "YouTube" and vid.get("type") in ("Trailer", "Teaser") and vid.get("key"):
+                            trailer_url = f"https://www.youtube.com/watch?v={vid['key']}"
+                            _TRAILER_CACHE[key] = trailer_url
+                            return trailer_url
         except Exception:
             pass
 
