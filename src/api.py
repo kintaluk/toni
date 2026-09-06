@@ -793,8 +793,7 @@ Always wait for the viewer to confirm they are ready before offering to reveal r
             connected_model = None
             live_models = [
                 "gemini-2.5-flash-native-audio-latest",
-                "gemini-2.0-flash-exp",
-                "gemini-2.5-flash"
+                "gemini-3.1-flash-live-preview"
             ]
             for m in live_models:
                 try:
@@ -805,9 +804,9 @@ Always wait for the viewer to confirm they are ready before offering to reveal r
                     print(f"[*] Gemini Live session established with model: {m}", file=sys.stderr)
                     break
                 except Exception as ex:
-                    print(f"[*] Gemini Live model {m} connect attempt notice: {ex}", file=sys.stderr)
+                    print(f"[*] Gemini Live model {m} connect attempt failed ({type(ex).__name__}): {repr(ex)}", file=sys.stderr)
         except Exception as e:
-            print(f"[*] Gemini Live session fallback notice: {e}", file=sys.stderr)
+            print(f"[*] Gemini Live session setup failed ({type(e).__name__}): {repr(e)}", file=sys.stderr)
             gemini_session = None
 
     try:
