@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>TONI | What fits tonight?</title>
-  <meta name="description" content="TONI (Tonight's Options, Narrowed Intelligently) - Your personal agentic guide to what's worth watching next.">
+  <title>TONI | What fits?</title>
+  <meta name="description" content="TONI (Tonight's Options, Narrowed Intelligently) - Your personal guide to what's worth watching next.">
   
   <!-- Favicon & Design Tokens -->
   <link rel="icon" type="image/svg+xml" href="static/assets/TONI_Favicon_16px_Deep_Ink.svg" onerror="this.href='assets/TONI_Favicon_16px_Deep_Ink.svg'">
@@ -142,7 +142,7 @@
   <!-- TOP EDITORIAL HEADER -->
   <header class="border-b border-ink/10 bg-bone/95 backdrop-blur-md sticky top-0 z-40 transition-colors flex-shrink-0">
     <div class="max-w-4xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
-      <a href="/" class="group flex items-center gap-2.5 no-underline" aria-label="TONI - What fits tonight?">
+      <a href="/" class="group flex items-center gap-2.5 no-underline" aria-label="TONI - What fits?">
         <img id="header-aperture-mark"
              src="static/assets/TONI_Mark_Aperture_Notch_Primary.svg" 
              onerror="if(!this.dataset.retried){this.dataset.retried=1;this.src='assets/TONI_Mark_Aperture_Notch_Primary.svg';}"
@@ -223,32 +223,32 @@
 
           <div>
             <h3 class="font-serif text-2xl font-bold text-ink mb-1.5">
-              Consulting Critical Consensus &amp; Live Access
+              Finding what fits
             </h3>
             <p class="text-xs sm:text-sm text-ink-muted font-serif leading-relaxed" id="loader-subtext">
-              Synthesizing verified reviews via Parallel and verifying active catalogue availability for tonight...
+              Checking what's available and weighing up the evidence...
             </p>
           </div>
         </div>
       </section>
 
-      <!-- VIEW C: DEDICATED "WHAT FITS TONIGHT?" RESULTS PAGE -->
+      <!-- VIEW C: DEDICATED "WHAT FITS?" RESULTS PAGE -->
       <section id="results-view" class="hidden space-y-8 chat-message-anim">
         
         <!-- Results Page Header -->
         <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 border-b border-ink/15">
           <div>
             <div class="flex items-center gap-2 mb-1.5">
-              <span class="text-[11px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-lime text-ink">
-                Verified Shortlist
+              <span class="text-[11px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-lime text-ink" id="results-badge">
+                Availability checked
               </span>
-              <span class="text-xs text-ink-muted font-medium" id="results-region-tag">Market: UK</span>
+              <span class="text-xs text-ink-muted font-medium" id="results-region-tag">Country: UK</span>
             </div>
             <h1 class="font-serif text-3xl sm:text-5xl font-bold text-ink tracking-tight">
-              What fits tonight?
+              Your shortlist
             </h1>
             <p class="text-xs sm:text-sm text-ink-muted font-serif mt-1 max-w-xl">
-              Intelligently narrowed from verified critical consensus and your active streaming platforms.
+              Narrowed from what you can watch and what the evidence suggests.
             </p>
           </div>
 
@@ -257,7 +257,7 @@
             <button type="button" 
                     onclick="returnToChat()" 
                     class="px-4 py-2 rounded-full border border-ink/20 hover:border-lime bg-white text-ink text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs hover:shadow-xs">
-              <span>← Adjust conversation</span>
+              <span>← Adjust in chat</span>
             </button>
           </div>
         </div>
@@ -275,7 +275,7 @@
         <!-- Bottom Page Controls -->
         <div class="pt-8 border-t border-ink/10 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p class="text-xs text-ink-muted font-serif">
-            Not quite what you were in the mood for? Chat with TONI to refine your rhythm, actors, or genres.
+            Not quite what you were in the mood for? Tell TONI what you'd like more or less of.
           </p>
           <div class="flex items-center gap-3">
             <button type="button" 
@@ -304,7 +304,7 @@
       <div id="voice-status-bar" class="hidden mb-2 px-3 py-1.5 rounded-[4px] bg-lime/20 border border-lime text-xs text-ink font-medium flex items-center justify-between chat-message-anim">
         <div class="flex items-center gap-2">
           <span class="w-2 h-2 rounded-full bg-ink animate-ping"></span>
-          <span id="voice-status-text"><strong>TONI Voice:</strong> Listening to your viewing mood... Speak now.</span>
+          <span id="voice-status-text">Listening...</span>
         </div>
         <button type="button" onclick="toggleSingleBrainVoice()" class="text-xs font-bold hover:underline">
           Done
@@ -327,7 +327,7 @@
         <input type="text" 
                id="chat-text-input" 
                autocomplete="off" 
-               placeholder="Type a response or describe what you want tonight..." 
+               placeholder="Type a response or describe what you're in the mood for..." 
                class="flex-1 bg-white border border-ink/20 rounded-full px-4 py-2.5 text-xs sm:text-sm text-ink placeholder:text-ink-subtle focus:outline-none focus:border-lime font-sans shadow-2xs">
 
         <!-- Send Button -->
@@ -346,7 +346,7 @@
     </div>
   </footer>
 
-  <!-- ON-BRAND VALIDATION/ERROR MODAL DIALOG (#FFFFFF PAPER CARD, DEEP INK TEXT, EYE MARK, UNDERSTOOD BUTTON) -->
+  <!-- ON-BRAND VALIDATION/ERROR MODAL DIALOG (#FFFFFF PAPER CARD, DEEP INK TEXT, EYE MARK, OK BUTTON) -->
   <div id="toni-brand-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs hidden p-4" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="bg-white rounded-[4px] border-l-4 border-l-lime border-y border-r border-ink/15 shadow-xl max-w-md w-full p-6 relative chat-message-anim">
       <div class="flex items-start gap-3">
@@ -361,7 +361,7 @@
       </div>
       <div class="mt-5 flex justify-end">
         <button type="button" onclick="closeBrandModal()" class="px-4 py-1.5 rounded-full bg-ink text-bone text-xs font-semibold hover:text-lime transition">
-          Understood
+          OK
         </button>
       </div>
     </div>
@@ -976,14 +976,14 @@
                 mark.style.transform = `scale(${1 + Math.min(0.2, rms * 3)})`;
               }
               if (statusText) {
-                statusText.innerHTML = `<strong>TONI Voice (Charon):</strong> Hearing your voice... Speak now.`;
+                statusText.innerText = "Got you...";
               }
             } else {
               if (mark) {
                 mark.style.transform = "scale(1)";
               }
               if (statusText && voiceActive) {
-                statusText.innerHTML = `<strong>TONI Voice (Charon):</strong> Listening to your viewing mood... Speak now.`;
+                statusText.innerText = "Listening...";
               }
             }
           }
@@ -1041,7 +1041,7 @@
         if (micBtn) micBtn.className = "px-3 py-2 rounded-full border border-lime ring-2 ring-lime animate-pulse bg-lime/25 text-ink transition-all flex items-center gap-1.5 flex-shrink-0 text-xs font-sans font-semibold";
         if (btnLabel) btnLabel.innerText = "Listening...";
         if (statusBar) statusBar.classList.remove("hidden");
-        if (statusText) statusText.innerHTML = `<strong>TONI Voice (Charon):</strong> Listening to your viewing mood... Speak now.`;
+        if (statusText) statusText.innerText = "Listening...";
       } else if (state === "responding") {
         if (mark) {
           mark.classList.add("toni-loader-arcs");
@@ -1049,9 +1049,9 @@
           mark.style.transform = "";
         }
         if (micBtn) micBtn.className = "px-3 py-2 rounded-full border border-ink/40 bg-bone text-ink transition-all flex items-center gap-1.5 flex-shrink-0 text-xs font-sans font-medium";
-        if (btnLabel) btnLabel.innerText = "TONI Speaking...";
+        if (btnLabel) btnLabel.innerText = "TONI is responding...";
         if (statusBar) statusBar.classList.remove("hidden");
-        if (statusText) statusText.innerHTML = `<strong>TONI Voice (Charon):</strong> Film-critic response streaming...`;
+        if (statusText) statusText.innerText = "TONI is responding...";
       } else {
         if (mark) {
           mark.classList.remove("toni-mark-listening");
@@ -1283,7 +1283,7 @@
         console.error("Voice turn error:", err);
         updateVoiceUIState("default");
         voiceActive = false;
-        appendToniMessage("I had trouble hearing that clearly. Tell me what kind of mood or pacing feels right tonight.");
+        appendToniMessage("I had trouble catching that clearly. Tell me what kind of pace or mood feels right.");
       }
     }
 
@@ -1345,13 +1345,13 @@
       ctaWrap.innerHTML = `
         <div class="p-3.5 bg-lime/15 border border-lime/40 rounded-xl space-y-2.5 max-w-md shadow-xs">
           <p class="text-xs font-sans text-ink font-medium">
-            TONI is ready to curate your shortlist based on your criteria.
+            I've got enough to make some recommendations.
           </p>
           <button type="button" 
                   id="inline-find-fits-btn"
                   onclick="handleReadyCTAClick()"
                   class="px-5 py-2.5 rounded-full bg-ink text-bone font-medium text-xs tracking-wide transition border border-transparent hover:border-lime hover:text-lime shadow-md active:scale-98 flex items-center gap-2">
-            <span>Find what fits tonight</span>
+            <span>Find what fits</span>
             <span>→</span>
           </button>
         </div>
@@ -1460,10 +1460,10 @@
     function renderStep1() {
       const html = `
         <p class="text-sm sm:text-base font-medium text-ink">
-          Good evening. I'm TONI, your agentic cinema guide. How much effort do you want to give right now?
+          I'm TONI. How much help do you want choosing something to watch?
         </p>
         <p class="text-xs text-ink-muted mt-1">
-          You can tap a suggested answer below or type directly in the chat bar.
+          You can tap an option below or just tell me in chat.
         </p>
 
         <!-- Effort selection chips -->
@@ -1500,16 +1500,16 @@
     function renderStep2() {
       const html = `
         <p class="text-sm sm:text-base font-medium text-ink">
-          Where are you streaming tonight, and should we include digital rentals or purchases?
+          Where are you watching from, and should I include rentals or purchases?
         </p>
         <p class="text-xs text-ink-muted mt-1">
-          Catalogues differ significantly between countries.
+          Available films vary significantly by country.
         </p>
 
         <div class="space-y-3 pt-2">
-          <!-- Market Choices -->
+          <!-- Country Choices -->
           <div>
-            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Market:</span>
+            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Country:</span>
             <div class="flex gap-2">
               <button type="button" 
                       id="btn-market-uk"
@@ -1528,7 +1528,7 @@
 
           <!-- Rent / Buy Choices -->
           <div>
-            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Rental / Purchase Option:</span>
+            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Rentals &amp; purchases:</span>
             <div class="flex gap-2">
               <button type="button" 
                       id="btn-rent-no"
@@ -1540,7 +1540,7 @@
                       id="btn-rent-yes"
                       onclick="selectRentBuy(true)" 
                       class="px-4 py-1.5 rounded-full text-xs font-semibold border ${chatState.allow_rent_buy ? 'border-lime bg-lime/25 text-ink' : 'border-ink/20 bg-bone text-ink/80'} transition">
-                Rent &amp; Buy OK
+                Include rentals &amp; purchases
               </button>
             </div>
           </div>
@@ -1593,7 +1593,7 @@
     function confirmStep2() {
       if (chatState.step > 2) return;
       chatState.step = 3;
-      const rentText = chatState.allow_rent_buy ? "Rent & Buy OK" : "Included only";
+      const rentText = chatState.allow_rent_buy ? "Include rentals & purchases" : "Included only";
       appendUserMessage(`${chatState.country}, ${rentText}`);
       setTimeout(renderStep3, 350);
     }
@@ -1629,19 +1629,19 @@
       const html = `
         <div class="flex items-center justify-between gap-2">
           <p class="text-sm sm:text-base font-medium text-ink">
-            Which streaming services do you have access to tonight?
+            Which channels do you have access to?
           </p>
           <div class="flex items-center gap-1.5 flex-shrink-0">
             <button type="button" onclick="selectAllServicesInChat()" class="text-[11px] font-semibold px-2 py-0.5 rounded border border-ink/20 bg-bone hover:border-lime">
-              Select All
+              Select all
             </button>
             <button type="button" onclick="clearAllServicesInChat()" class="text-[11px] font-semibold px-2 py-0.5 rounded border border-ink/20 bg-bone hover:border-ink/40 text-ink-muted">
-              Clear All
+              Clear all
             </button>
           </div>
         </div>
         <p class="text-xs text-ink-muted mt-0.5">
-          I will strictly verify availability against these services before ranking.
+          I'll only recommend films you can actually watch.
         </p>
 
         <div class="flex flex-wrap gap-2 pt-2" id="chat-service-chips-container">
@@ -1652,7 +1652,7 @@
           <button type="button" 
                   onclick="confirmStep3()"
                   class="px-5 py-2 rounded-full bg-ink text-bone text-xs font-semibold hover:text-lime transition shadow-2xs">
-            Confirm streaming access →
+            Confirm channels →
           </button>
         </div>
       `;
@@ -1695,12 +1695,12 @@
     function confirmStep3() {
       if (chatState.step > 3) return;
       if (chatState.service_access.length === 0 && !chatState.allow_rent_buy) {
-        showBrandModal("Streaming Access Required", "Please choose at least one streaming service you have access to, or enable digital rentals.");
+        showBrandModal("Channel Access Required", "Please choose at least one channel you have access to, or enable digital rentals.");
         return;
       }
       chatState.step = 4;
       const count = chatState.service_access.length;
-      appendUserMessage(count > 0 ? `${count} services selected (${chatState.service_access.slice(0, 3).join(", ")}${count > 3 ? '...' : ''})` : "Rentals only");
+      appendUserMessage(count > 0 ? `${count} channels selected (${chatState.service_access.slice(0, 3).join(", ")}${count > 3 ? '...' : ''})` : "Rentals only");
 
       if (chatState.intake_depth === 'just_give_me_something') {
         setTimeout(renderReadyTurn, 350);
@@ -1714,29 +1714,29 @@
       const isDeep = chatState.intake_depth === 'get_to_know_me';
       const html = `
         <p class="text-sm sm:text-base font-medium text-ink">
-          What cadence and emotional character are you seeking tonight?
+          What sort of pace and mood are you after?
         </p>
 
         <!-- Pacing options -->
         <div class="space-y-3 pt-2">
           <div>
-            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Pacing Appetite:</span>
+            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Pace:</span>
             <div class="flex flex-wrap gap-2" id="pacing-btn-group">
               <button type="button" onclick="setPacing('brisk', this)" class="px-3 py-1.5 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition">
-                ⚡ Brisk (Fast, energetic)
+                ⚡ Fast and energetic
               </button>
               <button type="button" onclick="setPacing('measured', this)" class="px-3 py-1.5 rounded-full text-xs font-semibold border border-lime bg-lime/25 text-ink transition">
-                ⏱️ Measured (Deliberate)
+                ⏱️ Steady and absorbing
               </button>
               <button type="button" onclick="setPacing('slow', this)" class="px-3 py-1.5 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition">
-                🌿 Slow (Contemplative)
+                🌿 Slow and thoughtful
               </button>
             </div>
           </div>
 
           <!-- Desired tone options -->
           <div>
-            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Desired Tone:</span>
+            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Mood:</span>
             <div class="flex flex-wrap gap-1.5" id="tone-btn-group">
               <button type="button" onclick="setTone('tense', this)" class="px-3 py-1 rounded-full text-xs font-medium border border-ink/20 bg-bone hover:border-lime transition">
                 Tense &amp; suspenseful
@@ -1759,13 +1759,13 @@
           ${isDeep ? `
           <!-- Deep mode: Exclusions -->
           <div>
-            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Hard Exclusions:</span>
+            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Anything you definitely don't want?</span>
             <select id="chat-exclude-genre" onchange="chatState.exclude_genre=this.value" class="bg-bone border border-ink/20 rounded-[4px] px-3 py-1.5 text-xs text-ink font-medium">
-              <option value="">No exclusions</option>
-              <option value="Horror">Exclude Horror</option>
-              <option value="Crime">Exclude Crime</option>
-              <option value="Sci-Fi">Exclude Sci-Fi</option>
-              <option value="Comedy">Exclude Comedy</option>
+              <option value="">Nothing to rule out</option>
+              <option value="Horror">No horror</option>
+              <option value="Crime">No crime</option>
+              <option value="Sci-Fi">No sci-fi</option>
+              <option value="Comedy">No comedy</option>
             </select>
           </div>
           ` : ''}
@@ -1774,7 +1774,7 @@
             <button type="button" 
                     onclick="confirmStep4()"
                     class="px-5 py-2 rounded-full bg-ink text-bone text-xs font-semibold hover:text-lime transition shadow-2xs">
-              Confirm taste preferences →
+              Confirm preferences →
             </button>
           </div>
         </div>
@@ -1809,7 +1809,7 @@
     function confirmStep4() {
       if (chatState.step > 4) return;
       chatState.step = 5;
-      const desc = `${chatState.pacing} pacing${chatState.tone ? ', ' + chatState.tone : ''}`;
+      const desc = `${chatState.pacing} pace${chatState.tone ? ', ' + chatState.tone : ''}`;
       appendUserMessage(desc);
       setTimeout(renderReadyTurn, 350);
     }
@@ -1819,17 +1819,17 @@
       chatState.step = 5;
       const html = `
         <p class="text-sm sm:text-base font-medium text-ink">
-          I have everything I need to synthesize tonight's shortlist!
+          That's enough to get started.
         </p>
         <p class="text-xs text-ink-muted mt-1">
-          Have any specific mood or actors in mind? Type below or tap "Find what fits tonight" to open your shortlist.
+          Have a specific actor, director or feeling in mind? Type below, or tap Find what fits to see your shortlist.
         </p>
         <div class="pt-3">
           <button type="button" 
                   id="final-generate-btn"
                   onclick="triggerPipelineExecution()"
                   class="px-6 py-3 rounded-full bg-ink text-bone font-medium text-xs tracking-wide transition border border-transparent hover:border-lime hover:text-lime shadow-md active:scale-98 flex items-center gap-2">
-            <span>Find what fits tonight</span>
+            <span>Find what fits</span>
             <span>→</span>
           </button>
         </div>
@@ -2040,34 +2040,51 @@
 
       } catch (err) {
         switchToView("intake");
-        showBrandModal("Recommendation Error", err.message);
+        showBrandModal("Notice", "Something went wrong while I was finding your films. Try again, or adjust your choices.");
         isGenerating = false;
       }
     }
 
-    // Render Dedicated "What fits tonight?" Results Page
+    // Render Dedicated "What fits?" Results Page
     function renderDedicatedResultsPage(data) {
       switchToView("results");
 
+      const recs = data.recommendations || [];
+
+      // Results badge truthfulness: only "Availability checked" if availability actually checked
+      const resultsBadge = document.getElementById("results-badge");
+      const allAvailable = recs.length > 0 && recs.every(r => r.availability && (r.availability.status === "available" || (r.availability.matched_services && r.availability.matched_services.length > 0)));
+      if (resultsBadge) {
+        if (allAvailable) {
+          resultsBadge.innerText = "Availability checked";
+          resultsBadge.className = "text-[11px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-lime text-ink";
+        } else {
+          resultsBadge.innerText = "Shortlist";
+          resultsBadge.className = "text-[11px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-bone border border-ink/20 text-ink-muted";
+        }
+      }
+
       const regionTag = document.getElementById("results-region-tag");
-      if (regionTag) regionTag.innerText = `Market: ${chatState.country} • ${chatState.service_access.slice(0, 3).join(', ')}`;
+      if (regionTag) {
+        const channelsStr = chatState.service_access.length ? chatState.service_access.slice(0, 3).join(', ') : (chatState.allow_rent_buy ? "Rentals & purchases" : "All channels");
+        regionTag.innerText = `Country: ${chatState.country} • ${channelsStr}`;
+      }
 
       const watchcardsContainer = document.getElementById("watchcards-container");
       const additionalContainer = document.getElementById("additional-candidates-container");
       if (watchcardsContainer) watchcardsContainer.innerHTML = "";
       if (additionalContainer) additionalContainer.innerHTML = "";
 
-      const recs = data.recommendations || [];
       if (!recs.length) {
         if (watchcardsContainer) {
           watchcardsContainer.innerHTML = `
             <div class="p-8 text-center rounded-[6px] border border-ink/20 bg-white/70 space-y-4">
-              <h3 class="font-serif text-2xl font-bold text-ink">No candidates matched tonight's constraints</h3>
+              <h3 class="font-serif text-2xl font-bold text-ink">Nothing matched your current choices</h3>
               <p class="text-xs sm:text-sm text-ink-muted max-w-md mx-auto font-serif">
-                None of our verified candidates are currently available on your selected streaming services in ${chatState.country}. Try enabling digital rentals or adjusting genre exclusions.
+                None of the films in our pool match all your selected channels and boundaries in ${chatState.country}. Try including digital rentals, selecting additional channels, or clearing genre exclusions.
               </p>
               <button type="button" onclick="returnToChat()" class="px-5 py-2.5 rounded-full bg-ink text-bone text-xs font-semibold hover:text-lime transition">
-                ← Adjust in Chat
+                ← Adjust in chat
               </button>
             </div>
           `;
@@ -2118,13 +2135,13 @@
 
         const services = rec.availability.matched_services.length 
           ? rec.availability.matched_services.join(", ") 
-          : "Available to Rent or Buy";
+          : "Available to rent or buy";
 
         const sources = rec.evidence_sources || [];
         const sourcesHtml = sources.length 
           ? `
             <div class="mt-4 pt-3 border-t border-ink/10">
-              <span class="text-xs font-semibold text-ink-muted block mb-1.5 font-sans">Verified critical reviews &amp; evidence:</span>
+              <span class="text-xs font-semibold text-ink-muted block mb-1.5 font-sans">Critical reviews &amp; evidence:</span>
               <ul class="space-y-1 text-xs font-sans">
                 ${sources.slice(0, 3).map(url => `
                   <li class="truncate">
@@ -2187,6 +2204,7 @@
                   ${rec.metadata.genres.map(g => `<span class="px-2 py-0.5 rounded-[3px] text-[11px] bg-ink/5 text-ink-muted font-medium border border-ink/10">${escapeHtml(g)}</span>`).join("")}
                 </div>
                 <div class="mt-4 pt-3 border-t border-ink/10">
+                  <span class="text-xs font-semibold text-ink-muted block mb-1 font-sans">Why TONI chose this:</span>
                   <p class="text-sm sm:text-base font-serif text-ink leading-relaxed">
                     “${escapeHtml(rec.concise_reason)}”
                   </p>
@@ -2200,7 +2218,7 @@
             <details class="mt-5 pt-3 border-t border-ink/10 group/fits">
               <summary class="cursor-pointer text-xs font-semibold text-ink-muted hover:text-ink flex items-center justify-between select-none py-1">
                 <span class="font-sans text-xs font-semibold text-ink/75 group-hover/fits:text-ink">
-                  View editorial dimension breakdown &amp; evidence
+                  What the evidence says
                 </span>
                 <span class="text-[11px] text-ink-subtle group-open/fits:rotate-180 transition-transform">▼</span>
               </summary>
@@ -2226,11 +2244,11 @@
 
       // Render candidates 4-7 as interactive accordions
       if (additional.length > 0) {
-        additionalContainer.innerHTML = `<h3 class="text-xs font-bold text-ink-muted uppercase tracking-wider font-sans mb-2">Ranked Candidates (4 to 7)</h3>`;
+        additionalContainer.innerHTML = `<h3 class="text-xs font-bold text-ink-muted uppercase tracking-wider font-sans mb-2">Ranked candidates (4 to 7)</h3>`;
 
         additional.forEach((rec, idx) => {
           const rankNum = idx + 4;
-          const services = rec.availability.matched_services.length ? rec.availability.matched_services.join(", ") : "Available to Rent or Buy";
+          const services = rec.availability.matched_services.length ? rec.availability.matched_services.join(", ") : "Available to rent or buy";
           const details = document.createElement("details");
           details.className = "group rounded-[6px] border border-ink/15 bg-white/70 overflow-hidden hover:border-ink/30 transition";
 
@@ -2334,7 +2352,7 @@
       if (tSig) chatState.tone = tSig.value;
 
       setTimeout(() => {
-        appendToniMessage(`Loaded persona <strong>${name}</strong> (${ctx.country}, ${ctx.service_access.join(', ')}). Ready to synthesize your shortlist!`);
+        appendToniMessage(`Loaded persona <strong>${name}</strong> (${ctx.country}, ${ctx.service_access.join(', ')}). Ready to find what fits!`);
         renderReadyTurn();
       }, 300);
     }
