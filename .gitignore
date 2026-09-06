@@ -17,3 +17,8 @@ venv/
 # Raw logged output from Parallel search/extract calls: third-party review
 # content, kept local for review, not for publishing or committing.
 logs/
+
+# Scratch & superseded exploration spikes
+spikes/
+.agents/
+
