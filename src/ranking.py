@@ -413,68 +413,61 @@ def calculate_personal_fit_score(profile: FilmProfile, metadata: FilmMetadata, c
 
 
 def generate_concise_reason(title: str, score: int, profile: FilmProfile, context: UserContext) -> str:
-    """Generates a warm, natural, and highly specific explanation of why a film matches tonight's context."""
+    """Generates a warm, natural explanation of why a film fits this user, given what they asked for.
+    Follows: film characteristic -> user preference/context -> why that matters.
+    Avoids generic superlatives and remains time-neutral.
+    """
     signals = context.tonight_signals + context.persistent_taste
     pacing_req = next((s.value for s in signals if s.name == "pacing"), None)
     tone_req = next((s.value for s in signals if s.name == "tone"), None)
 
-    reasons = []
-    tone_matched = False
+    tone_str = tone_req if isinstance(tone_req, str) else (tone_req[0] if isinstance(tone_req, list) and tone_req else None)
+    tone_matched = bool(tone_str and any(tone_str.lower() in t.lower() for t in profile.tone_and_emotional_character))
 
-    if tone_req:
-        tone_str = tone_req if isinstance(tone_req, str) else tone_req[0]
-        if tone_str.lower() in [t.lower() for t in profile.tone_and_emotional_character]:
-            reasons.append(f"perfectly captures the {tone_str.lower()} vibe you are looking for")
-            tone_matched = True
-
+    # Identify key film characteristic matching user preference
+    char_phrases = []
+    if tone_matched and tone_str:
+        char_phrases.append(f"its {tone_str.lower()} mood")
+    
     if pacing_req:
-        if pacing_req == "brisk" and profile.pacing_and_structure >= 4.0:
-            reasons.append("offers a briskly paced, highly engaging structure")
-        elif pacing_req == "slow" and profile.pacing_and_structure <= 2.5:
-            reasons.append("delivers a beautifully measured, slow-burning narrative space")
+        p_val = str(pacing_req).lower()
+        if p_val in ("brisk", "fast") and profile.pacing_and_structure >= 3.8:
+            char_phrases.append("a fast, energetic pace")
+        elif p_val in ("slow", "thoughtful") and profile.pacing_and_structure <= 3.0:
+            char_phrases.append("a slow, thoughtful build")
+        elif p_val in ("measured", "steady"):
+            char_phrases.append("a steady, absorbing rhythm")
 
-    if not reasons:
-        # Fallback reasons based on peak dimensions
-        if profile.craft_and_execution >= 4.5:
-            reasons.append("boasts incredible directorial craft and gorgeous cinematography")
-        if profile.performances >= 4.5:
-            reasons.append("presents standout, emotionally resonant actor performances")
+    if not char_phrases:
+        if profile.performances >= 4.0:
+            char_phrases.append("strong ensemble acting")
+        if profile.craft_and_execution >= 4.0:
+            char_phrases.append("focused visual direction")
+        if profile.story_and_writing >= 4.0:
+            char_phrases.append("tightly structured writing")
 
-    # Construct reason prefix
-    if reasons:
-        reason_suffix = " and ".join(reasons)
-        start_phrase = f"This film {reason_suffix}"
+    if not char_phrases:
+        char_phrases.append("balanced storytelling")
+
+    feature_str = " and ".join(char_phrases)
+
+    # Connect to user preference and why that matters
+    if tone_matched and pacing_req:
+        return f"Its {feature_str} directly reflects what you asked for, giving you a focused match without unnecessary drag."
+    elif tone_matched:
+        return f"Its {feature_str} matches the feeling you're after, making it a natural choice for your shortlist."
+    elif score >= 75:
+        return f"With {feature_str}, it provides a well-paced option that fits your selected pace and channels."
+    elif score >= 55:
+        return f"Its {feature_str} offers a solid alternative that still respects your boundaries and preferred pace."
     else:
-        start_phrase = f"{title} stands as a well-rounded and crafted cinematic option"
-
-    # Decide fit description based on score and tone matching
-    if tone_req and not tone_matched:
-        # Tone mismatch
-        if score >= 60:
-            fit_phrase = "making it a highly compelling alternative despite not matching your exact mood preferences tonight."
-        else:
-            fit_phrase = "offering a different cinematic flavor if you are open to shifting your mood tonight."
-    else:
-        if score >= 80:
-            fit_phrase = "making it an exceptional, top-tier fit for your evening!"
-        elif score >= 60:
-            fit_phrase = "making it a highly promising option for your evening."
-        elif score >= 40:
-            fit_phrase = "representing a solid alternative choice for tonight."
-        else:
-            fit_phrase = "offering a more casual, unexpected option if you're in the mood for a detour."
-
-    return f"{start_phrase}, {fit_phrase}"
+        return f"Its {feature_str} gives you an interesting alternative if you'd like to explore something different."
 
 
 def generate_stretch_signal(profile: FilmProfile, context: UserContext) -> Optional[str]:
-    """Determines if a film qualifies as an artistic stretch recommendation.
-
-    Returns the stretch reasoning if valid, else None.
+    """Determines if a film qualifies as a stretch recommendation.
+    Explains the trade-off plainly without judging the user's preferences or overpraising the film.
     """
-    if profile.craft_and_execution < 4.5:
-        return None
-
     signals = context.tonight_signals + context.persistent_taste
     demanding_val = None
     for s in signals:
@@ -485,10 +478,16 @@ def generate_stretch_signal(profile: FilmProfile, context: UserContext) -> Optio
             except (ValueError, TypeError):
                 pass
 
-    if demanding_val is not None:
-        # If user wants very easy viewing (demandingness <= 2.5) but the film is highly demanding (demandingness >= 4.0)
-        if demanding_val <= 2.5 and profile.accessibility_and_demandingness >= 4.0:
-            return f"While more demanding ({profile.accessibility_and_demandingness}/5) than your preferred easy vibe, its masterful directing represents an incredibly rewarding stretch."
+    tone_val = next((s.value for s in signals if s.name == "tone"), None)
+    tone_str = tone_val if isinstance(tone_val, str) else (tone_val[0] if isinstance(tone_val, list) and tone_val else None)
+
+    if demanding_val is not None and demanding_val <= 3.0 and profile.accessibility_and_demandingness >= 4.0:
+        if tone_str and any(tone_str.lower() in t.lower() for t in profile.tone_and_emotional_character):
+            return f"It's more demanding than your other matches, but it still connects directly with your interest in a {tone_str.lower()} mood."
+        elif profile.craft_and_execution >= 4.0:
+            return "It's more demanding than your other matches, but its focused direction and performances make it worth considering if you want something bolder."
+        else:
+            return "It's more demanding than your other matches, but gives you a distinct alternative if you want to branch out."
 
     return None
 
@@ -520,15 +519,15 @@ def discover_candidates_with_gemini(context: UserContext) -> List[FilmMetadata]:
     )
     max_runtime = int(max_runtime_signal.value) if max_runtime_signal is not None else None
 
-    prompt = f"""You are TONI, an expert cinema discovery agent.
-Based on the viewer's current session criteria, generate a diverse candidate list of 15 to 20 acclaimed, well-reviewed feature films (from any era, 1960 to 2024) that fit what the viewer is looking for tonight.
+    prompt = f"""You are TONI, a discerning cinema discovery guide.
+Based on the viewer's current preferences, generate a diverse candidate list of 15 to 20 acclaimed, well-reviewed feature films (from any era, 1960 to 2025) that fit what the viewer is in the mood for.
 
-Viewer Session Criteria:
+Viewer Preferences:
 - Country: {context.country}
-- Streaming access: {', '.join(context.service_access) if context.service_access else 'Any'}
+- Channels: {', '.join(context.service_access) if context.service_access else 'Any'}
 - Allow Rent/Buy: {context.allow_rent_buy}
-- Desired pacing: {pacing or 'any'}
-- Desired tone: {tone or 'any'}
+- Desired pace: {pacing or 'any'}
+- Desired mood: {tone or 'any'}
 - Demandingness effort: {demandingness or 'any'} / 5.0
 - Maximum runtime: {f'{max_runtime} minutes' if max_runtime else 'no strict limit'}
 - Excluded genres: {', '.join(exclude_genres) if exclude_genres else 'none'}
@@ -537,7 +536,7 @@ Requirements:
 1. Provide between 15 and 20 distinct, high-quality feature films.
 2. Strictly exclude any titles containing these genres: {', '.join(exclude_genres) if exclude_genres else 'none'}.
 3. If maximum runtime is specified ({max_runtime}), only suggest films with runtimes within that limit.
-4. Include a balance of top-tier matching films, accessible crowd favorites, and 2-3 artistically bold, contemplative films (as potential stretch recommendations).
+4. Include a balance of top matches, accessible favourites, and 2-3 bolder films (as potential stretch recommendations).
 5. For each film, provide accurate title, release year, director, approximate runtime, age rating, and genres.
 """
     try:
@@ -790,7 +789,7 @@ def _rank_movies_live(
 
         fit_score = calculate_personal_fit_score(profile, metadata, context)
         stretch_reason = generate_stretch_signal(profile, context)
-        concise_reason = consensus_rationale or generate_concise_reason(metadata.title, fit_score, profile, context)
+        concise_reason = generate_concise_reason(metadata.title, fit_score, profile, context)
 
         return Recommendation(
             metadata=metadata,

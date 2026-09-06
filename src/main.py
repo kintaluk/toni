@@ -95,15 +95,15 @@ def render_card(rec: Any) -> None:
     print(f"{role_color}├{border_char * width}┤{RESET}")
     
     # Rationale reason (Wrap words simple)
-    reason_label = "  Why Tonight: "
+    reason_label = "  Why this fits: "
     reason_text = rec.concise_reason
     
-    # Wrap ONLY the reason text (width - 18 to account for label prefix and borders)
+    # Wrap ONLY the reason text (width - 19 to account for label prefix and borders)
     words = reason_text.split()
     lines = []
     current_line = []
     for w in words:
-        if len(" ".join(current_line + [w])) < (width - 18):
+        if len(" ".join(current_line + [w])) < (width - 19):
             current_line.append(w)
         else:
             lines.append(" ".join(current_line))
@@ -115,11 +115,11 @@ def render_card(rec: Any) -> None:
         if idx == 0:
             print_line = f"{reason_label}{l}"
             line_spacing = width - len(print_line) - 2
-            print(f"{role_color}│{RESET}{BOLD}{YELLOW}  Why Tonight: {RESET}{YELLOW}{l}{RESET}{' ' * line_spacing}{role_color}│{RESET}")
+            print(f"{role_color}│{RESET}{BOLD}{YELLOW}  Why this fits: {RESET}{YELLOW}{l}{RESET}{' ' * line_spacing}{role_color}│{RESET}")
         else:
-            print_line = f"               {l}"
+            print_line = f"                 {l}"
             line_spacing = width - len(print_line) - 2
-            print(f"{role_color}│{RESET}{YELLOW}               {l}{RESET}{' ' * line_spacing}{role_color}│{RESET}")
+            print(f"{role_color}│{RESET}{YELLOW}                 {l}{RESET}{' ' * line_spacing}{role_color}│{RESET}")
             
     # Stretch reason if available
     if rec.stretch_signal:

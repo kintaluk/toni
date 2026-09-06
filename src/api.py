@@ -154,7 +154,7 @@ DEMO_PERSONAS = [
     {
         "id": "persona_a",
         "name": "Persona A: The Comedy & Fun Seeker",
-        "description": "Brisk pacing, light attention effort (2.0/5), seeking a funny tone in the UK with Netflix access and rent/buy allowed.",
+        "description": "Fast and energetic pace, light effort (2.0/5), seeking a funny mood in the UK with Netflix access and rentals included.",
         "context": {
             "country": "UK",
             "service_access": ["Netflix"],
@@ -171,7 +171,7 @@ DEMO_PERSONAS = [
     {
         "id": "persona_b",
         "name": "Persona B: The Classic Drama & Crime Lover",
-        "description": "High attention effort (4.0/5), intense mood in the US with Paramount+ and Pluto TV (strictly included, no rent/buy).",
+        "description": "Steady, absorbing pace with higher attention effort (4.0/5), intense mood in the US with Paramount+ and Pluto TV (included only).",
         "context": {
             "country": "US",
             "service_access": ["Paramount+", "Pluto TV"],
@@ -187,7 +187,7 @@ DEMO_PERSONAS = [
     {
         "id": "persona_c",
         "name": "Persona C: The Fantasy Adventurer",
-        "description": "Wants a magical tone in the US, hard excluding Sci-Fi and Crime genres, with Netflix access.",
+        "description": "Magical mood in the US, ruling out sci-fi and crime, with Netflix access.",
         "context": {
             "country": "US",
             "service_access": ["Netflix"],
@@ -397,12 +397,12 @@ def _process_voice_turn_fallback(turn_req: VoiceTurnRequest) -> VoiceTurnRespons
 
         # Strict readiness: only if explicit affirmative user intent is detected
         if ready:
-            reply = "I've locked into your viewing mood. Let's find what fits tonight across your available services!"
+            reply = "I've got a good sense of what you're after. Let's see what fits."
         elif extracted_signals:
-            summary_parts = [f"{s.name} as {s.value}" for s in extracted_signals]
-            reply = f"Noted: {', '.join(summary_parts)}. What streaming services are we watching on tonight?"
+            summary_parts = [f"{s.value}" for s in extracted_signals]
+            reply = f"Got it — {', '.join(summary_parts)}. Which channels do you have access to?"
         else:
-            reply = "I'm TONI, and I'm listening. Tell me what kind of emotional tone, pacing, or storytelling feels right for tonight."
+            reply = "Tell me what you're in the mood for. A pace, genre, feeling or even a film you liked is enough to start."
 
         clean_reply = enforce_toni_brand_name(reply)
         return VoiceTurnResponse(
@@ -415,7 +415,7 @@ def _process_voice_turn_fallback(turn_req: VoiceTurnRequest) -> VoiceTurnRespons
         print(f"[!] Fallback voice turn exception: {ex}", file=sys.stderr)
         safe_ctx = turn_req.current_context.model_copy(deep=True) if turn_req.current_context else UserContext()
         return VoiceTurnResponse(
-            assistant_reply=enforce_toni_brand_name("I'm TONI, and I'm listening. Tell me what kind of emotional tone, pacing, or storytelling feels right for tonight."),
+            assistant_reply=enforce_toni_brand_name("Tell me what you're in the mood for. A pace, genre, feeling or even a film you liked is enough to start."),
             updated_context=safe_ctx,
             ready_to_recommend=False,
             mode=turn_req.mode or "text"
@@ -460,7 +460,7 @@ def process_voice_turn(turn_req: VoiceTurnRequest) -> VoiceTurnResponse:
             f"Existing Signals: {[(s.name, s.value) for s in turn_req.current_context.tonight_signals]}"
         )
 
-        prompt = f"""You are TONI (Tonight's Options, Narrowed Intelligently), an agentic cinema guide helping a viewer choose what movie to watch tonight.
+        prompt = f"""You are TONI, a cinema guide helping someone choose what to watch.
 Your name is TONI. You must ALWAYS refer to yourself as TONI. NEVER refer to yourself as Charon, Gemini, or any internal voice or model identifier.
 The viewer is speaking or texting with you in mode: '{turn_req.mode}'.
 
@@ -474,21 +474,21 @@ Latest Viewer Utterance:
 "{turn_req.user_input}"
 
 Your task:
-1. Formulate a natural, warm, cinematic assistant reply (1-3 sentences maximum) in your curator persona as TONI.
-   Follow a natural 3-turn intake progression before recommending:
-   - Turn 1: Acknowledge mood and explore desired pacing or tone.
-   - Turn 2: Check territory (UK/US) and active streaming platforms if not yet known.
-   - Turn 3: Check hard boundaries (max runtime, excluded genres) and explicitly ask if the user is ready for shortlist generation.
+1. Formulate a natural, warm, discerning assistant reply (1-3 sentences maximum) in your persona as TONI.
+   Gather the minimum missing information naturally. Do not force a fixed question order. Ask only what is still needed to make a useful recommendation:
+   - Pace or mood / feeling they are in the mood for
+   - Country (UK/US) and channels they have access to, so availability can be guaranteed
+   - Any runtime limits or genres they definitely want to rule out
    If the viewer has already answered any of these, adapt smoothly without repeating answered questions.
 2. Extract any newly stated or implied taste signals:
-   - pacing: "brisk", "steady", or "leisurely" (if mentioned)
+   - pacing: "brisk", "steady", or "slow" (if mentioned)
    - tone: descriptive adjective like "funny", "intense", "magical", "dark", "warm", "satirical", "tense" (if mentioned)
    - demandingness: float 1.0 (light/easy) to 5.0 (heavy/demanding) (if mentioned)
    - max_runtime: integer minutes, e.g. 100, 120 (if mentioned)
    - exclude_genres: list of genres to avoid (e.g. ["Horror", "Sci-Fi"])
    - country: "UK" or "US" (if explicitly mentioned)
-   - services: list of streaming service names if mentioned (e.g. ["Netflix", "Prime Video", "BBC iPlayer", "Disney+"])
-3. Determine ready_to_recommend: set to true ONLY if the user explicitly asks to see films / shortlist / recommendations or confirms they are ready (e.g., 'show me', 'recommend', 'find movies', 'yes please', 'what should I watch', 'bring up the list', 'let\'s see'). Do NOT set to true merely because 2 or more taste signals were mentioned without explicit user confirmation to proceed.
+   - channels / services: list of channel or service names if mentioned (e.g. ["Netflix", "Prime Video", "BBC iPlayer", "Disney+"])
+3. Determine ready_to_recommend: set to true ONLY if the user explicitly asks to see films / recommendations or confirms they are ready (e.g., 'show me', 'recommend', 'find movies', 'yes please', 'what should I watch', 'bring up the list', 'let\'s see', 'find what fits'). Do NOT set to true merely because 2 or more taste signals were mentioned without explicit user confirmation to proceed.
 """
 
         response = None
@@ -558,7 +558,7 @@ Your task:
         explicit_user_ready = any(kw in lower_input for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
         ready_flag = bool(data.ready_to_recommend) or explicit_user_ready
 
-        raw_reply = str(data.assistant_reply).strip() if data.assistant_reply else "I've updated your taste profile for tonight."
+        raw_reply = str(data.assistant_reply).strip() if data.assistant_reply else "I've noted what you're in the mood for."
         clean_reply = enforce_toni_brand_name(raw_reply)
 
         return VoiceTurnResponse(
@@ -772,14 +772,14 @@ async def websocket_voice_live(websocket: WebSocket):
                     )
                 ),
                 system_instruction=types.Content(
-                    parts=[types.Part(text="""You are TONI (Tonight's Options, Narrowed Intelligently), an agentic cinema guide helping a viewer choose what movie to watch tonight. You speak in a warm, thoughtful, film-festival programmer persona as TONI (1-3 sentences maximum per turn). Your name is always TONI. Never refer to yourself as Charon, Gemini, or any internal voice or model identifier. Never lecture or recite long lists.
+                    parts=[types.Part(text="""You are TONI, a cinema guide helping someone choose what to watch. You speak in a warm, thoughtful, discerning persona as TONI (1-3 sentences maximum per turn). Your name is always TONI. Never refer to yourself as Charon, Gemini, or any internal voice or model identifier. Never lecture or recite long lists.
 
-Guide the viewer through a natural 3-turn intake before recommending:
-- Turn 1: Acknowledge their viewing mood and inquire about the pacing or emotional tone they desire tonight.
-- Turn 2: Inquire about their country (UK or US) and what streaming platforms they have active access to tonight (e.g. Netflix, Prime Video, BBC iPlayer, Disney+, etc.) so availability can be guaranteed.
-- Turn 3: Inquire about any hard boundaries (such as a maximum runtime or genres they want to avoid tonight), and explicitly check if they are ready for you to synthesize tonight's shortlist.
+Gather the minimum missing information naturally. Do not force a fixed question order. Ask only what is still needed to make a useful recommendation:
+- The pace or mood / feeling they are in the mood for.
+- Their country (UK or US) and what channels they have access to (e.g. Netflix, Prime Video, BBC iPlayer, Disney+, etc.) so availability can be guaranteed.
+- Any runtime limits or genres they definitely want to rule out, and check if they are ready to see what fits.
 
-Always wait for the viewer to confirm they are ready before offering to reveal the shortlist. If the viewer provides multiple details up front, adapt smoothly without repeating answered questions.""")]
+Always wait for the viewer to confirm they are ready before offering to reveal recommendations. If the viewer provides multiple details up front, adapt smoothly without repeating answered questions.""")]
                 ),
                 input_audio_transcription=types.AudioTranscriptionConfig(),
                 output_audio_transcription=types.AudioTranscriptionConfig(),
@@ -939,7 +939,7 @@ def recommend_movies(
         traceback.print_exc(file=sys.stderr)
         raise HTTPException(
             status_code=500,
-            detail="An internal error occurred while processing your recommendation request. Please contact support."
+            detail="An internal error occurred. Something went wrong while I was finding your films. Try again, or adjust your choices."
         )
 
 

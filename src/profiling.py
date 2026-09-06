@@ -111,7 +111,7 @@ def generate_film_profile(
                     accessibility_and_demandingness=4.0,
                 ),
                 EvidenceState.STRONG_AGREEMENT,
-                "Critics unanimously praised the exceptional direction, visuals, and complex plotting of Nolan's sci-fi epic."
+                "Critics broadly praised the direction, visual design, and intricate plotting of Nolan's sci-fi film."
             )
         elif "babylon" in title_lower:
             return (
@@ -124,7 +124,7 @@ def generate_film_profile(
                     accessibility_and_demandingness=4.2,
                 ),
                 EvidenceState.MEANINGFUL_DISAGREEMENT,
-                "Critics were sharply split, calling the film a chaotic masterpiece of craft but a bloated, exhausting narrative mess."
+                "Critics were divided, noting ambitious craft alongside a dense and demanding narrative structure."
             )
         else:
             # General fallback profile
