@@ -14,6 +14,7 @@ import math
 import struct
 import base64
 import json
+import secrets
 import asyncio
 import traceback
 from collections import defaultdict
@@ -26,7 +27,7 @@ load_dotenv(override=True)
 if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("false", "0"):
     os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
 
-from fastapi import FastAPI, Query, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, Header, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -113,6 +114,10 @@ else:
         "http://127.0.0.1:5500",
         "https://toni-app-38088879709.us-central1.run.app",
     ]
+
+from starlette.middleware.gzip import GZipMiddleware
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(
     CORSMiddleware,
@@ -203,6 +208,9 @@ DEMO_PERSONAS = [
 ]
 
 
+CONVERSATIONS_LOG_PATH = Path("logs") / "conversations.jsonl"
+
+
 @app.get("/api/health", summary="Health Check")
 def health_check() -> Dict[str, Any]:
     """Check API health and status of external integration configurations."""
@@ -213,7 +221,6 @@ def health_check() -> Dict[str, Any]:
         "version": "1.0.0",
         "integrations": {
             "parallel_web": bool(parallel_key),
-            "parallel_key_prefix": parallel_key[:6] + "..." if parallel_key else None,
             "google_cloud_project": bool(os.environ.get("GOOGLE_CLOUD_PROJECT")),
             "watchmode_api": bool(os.environ.get("WATCHMODE_API_KEY")),
             "tmdb_api": bool(os.environ.get("TMDB_API_KEY")),
@@ -240,14 +247,36 @@ def get_personas() -> Dict[str, Any]:
 
 
 @app.get("/api/export-logs", summary="Export Conversation Transcript Logs")
-def export_conversation_logs() -> Dict[str, Any]:
-    """Returns the JSON contents of logs/conversations.jsonl for offline analysis and refinement."""
-    log_file = Path("logs") / "conversations.jsonl"
-    if not log_file.exists():
+def export_conversation_logs(
+    x_admin_secret: Optional[str] = Header(None, alias="X-Admin-Secret"),
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+    authorization: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    """Returns the JSON contents of logs/conversations.jsonl for offline analysis and refinement.
+    Requires ALLOW_LOG_EXPORT=true AND valid ADMIN_LOG_SECRET.
+    """
+    allow_export = os.environ.get("ALLOW_LOG_EXPORT", "").lower() in ("true", "1")
+    admin_secret = os.environ.get("ADMIN_LOG_SECRET")
+
+    # Both server-side enablement AND matching secret are required
+    if not allow_export or not admin_secret:
+        raise HTTPException(status_code=403, detail="Forbidden: Log export is disabled on this server.")
+
+    # Check secret via X-Admin-Secret, X-Admin-Key header or Bearer token
+    bearer_token = None
+    if authorization and authorization.startswith("Bearer "):
+        bearer_token = authorization[7:].strip()
+
+    provided_secret = x_admin_secret or x_admin_key or bearer_token
+    if not provided_secret or not secrets.compare_digest(provided_secret, admin_secret):
+        raise HTTPException(status_code=401, detail="Unauthorized: Invalid admin secret.")
+
+    if not CONVERSATIONS_LOG_PATH.exists():
         return {"total_turns": 0, "turns": []}
+
     turns = []
     try:
-        with open(log_file, "r", encoding="utf-8") as f:
+        with open(CONVERSATIONS_LOG_PATH, "r", encoding="utf-8") as f:
             for line in f:
                 line_str = line.strip()
                 if line_str:
@@ -255,10 +284,12 @@ def export_conversation_logs() -> Dict[str, Any]:
                         turns.append(json.loads(line_str))
                     except json.JSONDecodeError:
                         continue
-        return {"total_turns": len(turns), "turns": turns}
+        # Limit to the most recent 100 turns
+        recent_turns = turns[-100:] if len(turns) > 100 else turns
+        return {"total_turns": len(turns), "returned_turns": len(recent_turns), "turns": recent_turns}
     except Exception as e:
         print(f"[*] Error reading conversation logs: {e}", file=sys.stderr)
-        return {"total_turns": 0, "turns": [], "error": str(e)}
+        return {"total_turns": 0, "returned_turns": 0, "turns": [], "error": "Internal read error"}
 
 
 # --- VOICE & SINGLE-BRAIN DIALOGUE SERVICE ---
@@ -283,8 +314,15 @@ def log_conversation_turn(
 ) -> None:
     """Appends dialogue turn record to logs/conversations.jsonl for offline evaluation."""
     try:
-        os.makedirs("logs", exist_ok=True)
-        log_file = Path("logs") / "conversations.jsonl"
+        CONVERSATIONS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if CONVERSATIONS_LOG_PATH.exists() and CONVERSATIONS_LOG_PATH.stat().st_size > 5 * 1024 * 1024:
+            try:
+                rotated = CONVERSATIONS_LOG_PATH.with_suffix(".jsonl.1")
+                if rotated.exists():
+                    rotated.unlink()
+                CONVERSATIONS_LOG_PATH.rename(rotated)
+            except Exception:
+                pass
 
         serialized_signals = []
         if isinstance(signals, list):
@@ -311,7 +349,8 @@ def log_conversation_turn(
             "signals": serialized_signals,
             "context": serialized_context
         }
-        with open(log_file, "a", encoding="utf-8") as f:
+
+        with open(CONVERSATIONS_LOG_PATH, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as e:
         print(f"[*] Failed to log conversation turn: {e}", file=sys.stderr)
@@ -425,7 +464,7 @@ def _process_voice_turn_fallback(turn_req: VoiceTurnRequest) -> VoiceTurnRespons
 def process_voice_turn(turn_req: VoiceTurnRequest) -> VoiceTurnResponse:
     """Processes a dialogue turn using Gemini Flash if available, with structured fallback."""
     has_gemini_key = bool(os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
-    if not has_gemini_key:
+    if not has_gemini_key or os.environ.get("TONI_MOCK_GEMINI_LIVE") == "true":
         return _process_voice_turn_fallback(turn_req)
 
     try:
@@ -666,6 +705,7 @@ async def websocket_voice_live(websocket: WebSocket):
     gemini_session = None
     gemini_recv_task = None
     live_cm = None
+    connected_model = None
 
     user_transcript_buf: List[str] = []
     assistant_transcript_buf: List[str] = []
@@ -756,12 +796,17 @@ async def websocket_voice_live(websocket: WebSocket):
         except Exception as e:
             print(f"[!] Gemini Live receiver error: {e}", file=sys.stderr)
 
-    if has_gemini_key:
+    if has_gemini_key and not os.environ.get("TONI_MOCK_GEMINI_LIVE"):
         try:
             from google import genai
             from google.genai import types
 
-            client = genai.Client()
+            gemini_api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            if gemini_api_key:
+                client = genai.Client(api_key=gemini_api_key, vertexai=False)
+            else:
+                client = genai.Client()
+
             config = types.LiveConnectConfig(
                 response_modalities=[types.Modality.AUDIO],
                 speech_config=types.SpeechConfig(
@@ -793,12 +838,13 @@ Always wait for the viewer to confirm they are ready before offering to reveal r
             connected_model = None
             live_models = [
                 "gemini-2.5-flash-native-audio-latest",
-                "gemini-3.1-flash-live-preview"
+                "gemini-3.1-flash-live-preview",
+                "gemini-live-2.5-flash-native-audio",
             ]
             for m in live_models:
                 try:
                     live_cm = client.aio.live.connect(model=m, config=config)
-                    gemini_session = await live_cm.__aenter__()
+                    gemini_session = await asyncio.wait_for(live_cm.__aenter__(), timeout=4.0)
                     gemini_recv_task = asyncio.create_task(forward_gemini_responses(gemini_session))
                     connected_model = m
                     print(f"[*] Gemini Live session established with model: {m}", file=sys.stderr)
@@ -829,7 +875,7 @@ Always wait for the viewer to confirm they are ready before offering to reveal r
                     conversation_history = data["conversation_history"]
                 await websocket.send_json({
                     "type": "init_ack",
-                    "status": "ready" if gemini_session else "fallback",
+                    "status": "ready",
                     "voice_name": session_ctx.voice_name or "Charon",
                     "live_model": connected_model or "offline-fallback"
                 })

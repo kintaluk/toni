@@ -29,6 +29,7 @@ from contracts import (
     FilmMetadata,
     FilmProfile,
     EvidenceState,
+    AvailabilityResult,
     OutputRole,
     SignalType,
     SIGNAL_MAX_RUNTIME,
@@ -539,6 +540,9 @@ Requirements:
 4. Include a balance of top matches, accessible favourites, and 2-3 bolder films (as potential stretch recommendations).
 5. For each film, provide accurate title, release year, director, approximate runtime, age rating, and genres.
 """
+    if os.environ.get("TONI_MOCK_GEMINI_LIVE") == "true":
+        return [FilmMetadata(**s["metadata"]) for s in SEED_FILMS]
+
     try:
         from google import genai
         from google.genai import types
@@ -570,8 +574,8 @@ Requirements:
                     runtime_minutes=c.runtime_minutes,
                     age_rating=c.age_rating,
                     genres=c.genres,
-                    poster_url=get_film_poster_url(c.title, c.year),
-                    trailer_url=get_film_trailer_url(c.title, c.year),
+                    poster_url=None,
+                    trailer_url=None,
                 )
                 for c in response.parsed.candidates
             ]
@@ -667,80 +671,44 @@ def _rank_movies_live(
     )
 
     # 3. Candidate Pool Refill: If availability filtering leaves fewer than 3 eligible candidates,
-    # automatically refill from SEED_FILMS so TONI always returns a full Top 3 shortlist.
+    # attempt to refill from SEED_FILMS that strictly pass hard constraints and verified availability.
     if len(surviving_candidates) < 3:
         diagnostic_reason = (
             f"Availability filtering left only {len(surviving_candidates)} eligible candidates "
-            f"(fewer than required 3 for shortlist). Dropout breakdown: "
+            f"(fewer than target 3 for shortlist). Dropout breakdown: "
             f"{len(unavailable_titles)} unavailable in {context.country} for {context.service_access} (rent_buy={context.allow_rent_buy}), "
             f"{unverified_excluded_count} unverified, {len(runtime_excluded_titles)} exceeded runtime ({max_runtime}m), "
             f"{len(genre_excluded_titles)} excluded by genres ({exclude_genres}). "
-            f"Refilling candidate pool from curated SEED_FILMS."
+            f"Checking SEED_FILMS for verified available candidates passing all hard constraints."
         )
         print(f"[TONI Live Pipeline Diagnostic] {diagnostic_reason}", file=sys.stderr)
 
         existing_titles = {meta.title.lower().strip() for meta, _ in surviving_candidates}
+        checked_titles = set(existing_titles)
 
-        # Step 3a: Add seed films that are verified available
+        # Refill only with seed films that pass hard constraints and verified availability
         for seed in SEED_FILMS:
             meta = FilmMetadata(**seed["metadata"])
-            if meta.title.lower().strip() in existing_titles:
+            norm_title = meta.title.lower().strip()
+            if norm_title in checked_titles:
                 continue
+            checked_titles.add(norm_title)
+
             if max_runtime is not None and meta.runtime_minutes > max_runtime:
                 continue
             if any(g.lower().strip() in exclude_genres_lower for g in meta.genres):
                 continue
+
             avail = get_film_availability(meta.title, meta.year, context)
             if avail.status == AvailabilityStatus.AVAILABLE:
                 surviving_candidates.append((meta, avail))
-                existing_titles.add(meta.title.lower().strip())
                 if len(surviving_candidates) >= 3:
                     break
             elif avail.status == AvailabilityStatus.UNVERIFIED:
                 unverified_excluded_count += 1
                 unverified_excluded_titles.append(f"{meta.title} ({meta.year})")
 
-        # Step 3b: If still fewer than 3, add seed films with curated availability matching user's access
-        if len(surviving_candidates) < 3:
-            fallback_services = context.service_access if context.service_access else ["Digital Store"]
-            for seed in SEED_FILMS:
-                meta = FilmMetadata(**seed["metadata"])
-                if meta.title.lower().strip() in existing_titles:
-                    continue
-                if max_runtime is not None and meta.runtime_minutes > max_runtime:
-                    continue
-                if any(g.lower().strip() in exclude_genres_lower for g in meta.genres):
-                    continue
-                curated_avail = AvailabilityResult(
-                    status=AvailabilityStatus.AVAILABLE,
-                    provider="Curated Selection",
-                    country=context.country,
-                    matched_services=fallback_services
-                )
-                surviving_candidates.append((meta, curated_avail))
-                existing_titles.add(meta.title.lower().strip())
-                if len(surviving_candidates) >= 3:
-                    break
-
-        # Step 3c: If strict runtime/genre constraints eliminated seeds, add remaining seeds to guarantee Top 3
-        if len(surviving_candidates) < 3:
-            fallback_services = context.service_access if context.service_access else ["Digital Store"]
-            for seed in SEED_FILMS:
-                meta = FilmMetadata(**seed["metadata"])
-                if meta.title.lower().strip() in existing_titles:
-                    continue
-                curated_avail = AvailabilityResult(
-                    status=AvailabilityStatus.AVAILABLE,
-                    provider="Curated Selection",
-                    country=context.country,
-                    matched_services=fallback_services
-                )
-                surviving_candidates.append((meta, curated_avail))
-                existing_titles.add(meta.title.lower().strip())
-                if len(surviving_candidates) >= 3:
-                    break
-
-        print(f"[TONI Live Pipeline] Refilled candidate pool to {len(surviving_candidates)} eligible candidates.", file=sys.stderr)
+        print(f"[TONI Live Pipeline] Candidate pool after verified refill has {len(surviving_candidates)} eligible candidates.", file=sys.stderr)
 
     if not surviving_candidates:
         print(f"[TONI Live Pipeline Diagnostic] 0 candidates survived after all filtering and refill attempts.", file=sys.stderr)
@@ -887,6 +855,17 @@ def _rank_movies_live(
         if r.metadata.title not in used:
             r.role = OutputRole.RANKED_ADDITIONAL
             final_recs.append(r)
+
+    # Enrich poster and trailer URLs concurrently for final shortlisted recommendations only
+    if final_recs:
+        with ThreadPoolExecutor(max_workers=min(len(final_recs), 8)) as enrich_executor:
+            def enrich_media(rec: Recommendation):
+                if not rec.metadata.poster_url:
+                    rec.metadata.poster_url = get_film_poster_url(rec.metadata.title, rec.metadata.year)
+                if not rec.metadata.trailer_url:
+                    rec.metadata.trailer_url = get_film_trailer_url(rec.metadata.title, rec.metadata.year)
+                return rec
+            list(enrich_executor.map(enrich_media, final_recs))
 
     return RecommendationResponse(
         recommendations=final_recs,

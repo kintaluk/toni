@@ -85,6 +85,19 @@ Reviews:
 """
 
 
+import hashlib
+import threading
+
+_PROFILE_CACHE: Dict[str, Tuple[FilmProfile, EvidenceState, str]] = {}
+_PROFILE_CACHE_LOCK = threading.RLock()
+
+
+def _compute_profile_cache_key(title: str, year: int, director: str, reviews: List[Dict[str, Any]]) -> str:
+    serialized = json.dumps(reviews, sort_keys=True)
+    content_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:16]
+    return f"{title.lower()}:{year}:{director.lower()}:{content_hash}:v1"
+
+
 def generate_film_profile(
     title: str,
     year: int,
@@ -95,9 +108,14 @@ def generate_film_profile(
 
     Falls back to a robust mock generator if reviews list is empty or API keys are missing.
     """
+    cache_key = _compute_profile_cache_key(title, year, director, reviews)
+    with _PROFILE_CACHE_LOCK:
+        if cache_key in _PROFILE_CACHE:
+            return _PROFILE_CACHE[cache_key]
+
     # Fallback/Mock Generator for our seed films if no reviews are supplied or API key is missing
     has_gemini_key = bool(os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GEMINI_API_KEY"))
-    if not reviews or not has_gemini_key:
+    if not reviews or not has_gemini_key or os.environ.get("TONI_MOCK_GEMINI_LIVE") == "true":
         # Local mock profiles for our main seed films to keep integration testing fast and robust
         title_lower = title.lower().strip()
         if "inception" in title_lower:
@@ -189,4 +207,7 @@ def generate_film_profile(
         accessibility_and_demandingness=max(1.0, min(5.0, data.accessibility_and_demandingness)),
     )
 
-    return profile, ev_state, data.consensus_rationale
+    result = (profile, ev_state, data.consensus_rationale)
+    with _PROFILE_CACHE_LOCK:
+        _PROFILE_CACHE[cache_key] = result
+    return result

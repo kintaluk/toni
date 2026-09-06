@@ -323,8 +323,8 @@ def test_seed_film_trailer_urls():
         assert "youtube.com" in meta["trailer_url"]
 
 
-def test_export_logs_endpoint():
-    """Verify /api/export-logs returns a valid JSON response with total_turns and turns list."""
+def test_export_logs_endpoint(monkeypatch):
+    """Verify /api/export-logs requires enablement flag + admin secret, and returns valid turn logs."""
     from api import log_conversation_turn
     test_ctx = UserContext(
         country="UK",
@@ -341,7 +341,20 @@ def test_export_logs_endpoint():
         context=test_ctx
     )
 
-    response = client.get("/api/export-logs")
+    # 1. Without enablement flag, should return 403 Forbidden
+    monkeypatch.delenv("ALLOW_LOG_EXPORT", raising=False)
+    monkeypatch.delenv("ADMIN_LOG_SECRET", raising=False)
+    res_disabled = client.get("/api/export-logs")
+    assert res_disabled.status_code == 403
+
+    # 2. With enablement flag but without secret header, should return 401 Unauthorized
+    monkeypatch.setenv("ALLOW_LOG_EXPORT", "true")
+    monkeypatch.setenv("ADMIN_LOG_SECRET", "test_admin_key_123")
+    res_unauth = client.get("/api/export-logs")
+    assert res_unauth.status_code == 401
+
+    # 3. With enablement flag and valid x-admin-key header, should return 200 OK
+    response = client.get("/api/export-logs", headers={"x-admin-key": "test_admin_key_123"})
     assert response.status_code == 200
     data = response.json()
     assert "total_turns" in data
