@@ -149,6 +149,7 @@ def generate_film_profile(
     prompt = build_profiling_prompt(title, year, director, reviews)
 
     response = None
+    last_exception = None
     for model_candidate in ["gemini-pro-latest", "gemini-flash-latest", "gemini-2.5-pro"]:
         try:
             response = client.models.generate_content(
@@ -162,11 +163,14 @@ def generate_film_profile(
             )
             if response and response.parsed:
                 break
-        except Exception:
+        except Exception as e:
+            last_exception = e
+            print(f"[!] Profiling candidate {model_candidate} failed for '{title}': {e}", file=sys.stderr)
             continue
 
-    if not response.parsed:
-        raise RuntimeError("Gemini profiling failed to return parseable response schema.")
+    if not response or not response.parsed:
+        err_msg = f"Gemini profiling failed to return parseable response schema for '{title}' (last model exception: {last_exception})."
+        raise RuntimeError(err_msg)
 
     data: GeminiProfileSchema = response.parsed
 

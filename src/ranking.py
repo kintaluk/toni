@@ -558,7 +558,8 @@ Requirements:
                 )
                 if response and response.parsed:
                     break
-            except Exception:
+            except Exception as e:
+                print(f"[!] Candidate discovery candidate {model_candidate} failed: {e}", file=sys.stderr)
                 continue
         if response and response.parsed and response.parsed.candidates:
             candidates = [
@@ -767,6 +768,7 @@ def _rank_movies_live(
         except Exception as e:
             print(f"[!] Evidence error for {metadata.title}: {e}", file=sys.stderr)
 
+        is_fallback_profile = False
         try:
             profile, ev_state, consensus_rationale = generate_film_profile(
                 title=metadata.title,
@@ -776,6 +778,7 @@ def _rank_movies_live(
             )
         except Exception as e:
             print(f"[!] Profiling error for {metadata.title}: {e}", file=sys.stderr)
+            is_fallback_profile = True
             profile = FilmProfile(
                 story_and_writing=4.0,
                 pacing_and_structure=3.8,
@@ -785,11 +788,14 @@ def _rank_movies_live(
                 tone_and_emotional_character=["engaging"]
             )
             ev_state = EvidenceState.SPARSE_EVIDENCE
-            consensus_rationale = "Critics broadly commended this production."
+            consensus_rationale = "Baseline profile (fallback): critical review consensus could not be synthesized by Gemini."
 
         fit_score = calculate_personal_fit_score(profile, metadata, context)
         stretch_reason = generate_stretch_signal(profile, context)
-        concise_reason = generate_concise_reason(metadata.title, fit_score, profile, context)
+        if is_fallback_profile:
+            concise_reason = "Baseline match based on film characteristics (live AI review synthesis was unavailable for this title)."
+        else:
+            concise_reason = generate_concise_reason(metadata.title, fit_score, profile, context)
 
         return Recommendation(
             metadata=metadata,
