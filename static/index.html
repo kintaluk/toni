@@ -9,6 +9,7 @@
   <!-- Favicon & Design Tokens -->
   <link rel="icon" type="image/svg+xml" href="static/assets/TONI_Favicon_16px_Deep_Ink.svg" onerror="this.href='assets/TONI_Favicon_16px_Deep_Ink.svg'">
   <link rel="stylesheet" href="static/assets/TONI_Design_Tokens.css" onerror="this.href='assets/TONI_Design_Tokens.css'">
+  <link rel="stylesheet" href="static/assets/toni.bundle.css" onerror="this.href='assets/toni.bundle.css'">
   
   <!-- Typography: Newsreader (Editorial Serif) & Plus Jakarta Sans (Modern Interface) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -540,40 +541,110 @@
       return `https://duckduckgo.com/?q=%21ducky+site%3Aimdb.com%2Ftitle+${encodeURIComponent(title + ' ' + year)}`;
     }
 
+    const _IMDB_LOOKUP_IN_FLIGHT = new Map();
+    const _IMDB_NEGATIVE_CACHE = new Map(); // key -> timestamp
+    const _IMDB_NEGATIVE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL
+
     async function resolveMissingImdbId(title, year, key) {
       if (FILM_REGISTRY[key] && FILM_REGISTRY[key].imdb) return;
 
-      try {
-        const searchQ = `${title} ${year} film`;
-        const wikiRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQ)}&format=json&origin=*`);
-        const wikiData = await wikiRes.json();
-        const results = wikiData?.query?.search || [];
-        if (!results.length) return;
+      const now = Date.now();
+      const failedAt = _IMDB_NEGATIVE_CACHE.get(key);
+      if (failedAt && (now - failedAt) < _IMDB_NEGATIVE_TTL_MS) {
+        return;
+      }
 
-        const pageId = results[0].pageid;
-        const propRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&prop=pageprops&pageids=${pageId}&format=json&origin=*`);
-        const propData = await propRes.json();
-        const qid = propData?.query?.pages?.[pageId]?.pageprops?.wikibase_item;
-        if (!qid) return;
+      if (_IMDB_LOOKUP_IN_FLIGHT.has(key)) {
+        return _IMDB_LOOKUP_IN_FLIGHT.get(key);
+      }
 
-        const wdRes = await fetch(`https://www.wikidata.org/wiki/Special:EntityData/${qid}.json?origin=*`);
-        const wdData = await wdRes.json();
-        const claims = wdData?.entities?.[qid]?.claims;
-        const imdbId = claims?.P345?.[0]?.mainsnak?.datavalue?.value;
-        const ytId = claims?.P1651?.[0]?.mainsnak?.datavalue?.value;
+      const lookupPromise = (async () => {
+        try {
+          const searchQ = `${title} ${year} film`;
+          const wikiRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQ)}&format=json&origin=*`);
+          const wikiData = await wikiRes.json();
+          const results = wikiData?.query?.search || [];
+          if (!results.length) {
+            _IMDB_NEGATIVE_CACHE.set(key, Date.now());
+            return;
+          }
 
-        if (imdbId) {
-          if (!FILM_REGISTRY[key]) FILM_REGISTRY[key] = {};
-          FILM_REGISTRY[key].imdb = imdbId;
-          if (ytId && !FILM_REGISTRY[key].trailer) FILM_REGISTRY[key].trailer = ytId;
+          const pageId = results[0].pageid;
+          const propRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&prop=pageprops&pageids=${pageId}&format=json&origin=*`);
+          const propData = await propRes.json();
+          const qid = propData?.query?.pages?.[pageId]?.pageprops?.wikibase_item;
+          if (!qid) {
+            _IMDB_NEGATIVE_CACHE.set(key, Date.now());
+            return;
+          }
 
-          const directUrl = `https://www.imdb.com/title/${imdbId}/`;
-          document.querySelectorAll(`[data-imdb-for="${key}"]`).forEach(el => {
-            el.href = directUrl;
-          });
+          const wdRes = await fetch(`https://www.wikidata.org/wiki/Special:EntityData/${qid}.json?origin=*`);
+          const wdData = await wdRes.json();
+          const claims = wdData?.entities?.[qid]?.claims;
+          const imdbId = claims?.P345?.[0]?.mainsnak?.datavalue?.value;
+          const ytId = claims?.P1651?.[0]?.mainsnak?.datavalue?.value;
+
+          if (imdbId) {
+            if (!FILM_REGISTRY[key]) FILM_REGISTRY[key] = {};
+            FILM_REGISTRY[key].imdb = imdbId;
+            if (ytId && !FILM_REGISTRY[key].trailer) FILM_REGISTRY[key].trailer = ytId;
+
+            const directUrl = `https://www.imdb.com/title/${imdbId}/`;
+            document.querySelectorAll(`[data-imdb-for="${key}"]`).forEach(el => {
+              el.href = directUrl;
+            });
+          } else {
+            _IMDB_NEGATIVE_CACHE.set(key, Date.now());
+          }
+        } catch (e) {
+          _IMDB_NEGATIVE_CACHE.set(key, Date.now());
+        } finally {
+          _IMDB_LOOKUP_IN_FLIGHT.delete(key);
         }
-      } catch (e) {}
+      })();
+
+      _IMDB_LOOKUP_IN_FLIGHT.set(key, lookupPromise);
+      return lookupPromise;
     }
+
+    // Safe DOM creator for Monograph fallback to eliminate inline onerror script injection
+    function createEditorialFallbackElement(title, year, directImdbUrl, normKey) {
+      const a = document.createElement("a");
+      a.href = directImdbUrl || "#";
+      if (normKey) a.setAttribute("data-imdb-for", normKey);
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.title = `View official IMDb movie page for ${title}`;
+      a.className = "group/poster block w-24 sm:w-28 h-36 sm:h-40 flex-shrink-0 rounded-[4px] border border-ink/15 bg-white/70 p-2.5 flex flex-col justify-between text-center select-none shadow-xs hover:border-lime transition";
+
+      const monoDiv = document.createElement("div");
+      monoDiv.className = "text-[9px] text-ink-subtle font-sans font-semibold uppercase tracking-wider";
+      monoDiv.textContent = "Monograph";
+
+      const titleDiv = document.createElement("div");
+      titleDiv.className = "font-serif font-bold text-xs sm:text-sm text-ink leading-snug line-clamp-3";
+      titleDiv.textContent = title;
+
+      const yearDiv = document.createElement("div");
+      yearDiv.className = "text-[10px] text-ink-muted font-sans font-medium";
+      yearDiv.textContent = year ? `${year} ↗` : "↗";
+
+      a.appendChild(monoDiv);
+      a.appendChild(titleDiv);
+      a.appendChild(yearDiv);
+      return a;
+    }
+
+    window.handlePosterError = function(imgEl) {
+      if (!imgEl || !imgEl.parentElement) return;
+      const parent = imgEl.parentElement;
+      const title = parent.getAttribute("data-poster-title") || "Film";
+      const year = parent.getAttribute("data-poster-year") || "";
+      const href = parent.getAttribute("href") || "#";
+      const normKey = parent.getAttribute("data-imdb-for") || "";
+      const fallback = createEditorialFallbackElement(title, year, href, normKey);
+      parent.replaceWith(fallback);
+    };
 
     // Conversational State Machine
     const chatState = {
@@ -585,7 +656,33 @@
       pacing: "measured",
       tone: "",
       demandingness: 3.0,
-      exclude_genre: "",
+      _exclude_genres: [],
+      get exclude_genre() {
+        return this._exclude_genres.length ? (this._exclude_genres.length === 1 ? this._exclude_genres[0] : this._exclude_genres) : "";
+      },
+      set exclude_genre(val) {
+        if (!val) {
+          this._exclude_genres = [];
+        } else if (Array.isArray(val)) {
+          this._exclude_genres = val.map(g => String(g).trim()).filter(Boolean);
+        } else {
+          const s = String(val).trim();
+          this._exclude_genres = s ? [s] : [];
+        }
+      },
+      get exclude_genres() {
+        return this._exclude_genres;
+      },
+      set exclude_genres(val) {
+        if (!val) {
+          this._exclude_genres = [];
+        } else if (Array.isArray(val)) {
+          this._exclude_genres = val.map(g => String(g).trim()).filter(Boolean);
+        } else {
+          const s = String(val).trim();
+          this._exclude_genres = s ? [s] : [];
+        }
+      },
       max_runtime: null,
       freeform_mood: "",
       dialogue_mode: "text",
@@ -593,9 +690,87 @@
       lastResults: null
     };
 
+    function setExcludeGenre(val) {
+      if (!val) {
+        chatState.exclude_genre = "";
+        chatState.exclude_genres = [];
+      } else if (Array.isArray(val)) {
+        const arr = val.map(g => String(g).trim()).filter(Boolean);
+        chatState.exclude_genres = arr;
+        chatState.exclude_genre = arr.length === 1 ? arr[0] : (arr.length > 1 ? arr : "");
+      } else {
+        const s = String(val).trim();
+        chatState.exclude_genre = s;
+        chatState.exclude_genres = s ? [s] : [];
+      }
+    }
+
+    function getEffectiveExcludedGenres() {
+      // Prioritize non-empty exclude_genres array
+      if (Array.isArray(chatState.exclude_genres) && chatState.exclude_genres.length > 0) {
+        return chatState.exclude_genres.map(g => String(g).trim()).filter(Boolean);
+      }
+      // Fallback to exclude_genre (ensuring empty exclude_genres array never shadows it)
+      if (chatState.exclude_genre) {
+        if (Array.isArray(chatState.exclude_genre)) {
+          return chatState.exclude_genre.map(g => String(g).trim()).filter(Boolean);
+        }
+        const s = String(chatState.exclude_genre).trim();
+        if (s) return [s];
+      }
+      if (typeof chatState.exclude_genres === "string" && chatState.exclude_genres.trim()) {
+        return [chatState.exclude_genres.trim()];
+      }
+      return [];
+    }
+
+    let sessionGeneration = 0;
+    let turnQueue = Promise.resolve();
+    let activeTurnAbortController = null;
+    let latestDialogueTurnId = 0;
+    let completedDialogueTurnId = 0;
+    let lastConsumedDialogueTurnId = 0;
+    let currentVoiceTurnId = 0;
+    let voiceTurnInterrupted = false;
+    let voiceTurnAssistantStarted = false;
+    let voiceTurnUserText = "";
+    let activeVoiceTurnDeferred = null;
+
+    let fieldVersions = {
+      pacing: 0,
+      tone: 0,
+      demandingness: 0,
+      exclude_genres: 0,
+      max_runtime: 0,
+      freeform_mood: 0,
+      country: 0,
+      service_access: 0,
+      allow_rent_buy: 0
+    };
+
+    let recommendationRequestId = 0;
+    let activeRecommendationAbortController = null;
+    let recommendationRenderTimer = null;
+
+    let autoRecommendationTimer = null;
+    let autoRecommendationTurnId = 0;
+    let autoRecommendationSessionGen = 0;
+    let autoRecommendationVoiceGen = 0;
+
+    function cancelAutoRecommendationTimer() {
+      if (autoRecommendationTimer) {
+        clearTimeout(autoRecommendationTimer);
+        autoRecommendationTimer = null;
+      }
+    }
+
     let cachedProviders = {};
     let isGenerating = false;
     let voiceActive = false;
+    let isListening = false;
+    let voiceSessionGeneration = 0;
+    let liveWsReady = false;
+    let micReady = false;
     let liveWs = null;
     let micMediaStream = null;
     let audioRecordContext = null;
@@ -604,6 +779,38 @@
     let nextAudioPlaybackTime = 0;
     let activeAudioSourceNodes = [];
     let isToniSpeaking = false;
+    let pendingMicSetups = new Map();
+
+    function abortPendingMicSetup(gen) {
+      const pending = pendingMicSetups.get(gen);
+      if (pending) {
+        pending.cancelled = true;
+        if (pending.stream) {
+          try {
+            pending.stream.getTracks().forEach(t => { try { t.stop(); } catch(e) {} });
+          } catch(e) {}
+          pending.stream = null;
+        }
+        if (pending.processor) {
+          try {
+            pending.processor.onaudioprocess = null;
+            pending.processor.disconnect();
+          } catch(e) {}
+          pending.processor = null;
+        }
+        if (pending.recordContext) {
+          try { pending.recordContext.close(); } catch(e) {}
+          pending.recordContext = null;
+        }
+        pendingMicSetups.delete(gen);
+      }
+    }
+
+    function abortAllPendingMicSetups() {
+      for (const gen of Array.from(pendingMicSetups.keys())) {
+        abortPendingMicSetup(gen);
+      }
+    }
 
     function triggerApertureMicroStep() {
       const mark = document.getElementById("header-aperture-mark");
@@ -765,38 +972,6 @@
 
     // --- GENUINE GEMINI LIVE API WEBSOCKET & PCM AUDIO ENGINE ---
 
-    // SpeechRecognition safety guard & listening state
-    let isListening = false;
-    let speechRecognition = null;
-
-    function safeStartSpeechRecognition(recognitionInstance) {
-      const rec = recognitionInstance || speechRecognition;
-      if (!rec) return;
-      if (isListening) return;
-      try {
-        isListening = true;
-        rec.start();
-      } catch (err) {
-        if (err.name === "InvalidStateError" || (err.message && (err.message.includes("already started") || err.message.includes("started")))) {
-          isListening = true;
-        } else {
-          console.warn("SpeechRecognition start notice:", err);
-          isListening = false;
-        }
-      }
-    }
-
-    function safeStopSpeechRecognition(recognitionInstance) {
-      const rec = recognitionInstance || speechRecognition;
-      if (!rec) return;
-      try {
-        isListening = false;
-        rec.stop();
-      } catch (err) {
-        // Safe ignore
-      }
-    }
-
     function getAudioPlaybackContext() {
       if (!audioPlaybackContext) {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -806,10 +981,29 @@
           audioPlaybackContext = new AudioCtx();
         }
       }
-      if (audioPlaybackContext.state === "suspended") {
+      if (audioPlaybackContext && audioPlaybackContext.state === "suspended") {
         audioPlaybackContext.resume();
       }
       return audioPlaybackContext;
+    }
+
+    function stopPlaybackAudio() {
+      if (activeAudioSourceNodes.length > 0) {
+        activeAudioSourceNodes.forEach(node => {
+          try {
+            node.onended = null;
+            node.stop();
+            node.disconnect();
+          } catch(e) {}
+        });
+        activeAudioSourceNodes = [];
+      }
+      if (audioPlaybackContext) {
+        try { audioPlaybackContext.close(); } catch(e) {}
+        audioPlaybackContext = null;
+      }
+      isToniSpeaking = false;
+      nextAudioPlaybackTime = 0;
     }
 
     function base64To24kHzAudioBuffer(base64Data, ctx) {
@@ -831,8 +1025,10 @@
 
     function enqueuePlaybackChunk(base64Data) {
       if (!base64Data) return;
+      const chunkSessionGen = voiceSessionGeneration;
       try {
         const ctx = getAudioPlaybackContext();
+        if (!ctx) return;
         const audioBuffer = base64To24kHzAudioBuffer(base64Data, ctx);
         const source = ctx.createBufferSource();
         source.buffer = audioBuffer;
@@ -848,13 +1044,18 @@
         updateVoiceUIState("responding");
 
         source.onended = () => {
+          if (voiceSessionGeneration !== chunkSessionGen) return;
           const idx = activeAudioSourceNodes.indexOf(source);
           if (idx > -1) activeAudioSourceNodes.splice(idx, 1);
           if (activeAudioSourceNodes.length === 0) {
             isToniSpeaking = false;
-            nextAudioPlaybackTime = ctx.currentTime;
-            if (voiceActive) {
+            if (audioPlaybackContext) {
+              nextAudioPlaybackTime = audioPlaybackContext.currentTime;
+            }
+            if (voiceActive && isListening) {
               updateVoiceUIState("listening");
+            } else if (voiceActive) {
+              updateVoiceUIState("connecting");
             } else {
               updateVoiceUIState("default");
             }
@@ -868,7 +1069,11 @@
     function cancelLocalPlayback() {
       if (activeAudioSourceNodes.length > 0) {
         activeAudioSourceNodes.forEach(node => {
-          try { node.stop(); } catch(e) {}
+          try {
+            node.onended = null;
+            node.stop();
+            node.disconnect();
+          } catch(e) {}
         });
         activeAudioSourceNodes = [];
       }
@@ -876,13 +1081,22 @@
         nextAudioPlaybackTime = audioPlaybackContext.currentTime;
       }
       isToniSpeaking = false;
-      if (voiceActive) {
+      if (voiceActive && isListening) {
         updateVoiceUIState("listening");
       }
     }
 
     function handleBargeIn() {
+      cancelAutoRecommendationTimer();
       cancelLocalPlayback();
+      finalizeVoiceUserMessage();
+      finalizeVoiceAssistantMessage();
+      if (activeVoiceTurnDeferred) {
+        activeVoiceTurnDeferred.resolve();
+        activeVoiceTurnDeferred = null;
+      }
+      voiceTurnInterrupted = true;
+      currentVoiceTurnId = ++latestDialogueTurnId;
       if (liveWs && liveWs.readyState === WebSocket.OPEN) {
         liveWs.send(JSON.stringify({ type: "interrupt" }));
       }
@@ -929,16 +1143,109 @@
       return window.btoa(binary);
     }
 
-    async function startMicCapture() {
+    function checkVoiceReadiness(gen) {
+      if (voiceSessionGeneration !== gen || !voiceActive) return;
+      if (liveWsReady && micReady) {
+        isListening = true;
+        updateVoiceUIState("listening");
+      } else if (!liveWsReady && micReady) {
+        updateVoiceUIState("connecting");
+        const statusText = document.getElementById("voice-status-text");
+        if (statusText) statusText.innerText = "Connecting to Gemini Live...";
+      } else if (liveWsReady && !micReady) {
+        updateVoiceUIState("connecting");
+        const statusText = document.getElementById("voice-status-text");
+        if (statusText) statusText.innerText = "Waiting for microphone...";
+      }
+    }
+
+    function teardownVoiceSession(expectedGen = null, noticeMessage = null) {
+      if (expectedGen !== null && voiceSessionGeneration !== expectedGen) {
+        return; // Stale call for an older session; never touch newer session resources
+      }
+      if (activeVoiceTurnDeferred) {
+        activeVoiceTurnDeferred.resolve();
+        activeVoiceTurnDeferred = null;
+      }
+      const terminatingGen = voiceSessionGeneration;
+      voiceSessionGeneration++;
+      voiceActive = false;
+      isListening = false;
+      liveWsReady = false;
+      micReady = false;
+      voiceTurnInterrupted = false;
+      voiceTurnAssistantStarted = false;
+      voiceTurnUserText = "";
+
+      // Immediately abort and release any pending setup resources owned by this session or prior sessions
+      if (expectedGen !== null) {
+        abortPendingMicSetup(expectedGen);
+      } else {
+        abortAllPendingMicSetups();
+      }
+      abortPendingMicSetup(terminatingGen);
+
       stopMicCapture();
+      stopPlaybackAudio();
+
+      if (liveWs) {
+        try {
+          liveWs.onopen = null;
+          liveWs.onmessage = null;
+          liveWs.onerror = null;
+          liveWs.onclose = null;
+          liveWs.close();
+        } catch(e) {}
+        liveWs = null;
+      }
+
+      updateVoiceUIState("default");
+      chatState.dialogue_mode = "text";
+
+      if (noticeMessage) {
+        appendToniMessage(noticeMessage);
+      }
+    }
+
+    async function startMicCapture(currentVoiceGen) {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        teardownVoiceSession(currentVoiceGen, "Microphone access is not supported in this browser context. You can continue typing your preferences.");
         showBrandModal("Microphone Access", "Your browser does not support or allow microphone capture in this context. Please check permissions.");
-        updateVoiceUIState("default");
-        voiceActive = false;
         return;
       }
+
+      const pending = {
+        generation: currentVoiceGen,
+        stream: null,
+        recordContext: null,
+        processor: null,
+        cancelled: false
+      };
+      pendingMicSetups.set(currentVoiceGen, pending);
+
+      let localStream = null;
+      let localRecordContext = null;
+      let localProcessor = null;
+
+      function abortLocal() {
+        pending.cancelled = true;
+        if (localStream) {
+          try { localStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+          localStream = null;
+        }
+        if (localProcessor) {
+          try { localProcessor.onaudioprocess = null; localProcessor.disconnect(); } catch(e) {}
+          localProcessor = null;
+        }
+        if (localRecordContext) {
+          try { localRecordContext.close(); } catch(e) {}
+          localRecordContext = null;
+        }
+        abortPendingMicSetup(currentVoiceGen);
+      }
+
       try {
-        micMediaStream = await navigator.mediaDevices.getUserMedia({
+        localStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             channelCount: 1,
             echoCancellation: true,
@@ -947,28 +1254,60 @@
           }
         });
 
+        pending.stream = localStream;
+
+        // Recheck session ownership after getUserMedia
+        if (pending.cancelled || voiceSessionGeneration !== currentVoiceGen || !voiceActive) {
+          abortLocal();
+          return;
+        }
+
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         try {
-          audioRecordContext = new AudioCtx({ sampleRate: 16000 });
+          localRecordContext = new AudioCtx({ sampleRate: 16000 });
         } catch(e) {
-          audioRecordContext = new AudioCtx();
-        }
-        if (audioRecordContext.state === "suspended") {
-          await audioRecordContext.resume();
+          localRecordContext = new AudioCtx();
         }
 
-        const source = audioRecordContext.createMediaStreamSource(micMediaStream);
-        const processor = audioRecordContext.createScriptProcessor(4096, 1, 1);
-        audioWorkletOrProcessor = processor;
+        pending.recordContext = localRecordContext;
 
-        const silentGain = audioRecordContext.createGain();
+        if (pending.cancelled || voiceSessionGeneration !== currentVoiceGen || !voiceActive) {
+          abortLocal();
+          return;
+        }
+
+        if (localRecordContext.state === "suspended") {
+          try {
+            await localRecordContext.resume();
+          } catch (resumeErr) {
+            if (pending.cancelled || voiceSessionGeneration !== currentVoiceGen || !voiceActive) {
+              abortLocal();
+              return;
+            }
+            throw resumeErr;
+          }
+
+          // Recheck session ownership after AudioContext.resume()
+          if (pending.cancelled || voiceSessionGeneration !== currentVoiceGen || !voiceActive) {
+            abortLocal();
+            return;
+          }
+        }
+
+        const source = localRecordContext.createMediaStreamSource(localStream);
+        const processor = localRecordContext.createScriptProcessor(4096, 1, 1);
+        localProcessor = processor;
+        pending.processor = processor;
+
+        const silentGain = localRecordContext.createGain();
         silentGain.gain.value = 0;
         source.connect(processor);
         processor.connect(silentGain);
-        silentGain.connect(audioRecordContext.destination);
+        silentGain.connect(localRecordContext.destination);
 
         processor.onaudioprocess = (e) => {
-          if (!voiceActive) return;
+          // Gate microphone processing and sending on session ownership, mic readiness, AND server ready acknowledgement
+          if (voiceSessionGeneration !== currentVoiceGen || !voiceActive || !micReady || !liveWsReady) return;
           const inputData = e.inputBuffer.getChannelData(0);
 
           let sum = 0;
@@ -979,7 +1318,7 @@
 
           if (isToniSpeaking && activeAudioSourceNodes.length === 0) {
             isToniSpeaking = false;
-            if (voiceActive) updateVoiceUIState("listening");
+            if (voiceActive && isListening) updateVoiceUIState("listening");
           }
 
           if (isToniSpeaking && rms > 0.035) {
@@ -1000,7 +1339,7 @@
               if (mark) {
                 mark.style.transform = "scale(1)";
               }
-              if (statusText && voiceActive) {
+              if (statusText && voiceActive && isListening) {
                 statusText.innerText = "Listening...";
               }
             }
@@ -1008,7 +1347,7 @@
 
           if (isToniSpeaking) return;
 
-          const downsampled = downsampleTo16kHz(inputData, audioRecordContext.sampleRate);
+          const downsampled = downsampleTo16kHz(inputData, localRecordContext.sampleRate);
           const pcmBuffer = floatTo16BitPCM(downsampled);
           const base64Chunk = arrayBufferToBase64(pcmBuffer);
 
@@ -1019,17 +1358,45 @@
             }));
           }
         };
+
+        // Recheck before assigning to module-level references
+        if (pending.cancelled || voiceSessionGeneration !== currentVoiceGen || !voiceActive) {
+          abortLocal();
+          return;
+        }
+
+        // Clean up previous module-level capture resources if any
+        stopMicCapture();
+
+        micMediaStream = localStream;
+        audioRecordContext = localRecordContext;
+        audioWorkletOrProcessor = localProcessor;
+        micReady = true;
+
+        pendingMicSetups.delete(currentVoiceGen);
+
+        checkVoiceReadiness(currentVoiceGen);
+
       } catch (err) {
+        const wasCancelled = pending.cancelled || voiceSessionGeneration !== currentVoiceGen || !voiceActive;
+        abortLocal();
+        if (wasCancelled) return; // Stale or cancelled failure
         console.error("Microphone capture access error:", err);
+        teardownVoiceSession(currentVoiceGen, "Microphone access was denied. Please grant microphone permissions in your browser to speak with TONI, or continue typing below.");
         showBrandModal("Microphone Access", "Please grant microphone permissions in your browser to speak with TONI.");
-        updateVoiceUIState("default");
-        voiceActive = false;
+      } finally {
+        if (voiceSessionGeneration !== currentVoiceGen || !micReady) {
+          abortLocal();
+        }
       }
     }
 
     function stopMicCapture() {
       if (audioWorkletOrProcessor) {
-        try { audioWorkletOrProcessor.disconnect(); } catch(e) {}
+        try {
+          audioWorkletOrProcessor.onaudioprocess = null;
+          audioWorkletOrProcessor.disconnect();
+        } catch(e) {}
         audioWorkletOrProcessor = null;
       }
       if (audioRecordContext) {
@@ -1042,6 +1409,7 @@
         } catch(e) {}
         micMediaStream = null;
       }
+      micReady = false;
     }
 
     function updateVoiceUIState(state) {
@@ -1051,7 +1419,17 @@
       const statusBar = document.getElementById("voice-status-bar");
       const statusText = document.getElementById("voice-status-text");
 
-      if (state === "listening") {
+      if (state === "connecting") {
+        if (mark) {
+          mark.classList.add("toni-loader-arcs");
+          mark.classList.remove("toni-mark-listening");
+          mark.style.transform = "";
+        }
+        if (micBtn) micBtn.className = "px-3 py-2 rounded-full border border-lime/60 bg-lime/10 text-ink transition-all flex items-center gap-1.5 flex-shrink-0 text-xs font-sans font-medium";
+        if (btnLabel) btnLabel.innerText = "Connecting...";
+        if (statusBar) statusBar.classList.remove("hidden");
+        if (statusText) statusText.innerText = "Connecting to TONI voice...";
+      } else if (state === "listening") {
         if (mark) {
           mark.classList.add("toni-mark-listening");
           mark.classList.remove("toni-loader-arcs");
@@ -1089,7 +1467,15 @@
 
     function appendOrUpdateVoiceUserMessage(chunkText) {
       currentVoiceUserText += chunkText;
+      voiceTurnUserText += chunkText;
       if (!currentVoiceUserBubble) {
+        cancelAutoRecommendationTimer();
+        if (currentVoiceTurnId !== latestDialogueTurnId || voiceTurnInterrupted) {
+          currentVoiceTurnId = ++latestDialogueTurnId;
+          voiceTurnInterrupted = false;
+          voiceTurnAssistantStarted = false;
+          voiceTurnUserText = chunkText;
+        }
         const thread = document.getElementById("toni-chat-thread");
         const wrap = document.createElement("div");
         wrap.className = "flex justify-end chat-message-anim";
@@ -1118,13 +1504,17 @@
     }
 
     function appendOrUpdateVoiceAssistantMessage(chunkText) {
+      if (currentVoiceUserBubble) {
+        finalizeVoiceUserMessage();
+      }
+      voiceTurnAssistantStarted = true;
       currentVoiceAssistantText += chunkText;
       if (!currentVoiceAssistantBubble) {
-        currentVoiceAssistantBubble = appendToniMessage(escapeHtml(currentVoiceAssistantText));
+        currentVoiceAssistantBubble = appendToniMessage(currentVoiceAssistantText);
       } else {
         const textEl = currentVoiceAssistantBubble.querySelector(".font-serif");
         if (textEl) {
-          textEl.innerHTML = escapeHtml(currentVoiceAssistantText);
+          textEl.textContent = currentVoiceAssistantText;
         }
       }
       scrollToBottom();
@@ -1138,41 +1528,157 @@
       currentVoiceAssistantText = "";
     }
 
-    function connectGeminiLiveWebSocket() {
+    function connectGeminiLiveWebSocket(currentVoiceGen) {
       if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
-        return;
+        try {
+          liveWs.onopen = null;
+          liveWs.onmessage = null;
+          liveWs.onerror = null;
+          liveWs.onclose = null;
+          liveWs.close();
+        } catch(e) {}
+        liveWs = null;
       }
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${proto}//${window.location.host}/api/voice/live`;
-      liveWs = new WebSocket(wsUrl);
+      const ws = new WebSocket(wsUrl);
+      liveWs = ws;
 
-      liveWs.onopen = () => {
+      const socketTurnMap = new Map();
+      function getOrCreateConvTurnId(socketTurnId) {
+        if (socketTurnId !== undefined && socketTurnId !== null) {
+          if (!socketTurnMap.has(socketTurnId)) {
+            socketTurnMap.set(socketTurnId, ++latestDialogueTurnId);
+          }
+          return socketTurnMap.get(socketTurnId);
+        }
+        return ++latestDialogueTurnId;
+      }
+
+      ws.onopen = () => {
+        if (voiceSessionGeneration !== currentVoiceGen) return;
         const payload = buildVoiceTurnPayload("", "voice");
-        liveWs.send(JSON.stringify({
+        ws.send(JSON.stringify({
           type: "init",
           context: payload.current_context,
           conversation_history: chatState.conversation_history
         }));
-        updateVoiceUIState("listening");
+        const statusText = document.getElementById("voice-status-text");
+        if (statusText) statusText.innerText = "Connecting...";
       };
 
-      liveWs.onmessage = (event) => {
+      ws.onmessage = (event) => {
+        if (voiceSessionGeneration !== currentVoiceGen) return;
         try {
           const msg = JSON.parse(event.data);
-          if (msg.type === "audio" && msg.data) {
+          if (msg.type === "init_ack") {
+            if (msg.status === "ready") {
+              liveWsReady = true;
+              checkVoiceReadiness(currentVoiceGen);
+            } else {
+              console.log("Gemini Live connection ready in fallback mode:", msg.live_model);
+              teardownVoiceSession(currentVoiceGen, "Live voice is unavailable right now. You can continue by typing your preferences below.");
+            }
+          } else if (msg.type === "error") {
+            console.warn("WebSocket voice error from upstream:", msg);
+            teardownVoiceSession(currentVoiceGen, "Upstream voice connection encountered an issue. You can continue speaking or typing your preferences.");
+          } else if (msg.type === "audio" && msg.data) {
             enqueuePlaybackChunk(msg.data);
+          } else if (msg.type === "speech_complete") {
+            const speechTurnId = (msg.turn_id !== undefined && msg.turn_id !== null && socketTurnMap.has(msg.turn_id))
+              ? socketTurnMap.get(msg.turn_id)
+              : (msg.turn_id ? getOrCreateConvTurnId(msg.turn_id) : currentVoiceTurnId);
+            if (currentVoiceAssistantBubble && (!currentVoiceTurnId || currentVoiceTurnId === speechTurnId)) {
+              finalizeVoiceAssistantMessage();
+            }
+            if (currentVoiceUserBubble && (!currentVoiceTurnId || currentVoiceTurnId === speechTurnId)) {
+              finalizeVoiceUserMessage();
+            }
           } else if (msg.type === "transcript" && msg.text) {
             if (msg.role === "user") {
+              cancelAutoRecommendationTimer();
+              const turnId = getOrCreateConvTurnId(msg.turn_id);
+              if (!currentVoiceUserBubble || currentVoiceTurnId !== turnId) {
+                if (currentVoiceUserBubble) finalizeVoiceUserMessage();
+                if (currentVoiceAssistantBubble) finalizeVoiceAssistantMessage();
+                currentVoiceTurnId = turnId;
+                latestDialogueTurnId = Math.max(latestDialogueTurnId, turnId);
+                voiceTurnInterrupted = false;
+                voiceTurnAssistantStarted = false;
+                voiceTurnUserText = "";
+
+                // Register pending voice extraction in dialogue turnQueue
+                if (activeVoiceTurnDeferred) {
+                  activeVoiceTurnDeferred.resolve();
+                }
+                let vResolve;
+                const vPromise = new Promise((resolve) => {
+                  vResolve = resolve;
+                });
+                activeVoiceTurnDeferred = {
+                  convTurnId: turnId,
+                  resolve: vResolve,
+                  promise: vPromise
+                };
+                turnQueue = turnQueue.then(() => vPromise).catch(() => {});
+              }
               appendOrUpdateVoiceUserMessage(msg.text);
             } else if (msg.role === "assistant") {
+              if (currentVoiceUserBubble) {
+                finalizeVoiceUserMessage();
+              }
+              const turnId = msg.turn_id !== undefined && msg.turn_id !== null
+                ? getOrCreateConvTurnId(msg.turn_id)
+                : currentVoiceTurnId;
+              if (turnId && currentVoiceTurnId && turnId !== currentVoiceTurnId) {
+                if (currentVoiceAssistantBubble) finalizeVoiceAssistantMessage();
+                currentVoiceTurnId = turnId;
+                latestDialogueTurnId = Math.max(latestDialogueTurnId, turnId);
+              }
+              voiceTurnAssistantStarted = true;
               appendOrUpdateVoiceAssistantMessage(msg.text);
             }
           } else if (msg.type === "turn_complete") {
-            finalizeVoiceUserMessage();
-            finalizeVoiceAssistantMessage();
-            if (msg.updated_context) {
-              syncContextToState(msg.updated_context);
+            const completedTurnId = (msg.turn_id !== undefined && msg.turn_id !== null && socketTurnMap.has(msg.turn_id))
+              ? socketTurnMap.get(msg.turn_id)
+              : (msg.turn_id ? getOrCreateConvTurnId(msg.turn_id) : currentVoiceTurnId);
+            const isLatestTurn = completedTurnId === latestDialogueTurnId;
+            const turnUserText = voiceTurnUserText || currentVoiceUserText;
+            const turnBotText = currentVoiceAssistantText;
+            const wasValidTurn = !voiceTurnInterrupted && voiceTurnAssistantStarted && (!currentVoiceUserBubble || currentVoiceTurnId === completedTurnId);
+
+            if (isLatestTurn || currentVoiceTurnId === completedTurnId) {
+              finalizeVoiceUserMessage();
+              finalizeVoiceAssistantMessage();
             }
+
+            // Keep conversation history authoritative and current
+            const uText = msg.user_text || turnUserText;
+            const aText = msg.assistant_reply || turnBotText;
+            if (uText) {
+              const lastUser = [...chatState.conversation_history].reverse().find(m => m.role === "user");
+              if (!lastUser || lastUser.content !== uText) {
+                chatState.conversation_history.push({ role: "user", content: uText });
+              }
+            }
+            if (aText) {
+              const lastAssistant = [...chatState.conversation_history].reverse().find(m => m.role === "assistant");
+              if (!lastAssistant || lastAssistant.content !== aText) {
+                chatState.conversation_history.push({ role: "assistant", content: aText });
+              }
+            }
+
+            if (msg.updated_context) {
+              syncContextToState(msg.updated_context, completedTurnId);
+            }
+            completedDialogueTurnId = Math.max(completedDialogueTurnId, completedTurnId);
+
+            // Unblock dialogue queue for pending voice extraction
+            if (activeVoiceTurnDeferred && activeVoiceTurnDeferred.convTurnId === completedTurnId) {
+              activeVoiceTurnDeferred.resolve();
+              activeVoiceTurnDeferred = null;
+            }
+
             const userTurnCount = chatState.conversation_history.filter(m => m.role === "user").length;
             if (msg.ready_to_recommend || userTurnCount >= 2) {
               renderInlineReadyCTA();
@@ -1181,77 +1687,103 @@
             // Restore listening state for subsequent turns
             if (activeAudioSourceNodes.length === 0) {
               isToniSpeaking = false;
-              if (voiceActive) updateVoiceUIState("listening");
+              if (voiceActive && isListening) updateVoiceUIState("listening");
             } else if (audioPlaybackContext) {
               const remainingSec = Math.max(0.1, nextAudioPlaybackTime - audioPlaybackContext.currentTime);
               setTimeout(() => {
+                if (voiceSessionGeneration !== currentVoiceGen || !voiceActive) return;
                 if (activeAudioSourceNodes.length === 0 || (audioPlaybackContext && audioPlaybackContext.currentTime >= nextAudioPlaybackTime - 0.05)) {
                   isToniSpeaking = false;
-                  if (voiceActive) updateVoiceUIState("listening");
+                  if (voiceActive && isListening) updateVoiceUIState("listening");
                 }
               }, (remainingSec * 1000) + 120);
             }
-            if (msg.ready_to_recommend) {
-              // Only auto-advance if user explicitly spoke affirmative search intent
-              const lastUserTurn = chatState.conversation_history.slice().reverse().find(m => m.role === "user")?.content || "";
+            if (msg.ready_to_recommend && wasValidTurn && isLatestTurn) {
+              // Only auto-advance if user explicitly spoke affirmative search intent in this turn,
+              // AND this turn is still the latest dialogue turn
+              const userTextToCheck = turnUserText;
               const affirmativeVoiceTriggers = ["show me", "recommend", "find movies", "find what fits", "yes please", "what should i watch", "let's see", "surprise me", "bring up", "shortlist", "show shortlist", "let's go"];
-              const spokeExplicitSearch = affirmativeVoiceTriggers.some(t => lastUserTurn.toLowerCase().includes(t));
-              if (spokeExplicitSearch) {
-                setTimeout(() => {
-                  if (voiceActive) toggleSingleBrainVoice();
+              const spokeExplicitSearch = affirmativeVoiceTriggers.some(t => userTextToCheck.toLowerCase().includes(t));
+              if (spokeExplicitSearch &&
+                  completedTurnId === latestDialogueTurnId &&
+                  completedTurnId > lastConsumedDialogueTurnId &&
+                  voiceSessionGeneration === currentVoiceGen &&
+                  voiceActive &&
+                  sessionGeneration === sessionGeneration) {
+                cancelAutoRecommendationTimer();
+                const targetSessionGen = sessionGeneration;
+                const targetVoiceGen = currentVoiceGen;
+                autoRecommendationSessionGen = targetSessionGen;
+                autoRecommendationVoiceGen = targetVoiceGen;
+                autoRecommendationTurnId = completedTurnId;
+                autoRecommendationTimer = setTimeout(() => {
+                  autoRecommendationTimer = null;
+                  if (completedTurnId !== latestDialogueTurnId ||
+                      completedTurnId <= lastConsumedDialogueTurnId ||
+                      voiceSessionGeneration !== targetVoiceGen ||
+                      !voiceActive ||
+                      sessionGeneration !== targetSessionGen) return;
+                  teardownVoiceSession(targetVoiceGen);
                   triggerPipelineExecution();
                 }, 1000);
               }
             }
           } else if (msg.type === "interrupted") {
             cancelLocalPlayback();
+            finalizeVoiceUserMessage();
             finalizeVoiceAssistantMessage();
+            cancelAutoRecommendationTimer();
+            if (activeVoiceTurnDeferred) {
+              activeVoiceTurnDeferred.resolve();
+              activeVoiceTurnDeferred = null;
+            }
+            voiceTurnInterrupted = true;
+            currentVoiceTurnId = ++latestDialogueTurnId;
           }
         } catch (e) {
           console.warn("WS parse notice:", e);
         }
       };
 
-      liveWs.onerror = (e) => {
+      ws.onerror = (e) => {
+        if (activeVoiceTurnDeferred) {
+          activeVoiceTurnDeferred.resolve();
+          activeVoiceTurnDeferred = null;
+        }
+        if (voiceSessionGeneration !== currentVoiceGen) return;
         console.warn("WebSocket live notice:", e);
+        teardownVoiceSession(currentVoiceGen, "Voice connection encountered an issue. You can continue by typing your preferences below.");
       };
 
-      liveWs.onclose = () => {
+      ws.onclose = () => {
+        if (activeVoiceTurnDeferred) {
+          activeVoiceTurnDeferred.resolve();
+          activeVoiceTurnDeferred = null;
+        }
+        if (voiceSessionGeneration !== currentVoiceGen) return;
         if (voiceActive) {
-          updateVoiceUIState("default");
-          voiceActive = false;
-          stopMicCapture();
+          teardownVoiceSession(currentVoiceGen);
         }
       };
     }
 
     async function toggleSingleBrainVoice() {
-      voiceActive = !voiceActive;
-      chatState.dialogue_mode = voiceActive ? "voice" : "text";
-
-      if (!voiceActive) {
-        isListening = false;
-        safeStopSpeechRecognition();
-        stopMicCapture();
-        if (activeAudioSourceNodes.length > 0) {
-          activeAudioSourceNodes.forEach(node => {
-            try { node.stop(); } catch(e) {}
-          });
-          activeAudioSourceNodes = [];
-        }
-        if (liveWs) {
-          try { liveWs.close(); } catch(e) {}
-          liveWs = null;
-        }
-        updateVoiceUIState("default");
+      if (voiceActive) {
+        teardownVoiceSession();
         return;
       }
 
-      isListening = true;
+      const currentVoiceGen = ++voiceSessionGeneration;
+      voiceActive = true;
+      isListening = false;
+      liveWsReady = false;
+      micReady = false;
+      chatState.dialogue_mode = "voice";
+
       getAudioPlaybackContext();
-      updateVoiceUIState("listening");
-      connectGeminiLiveWebSocket();
-      await startMicCapture();
+      updateVoiceUIState("connecting");
+      connectGeminiLiveWebSocket(currentVoiceGen);
+      await startMicCapture(currentVoiceGen);
     }
 
     function toggleGeminiLive() {
@@ -1261,6 +1793,11 @@
     async function handleVoiceUtterance(userUtterance) {
       appendUserMessage(userUtterance);
       updateVoiceUIState("responding");
+      cancelAutoRecommendationTimer();
+      const turnGen = sessionGeneration;
+      const turnVoiceGen = voiceSessionGeneration;
+      const turnId = ++latestDialogueTurnId;
+      currentVoiceTurnId = turnId;
 
       if (liveWs && liveWs.readyState === WebSocket.OPEN) {
         liveWs.send(JSON.stringify({
@@ -1281,10 +1818,13 @@
         if (!res.ok) throw new Error("Voice turn request failed");
         const data = await res.json();
 
+        if (turnGen !== sessionGeneration || turnVoiceGen !== voiceSessionGeneration) return;
+
         chatState.conversation_history.push({ role: "user", content: userUtterance });
         chatState.conversation_history.push({ role: "assistant", content: data.assistant_reply });
 
-        syncContextToState(data.updated_context);
+        syncContextToState(data.updated_context, turnId);
+        completedDialogueTurnId = Math.max(completedDialogueTurnId, turnId);
         appendToniMessage(data.assistant_reply);
         updateVoiceUIState("default");
 
@@ -1295,7 +1835,17 @@
         }
 
         if (data.ready_to_recommend) {
-          setTimeout(() => triggerPipelineExecution(), 600);
+          if (turnId === latestDialogueTurnId && turnId > lastConsumedDialogueTurnId && turnGen === sessionGeneration && turnVoiceGen === voiceSessionGeneration && voiceActive) {
+            cancelAutoRecommendationTimer();
+            autoRecommendationTurnId = turnId;
+            autoRecommendationSessionGen = turnGen;
+            autoRecommendationVoiceGen = turnVoiceGen;
+            autoRecommendationTimer = setTimeout(() => {
+              autoRecommendationTimer = null;
+              if (turnId !== latestDialogueTurnId || turnId <= lastConsumedDialogueTurnId || turnGen !== sessionGeneration || turnVoiceGen !== voiceSessionGeneration || !voiceActive) return;
+              triggerPipelineExecution();
+            }, 600);
+          }
         }
       } catch (err) {
         console.error("Voice turn error:", err);
@@ -1306,23 +1856,38 @@
     }
 
     function buildVoiceTurnPayload(userInput, mode) {
+      const tonight_signals = [];
+      if (chatState.pacing) {
+        tonight_signals.push({ name: "pacing", value: chatState.pacing, signal_type: "soft_session_preference" });
+      }
+      if (chatState.tone) {
+        tonight_signals.push({ name: "tone", value: chatState.tone, signal_type: "soft_session_preference" });
+      }
+      if (chatState.demandingness) {
+        tonight_signals.push({ name: "demandingness", value: chatState.demandingness, signal_type: "soft_session_preference" });
+      }
+      const excludeList = getEffectiveExcludedGenres();
+      if (excludeList.length > 0) {
+        tonight_signals.push({ name: "exclude-genre", value: excludeList, signal_type: "hard_constraint" });
+      }
+      if (chatState.max_runtime) {
+        tonight_signals.push({ name: "max-runtime", value: parseInt(chatState.max_runtime, 10), signal_type: "hard_constraint" });
+      }
+      if (chatState.freeform_mood) {
+        tonight_signals.push({ name: "freeform_mood", value: chatState.freeform_mood, signal_type: "soft_session_preference" });
+      }
+
       return {
         user_input: userInput,
         mode: mode,
         current_context: {
-          country: chatState.country,
-          service_access: chatState.service_access,
-          allow_rent_buy: chatState.allow_rent_buy,
+          country: chatState.country || "UK",
+          service_access: chatState.service_access.length ? chatState.service_access : ["Netflix"],
+          allow_rent_buy: Boolean(chatState.allow_rent_buy),
           intake_depth: chatState.intake_depth || "a_couple_of_questions",
           dialogue_mode: mode,
           voice_name: "Charon",
-          tonight_signals: [
-            ...(chatState.pacing ? [{ name: "pacing", value: chatState.pacing, signal_type: "soft_session_preference" }] : []),
-            ...(chatState.tone ? [{ name: "tone", value: chatState.tone, signal_type: "soft_session_preference" }] : []),
-            ...(chatState.demandingness ? [{ name: "demandingness", value: chatState.demandingness, signal_type: "soft_session_preference" }] : []),
-            ...(chatState.exclude_genre ? [{ name: "exclude-genre", value: [chatState.exclude_genre], signal_type: "hard_constraint" }] : []),
-            ...(chatState.max_runtime ? [{ name: "max-runtime", value: chatState.max_runtime, signal_type: "hard_constraint" }] : [])
-          ],
+          tonight_signals: tonight_signals,
           persistent_taste: [],
           interaction_history: {}
         },
@@ -1330,23 +1895,45 @@
       };
     }
 
-    function syncContextToState(ctx) {
+    function syncContextToState(ctx, turnId = 0) {
       if (!ctx) return;
-      if (ctx.country) chatState.country = ctx.country;
-      if (ctx.service_access && ctx.service_access.length) {
-        chatState.service_access = ctx.service_access;
+      if (ctx.country && (turnId === 0 || turnId >= (fieldVersions.country || 0))) {
+        chatState.country = ctx.country;
+        if (turnId > 0) fieldVersions.country = turnId;
       }
-      if (typeof ctx.allow_rent_buy === "boolean") {
+      if (ctx.service_access && ctx.service_access.length && (turnId === 0 || turnId >= (fieldVersions.service_access || 0))) {
+        chatState.service_access = ctx.service_access;
+        if (turnId > 0) fieldVersions.service_access = turnId;
+      }
+      if (typeof ctx.allow_rent_buy === "boolean" && (turnId === 0 || turnId >= (fieldVersions.allow_rent_buy || 0))) {
         chatState.allow_rent_buy = ctx.allow_rent_buy;
+        if (turnId > 0) fieldVersions.allow_rent_buy = turnId;
       }
       (ctx.tonight_signals || []).forEach(sig => {
-        if (sig.name === "pacing") chatState.pacing = sig.value;
-        if (sig.name === "tone") chatState.tone = sig.value;
-        if (sig.name === "demandingness") chatState.demandingness = sig.value;
-        if (sig.name === "exclude-genre" && Array.isArray(sig.value) && sig.value.length) {
-          chatState.exclude_genre = sig.value[0];
+        if (sig.name === "pacing" && (turnId === 0 || turnId >= (fieldVersions.pacing || 0))) {
+          chatState.pacing = sig.value;
+          if (turnId > 0) fieldVersions.pacing = turnId;
         }
-        if (sig.name === "max-runtime") chatState.max_runtime = sig.value;
+        if (sig.name === "tone" && (turnId === 0 || turnId >= (fieldVersions.tone || 0))) {
+          chatState.tone = sig.value;
+          if (turnId > 0) fieldVersions.tone = turnId;
+        }
+        if (sig.name === "demandingness" && (turnId === 0 || turnId >= (fieldVersions.demandingness || 0))) {
+          chatState.demandingness = sig.value;
+          if (turnId > 0) fieldVersions.demandingness = turnId;
+        }
+        if ((sig.name === "exclude-genre" || sig.name === "exclude_genre" || sig.name === "exclude_genres") && (turnId === 0 || turnId >= (fieldVersions.exclude_genres || 0))) {
+          setExcludeGenre(sig.value);
+          if (turnId > 0) fieldVersions.exclude_genres = turnId;
+        }
+        if ((sig.name === "max-runtime" || sig.name === "max_runtime") && (turnId === 0 || turnId >= (fieldVersions.max_runtime || 0))) {
+          chatState.max_runtime = parseInt(sig.value, 10);
+          if (turnId > 0) fieldVersions.max_runtime = turnId;
+        }
+        if (sig.name === "freeform_mood" && (turnId === 0 || turnId >= (fieldVersions.freeform_mood || 0))) {
+          chatState.freeform_mood = sig.value;
+          if (turnId > 0) fieldVersions.freeform_mood = turnId;
+        }
       });
       refreshServiceChipsUI();
     }
@@ -1729,9 +2316,30 @@
       }
     }
 
+    let dropdownExclusionUserModified = false;
+
+    function handleDropdownExclusionChange(target) {
+      dropdownExclusionUserModified = true;
+      const val = (target && typeof target === "object" && "value" in target) ? target.value : target;
+      setExcludeGenre(val);
+      const el = document.getElementById("chat-exclude-genre");
+      if (el) {
+        el.dataset = el.dataset || {};
+        el.dataset.userChanged = "true";
+      }
+    }
+
     // STEP 4: Pacing & Mood turn
     function renderStep4() {
+      dropdownExclusionUserModified = false;
       const isDeep = chatState.intake_depth === 'get_to_know_me';
+      const effective = getEffectiveExcludedGenres();
+      const isSingleHorror = effective.length === 1 && effective[0] === 'Horror';
+      const isSingleCrime = effective.length === 1 && effective[0] === 'Crime';
+      const isSingleSciFi = effective.length === 1 && effective[0] === 'Sci-Fi';
+      const isSingleComedy = effective.length === 1 && effective[0] === 'Comedy';
+      const isNone = effective.length === 0;
+
       const html = `
         <p class="text-sm sm:text-base font-medium text-ink">
           What sort of pace and mood are you after?
@@ -1780,12 +2388,12 @@
           <!-- Deep mode: Exclusions -->
           <div>
             <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Anything you definitely don't want?</span>
-            <select id="chat-exclude-genre" onchange="chatState.exclude_genre=this.value" class="bg-bone border border-ink/20 rounded-[4px] px-3 py-1.5 text-xs text-ink font-medium">
-              <option value="">Nothing to rule out</option>
-              <option value="Horror">No horror</option>
-              <option value="Crime">No crime</option>
-              <option value="Sci-Fi">No sci-fi</option>
-              <option value="Comedy">No comedy</option>
+            <select id="chat-exclude-genre" onchange="handleDropdownExclusionChange(this)" class="bg-bone border border-ink/20 rounded-[4px] px-3 py-1.5 text-xs text-ink font-medium">
+              <option value="" ${isNone ? 'selected' : ''}>Nothing to rule out</option>
+              <option value="Horror" ${isSingleHorror ? 'selected' : ''}>No horror</option>
+              <option value="Crime" ${isSingleCrime ? 'selected' : ''}>No crime</option>
+              <option value="Sci-Fi" ${isSingleSciFi ? 'selected' : ''}>No sci-fi</option>
+              <option value="Comedy" ${isSingleComedy ? 'selected' : ''}>No comedy</option>
             </select>
           </div>
           ` : ''}
@@ -1800,6 +2408,12 @@
         </div>
       `;
       appendToniMessage(html, "msg-step-4", true);
+      const selectEl = document.getElementById("chat-exclude-genre");
+      if (selectEl) {
+        selectEl.onchange = function() { handleDropdownExclusionChange(this); };
+        selectEl.dataset = selectEl.dataset || {};
+        selectEl.dataset.userChanged = "false";
+      }
     }
 
     function setPacing(val, btn) {
@@ -1828,6 +2442,10 @@
 
     function confirmStep4() {
       if (chatState.step > 4) return;
+      const selectEl = document.getElementById("chat-exclude-genre");
+      if (selectEl && (dropdownExclusionUserModified || (selectEl.dataset && selectEl.dataset.userChanged === "true"))) {
+        setExcludeGenre(selectEl.value);
+      }
       chatState.step = 5;
       const desc = `${chatState.pacing} pace${chatState.tone ? ', ' + chatState.tone : ''}`;
       appendUserMessage(desc);
@@ -1915,26 +2533,51 @@
       }
 
       appendUserMessage(text);
-      processTextDialogueTurn(text);
+      enqueueTextDialogueTurn(text);
     }
 
-    async function processTextDialogueTurn(userText) {
+    function enqueueTextDialogueTurn(userText) {
+      const turnGen = sessionGeneration;
+      const turnId = ++latestDialogueTurnId;
+      // Newer user intent cancels any pending auto-recommendation from earlier turns
+      cancelAutoRecommendationTimer();
+
+      turnQueue = turnQueue.then(async () => {
+        if (turnGen !== sessionGeneration) return;
+        await processTextDialogueTurn(userText, turnGen, turnId);
+      }).catch(err => {
+        console.warn("Turn queue processing notice:", err);
+      });
+      return turnQueue;
+    }
+
+    async function processTextDialogueTurn(userText, turnGen, turnId) {
       chatState.dialogue_mode = "text";
+      if (activeTurnAbortController) {
+        try { activeTurnAbortController.abort(); } catch(e) {}
+      }
+      activeTurnAbortController = new AbortController();
+      const signal = activeTurnAbortController.signal;
+
       try {
         const payload = buildVoiceTurnPayload(userText, "text");
         const res = await fetch("/api/voice/turn", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: signal
         });
 
         if (!res.ok) throw new Error("Dialogue turn failed");
         const data = await res.json();
 
+        if (turnGen !== sessionGeneration) return;
+
         chatState.conversation_history.push({ role: "user", content: userText });
         chatState.conversation_history.push({ role: "assistant", content: data.assistant_reply });
 
-        syncContextToState(data.updated_context);
+        syncContextToState(data.updated_context, turnId);
+        completedDialogueTurnId = Math.max(completedDialogueTurnId, turnId);
         appendToniMessage(data.assistant_reply);
 
         // Ensure Turn 2+ responses from /api/voice/turn always render the inline CTA button
@@ -1947,12 +2590,27 @@
           const lower = userText.toLowerCase();
           const affirmativeTriggers = ["show me", "recommend", "find movies", "find what fits", "yes please", "what should i watch", "let's see", "surprise me", "bring up", "shortlist", "show shortlist", "let's go"];
           if (affirmativeTriggers.some(t => lower.includes(t))) {
-            setTimeout(() => triggerPipelineExecution(), 600);
+            // Reject obsolete scheduling: only schedule if this turn is still the latest intent and session
+            // and has not been consumed by an explicit recommendation request
+            if (turnId === latestDialogueTurnId && turnGen === sessionGeneration && turnId > lastConsumedDialogueTurnId) {
+              cancelAutoRecommendationTimer();
+              autoRecommendationTurnId = turnId;
+              autoRecommendationSessionGen = turnGen;
+              autoRecommendationTimer = setTimeout(() => {
+                autoRecommendationTimer = null;
+                // Reject obsolete execution
+                if (turnId === latestDialogueTurnId && turnGen === sessionGeneration && turnId > lastConsumedDialogueTurnId) {
+                  triggerPipelineExecution();
+                }
+              }, 600);
+            }
           }
         }
       } catch (err) {
+        if (err.name === "AbortError" || turnGen !== sessionGeneration) return;
         console.warn("Text turn fallback notice:", err);
         chatState.freeform_mood = userText;
+        completedDialogueTurnId = Math.max(completedDialogueTurnId, turnId);
         renderInlineReadyCTA();
       }
     }
@@ -1997,8 +2655,48 @@
 
     // Pipeline Execution
     async function triggerPipelineExecution() {
-      if (isGenerating) return;
+      // 1. Establish ownership BEFORE waiting for dialogue
+      const reqSessionGen = sessionGeneration;
+      const reqId = ++recommendationRequestId;
+
+      // An explicit request consumes/supersedes automatic intent from turns whose context is already completed
+      lastConsumedDialogueTurnId = Math.max(lastConsumedDialogueTurnId, completedDialogueTurnId);
+
+      // Cancel any pending automatic recommendation triggers immediately
+      cancelAutoRecommendationTimer();
+
+      // Invalidate superseded recommendation work immediately
+      if (activeRecommendationAbortController) {
+        try { activeRecommendationAbortController.abort(); } catch(e) {}
+        activeRecommendationAbortController = null;
+      }
+      if (recommendationRenderTimer) {
+        clearTimeout(recommendationRenderTimer);
+        recommendationRenderTimer = null;
+      }
+
+      // Await pending dialogue turns in turnQueue so chatState reflects submitted refinements
+      if (turnQueue) {
+        try {
+          await turnQueue;
+        } catch (e) {}
+      }
+
+      // Recheck both identities after awaiting dialogue queue:
+      // If conversation restarted or superseded by a newer recommendation request, bail out immediately
+      // before building payload, changing UI state, or touching controllers
+      if (reqSessionGen !== sessionGeneration || reqId !== recommendationRequestId) {
+        return;
+      }
+
+      // A request only consumes turns whose completed context it actually includes
+      lastConsumedDialogueTurnId = Math.max(lastConsumedDialogueTurnId, completedDialogueTurnId);
+      cancelAutoRecommendationTimer();
+
+      // This request is authoritative
       isGenerating = true;
+      activeRecommendationAbortController = new AbortController();
+      const signal = activeRecommendationAbortController.signal;
 
       // Switch to brand focus breathing loading view
       switchToView("loading");
@@ -2016,8 +2714,13 @@
         tonight_signals.push({ name: "demandingness", value: chatState.demandingness, signal_type: "soft_session_preference" });
       }
 
-      if (chatState.exclude_genre) {
-        tonight_signals.push({ name: "exclude-genre", value: [chatState.exclude_genre], signal_type: "hard_constraint" });
+      const excludeArr = getEffectiveExcludedGenres();
+      if (excludeArr.length > 0) {
+        tonight_signals.push({ name: "exclude-genre", value: excludeArr, signal_type: "hard_constraint" });
+      }
+
+      if (chatState.max_runtime) {
+        tonight_signals.push({ name: "max-runtime", value: parseInt(chatState.max_runtime, 10), signal_type: "hard_constraint" });
       }
 
       if (chatState.freeform_mood) {
@@ -2042,8 +2745,12 @@
         const response = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(context)
+          body: JSON.stringify(context),
+          signal: signal
         });
+
+        // Guard after fetch completion
+        if (reqSessionGen !== sessionGeneration || reqId !== recommendationRequestId) return;
 
         if (!response.ok) {
           const err = await response.json().catch(() => ({}));
@@ -2051,14 +2758,25 @@
         }
 
         const data = await response.json();
+        // Guard after JSON parsing
+        if (reqSessionGen !== sessionGeneration || reqId !== recommendationRequestId) return;
+
         chatState.lastResults = data;
 
-        setTimeout(() => {
+        // Schedule delayed render for smooth aperture animation transition
+        recommendationRenderTimer = setTimeout(() => {
+          recommendationRenderTimer = null;
+          // Guard inside delayed render callback
+          if (reqSessionGen !== sessionGeneration || reqId !== recommendationRequestId) return;
           renderDedicatedResultsPage(data);
           isGenerating = false;
         }, 400);
 
       } catch (err) {
+        // If aborted or superseded, exit cleanly without touching UI or clearing isGenerating for newer requests
+        if (err.name === "AbortError" || reqSessionGen !== sessionGeneration || reqId !== recommendationRequestId) {
+          return;
+        }
         switchToView("intake");
         showBrandModal("Notice", "Something went wrong while I was finding your films. Try again, or adjust your choices.");
         isGenerating = false;
@@ -2136,17 +2854,11 @@
 
         resolveMissingImdbId(rec.metadata.title, rec.metadata.year, normKey);
 
-        const editorialFallback = `
-          <a href="${directImdbUrl}" data-imdb-for="${normKey}" target="_blank" rel="noopener noreferrer" title="View official IMDb movie page for ${escapeHtml(rec.metadata.title)}" class="group/poster block w-24 sm:w-28 h-36 sm:h-40 flex-shrink-0 rounded-[4px] border border-ink/15 bg-white/70 p-2.5 flex flex-col justify-between text-center select-none shadow-xs hover:border-lime transition">
-            <div class="text-[9px] text-ink-subtle font-sans font-semibold uppercase tracking-wider">Monograph</div>
-            <div class="font-serif font-bold text-xs sm:text-sm text-ink leading-snug line-clamp-3">${escapeHtml(rec.metadata.title)}</div>
-            <div class="text-[10px] text-ink-muted font-sans font-medium">${rec.metadata.year} ↗</div>
-          </a>
-        `;
+        const editorialFallback = createEditorialFallbackElement(rec.metadata.title, rec.metadata.year, directImdbUrl, normKey).outerHTML;
 
         const artworkHtml = posterUrl 
-          ? `<a href="${directImdbUrl}" data-imdb-for="${normKey}" target="_blank" rel="noopener noreferrer" title="View official IMDb movie page for ${escapeHtml(rec.metadata.title)}" class="group/poster relative block w-24 sm:w-28 h-36 sm:h-40 flex-shrink-0 rounded-[4px] overflow-hidden border border-ink/15 bg-bone-dark shadow-xs hover:border-lime transition">
-               <img src="${safeUrl(posterUrl)}" alt="${escapeHtml(rec.metadata.title)} poster" class="w-full h-full object-cover transition transform group-hover/poster:scale-105" onerror="this.parentElement.outerHTML=\`${editorialFallback.replace(/"/g, '&quot;')}\`;">
+          ? `<a href="${directImdbUrl}" data-imdb-for="${normKey}" data-poster-title="${escapeHtml(rec.metadata.title)}" data-poster-year="${rec.metadata.year}" target="_blank" rel="noopener noreferrer" title="View official IMDb movie page for ${escapeHtml(rec.metadata.title)}" class="group/poster relative block w-24 sm:w-28 h-36 sm:h-40 flex-shrink-0 rounded-[4px] overflow-hidden border border-ink/15 bg-bone-dark shadow-xs hover:border-lime transition">
+               <img src="${safeUrl(posterUrl)}" alt="${escapeHtml(rec.metadata.title)} poster" class="w-full h-full object-cover transition transform group-hover/poster:scale-105" onerror="window.handlePosterError(this)">
                <div class="absolute inset-0 bg-ink/30 opacity-0 group-hover/poster:opacity-100 transition-opacity flex items-center justify-center">
                  <span class="text-[10px] bg-white text-ink px-1.5 py-0.5 rounded-[2px] font-sans font-semibold shadow-xs">IMDb ↗</span>
                </div>
@@ -2317,10 +3029,72 @@
 
     // Restart Conversation
     function restartConversation() {
+      sessionGeneration++;
+      recommendationRequestId++;
+      latestDialogueTurnId = 0;
+      completedDialogueTurnId = 0;
+      lastConsumedDialogueTurnId = 0;
+      currentVoiceTurnId = 0;
+      voiceTurnInterrupted = false;
+      voiceTurnAssistantStarted = false;
+      voiceTurnUserText = "";
+      if (activeTurnAbortController) {
+        try { activeTurnAbortController.abort(); } catch(e) {}
+        activeTurnAbortController = null;
+      }
+      if (activeRecommendationAbortController) {
+        try { activeRecommendationAbortController.abort(); } catch(e) {}
+        activeRecommendationAbortController = null;
+      }
+      if (recommendationRenderTimer) {
+        clearTimeout(recommendationRenderTimer);
+        recommendationRenderTimer = null;
+      }
+      cancelAutoRecommendationTimer();
+      turnQueue = Promise.resolve();
+
+      if (activeVoiceTurnDeferred) {
+        activeVoiceTurnDeferred.resolve();
+        activeVoiceTurnDeferred = null;
+      }
+      fieldVersions = {
+        pacing: 0,
+        tone: 0,
+        demandingness: 0,
+        exclude_genres: 0,
+        max_runtime: 0,
+        freeform_mood: 0,
+        country: 0,
+        service_access: 0,
+        allow_rent_buy: 0
+      };
+
+      // Stop voice session & audio hardware cleanly
+      teardownVoiceSession();
+      isGenerating = false;
+
+      // Full reset of conversational state
       chatState.step = 1;
+      chatState.country = "UK";
       chatState.service_access = [];
+      chatState.allow_rent_buy = false;
+      chatState.intake_depth = "";
+      chatState.pacing = "measured";
+      chatState.tone = "";
+      chatState.demandingness = 3.0;
+      setExcludeGenre("");
+      dropdownExclusionUserModified = false;
+      chatState.max_runtime = null;
       chatState.freeform_mood = "";
+      chatState.dialogue_mode = "text";
+      chatState.conversation_history = [];
       chatState.lastResults = null;
+
+      currentVoiceUserBubble = null;
+      currentVoiceUserText = "";
+      currentVoiceAssistantBubble = null;
+      currentVoiceAssistantText = "";
+
       const thread = document.getElementById("toni-chat-thread");
       if (thread) thread.innerHTML = "";
       switchToView("intake");
@@ -2375,17 +3149,82 @@
       const tSig = (ctx.tonight_signals || []).find(s => s.name === "tone");
       if (tSig) chatState.tone = tSig.value;
 
-      const rSig = (ctx.tonight_signals || []).find(s => s.name === "max_runtime");
-      if (rSig) chatState.max_runtime = rSig.value;
+      const rSig = (ctx.tonight_signals || []).find(s => s.name === "max_runtime" || s.name === "max-runtime");
+      if (rSig) chatState.max_runtime = parseInt(rSig.value, 10);
 
-      const gSig = (ctx.tonight_signals || []).find(s => s.name === "exclude_genre" || s.name === "exclude_genres");
-      if (gSig) chatState.exclude_genres = Array.isArray(gSig.value) ? gSig.value : [gSig.value];
+      const gSig = (ctx.tonight_signals || []).find(s => s.name === "exclude_genre" || s.name === "exclude-genre" || s.name === "exclude_genres");
+      if (gSig) {
+        setExcludeGenre(gSig.value);
+      } else {
+        setExcludeGenre("");
+      }
 
       setTimeout(() => {
         appendToniMessage(`Loaded persona <strong>${escapeHtml(name)}</strong> (${escapeHtml(ctx.country)}, ${escapeHtml(ctx.service_access.join(', '))}). Ready to find what fits!`, null, true);
         renderReadyTurn();
       }, 300);
     }
+
+    // Expose helpers on window for direct access and testing
+    window.chatState = chatState;
+    window.setExcludeGenre = setExcludeGenre;
+    window.getEffectiveExcludedGenres = getEffectiveExcludedGenres;
+    window.buildVoiceTurnPayload = buildVoiceTurnPayload;
+    window.syncContextToState = syncContextToState;
+    window.applyPersona = applyPersona;
+    window.renderStep4 = renderStep4;
+    window.confirmStep4 = confirmStep4;
+    window.handleDropdownExclusionChange = handleDropdownExclusionChange;
+    window.triggerPipelineExecution = triggerPipelineExecution;
+    window.teardownVoiceSession = teardownVoiceSession;
+    window.toggleSingleBrainVoice = toggleSingleBrainVoice;
+    window.connectGeminiLiveWebSocket = connectGeminiLiveWebSocket;
+    window.startMicCapture = startMicCapture;
+    window.stopMicCapture = stopMicCapture;
+    window.stopPlaybackAudio = stopPlaybackAudio;
+    window.checkVoiceReadiness = checkVoiceReadiness;
+    window.updateVoiceUIState = updateVoiceUIState;
+    window.getVoiceState = () => ({
+      voiceActive,
+      isListening,
+      liveWsReady,
+      micReady,
+      voiceSessionGeneration,
+      isToniSpeaking,
+      dialogue_mode: chatState.dialogue_mode,
+      audioPlaybackContext,
+      audioRecordContext,
+      micMediaStream
+    });
+    window.getLiveWs = () => liveWs;
+    window.getMicMediaStream = () => micMediaStream;
+    window.getAudioRecordContext = () => audioRecordContext;
+    window.getAudioPlaybackContext = getAudioPlaybackContext;
+    window.getActiveAudioPlaybackContext = () => audioPlaybackContext;
+    window.getAudioWorkletOrProcessor = () => audioWorkletOrProcessor;
+    window.getPendingMicSetups = () => pendingMicSetups;
+    window.getActiveAudioSourceNodes = () => activeAudioSourceNodes;
+    window.enqueuePlaybackChunk = enqueuePlaybackChunk;
+    window.triggerPipelineExecution = triggerPipelineExecution;
+    window.restartConversation = restartConversation;
+    window.returnToChat = returnToChat;
+    window.enqueueTextDialogueTurn = enqueueTextDialogueTurn;
+    window.processTextDialogueTurn = processTextDialogueTurn;
+    window.handleVoiceUtterance = handleVoiceUtterance;
+    window.getRecommendationState = () => ({
+      recommendationRequestId,
+      isGenerating,
+      activeRecommendationAbortController,
+      recommendationRenderTimer,
+      autoRecommendationTimer,
+      autoRecommendationTurnId,
+      autoRecommendationSessionGen,
+      latestDialogueTurnId,
+      completedDialogueTurnId,
+      lastConsumedDialogueTurnId,
+      currentVoiceTurnId,
+      sessionGeneration
+    });
 
     // Init
     window.addEventListener("DOMContentLoaded", () => {

@@ -298,10 +298,7 @@ def enforce_toni_brand_name(text: str) -> str:
     """Enforce brand name lock: Assistant persona must always refer to itself as TONI."""
     if not text:
         return ""
-    cleaned = re.sub(r'\bCharon\b', 'TONI', text, flags=re.IGNORECASE)
-    cleaned = re.sub(r'\bI am Charon\b', 'I am TONI', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'\bMy name is Charon\b', 'My name is TONI', cleaned, flags=re.IGNORECASE)
-    return cleaned
+    return re.sub(r'\bCharon\b', 'TONI', text, flags=re.IGNORECASE)
 
 
 def log_conversation_turn(
@@ -368,77 +365,138 @@ class VoiceTurnLLMOutput(BaseModel):
     ready_to_recommend: bool = Field(default=False, description="True if user wants recommendations now or sufficient taste details have been shared")
 
 
+class ContextExtractionLLMOutput(BaseModel):
+    """Schema for extracting structured context signals and readiness without conversational reply."""
+    pacing: Optional[str] = Field(default=None, description="pacing preference e.g. brisk, steady, leisurely, measured")
+    tone: Optional[str] = Field(default=None, description="tone preference e.g. funny, intense, magical, dark, warm, satirical")
+    demandingness: Optional[float] = Field(default=None, description="score 1.0 to 5.0")
+    max_runtime: Optional[int] = Field(default=None, description="runtime limit in minutes")
+    exclude_genres: Optional[List[str]] = Field(default=None, description="genres to exclude")
+    country: Optional[str] = Field(default=None, description="UK or US if mentioned")
+    services: Optional[List[str]] = Field(default=None, description="streaming services mentioned")
+    ready_to_recommend: bool = Field(default=False, description="True if user explicitly requests recommendations or confirms they are ready")
+
+
+def _merge_signals_into_context(ctx: UserContext, data: Any) -> UserContext:
+    """Defensively merges extracted structured signals and metadata into the UserContext."""
+    if hasattr(data, "country") and data.country and str(data.country).upper() in ("UK", "US"):
+        ctx.country = str(data.country).upper()
+    if hasattr(data, "services") and data.services:
+        for s in data.services:
+            s_str = str(s).strip()
+            if s_str and s_str not in ctx.service_access:
+                ctx.service_access.append(s_str)
+
+    new_signals = []
+    if getattr(data, "pacing", None):
+        new_signals.append(TasteSignal(name=SIGNAL_PACING, value=str(data.pacing).lower().strip(), signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+    if getattr(data, "tone", None):
+        new_signals.append(TasteSignal(name=SIGNAL_TONE, value=str(data.tone).lower().strip(), signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+    if getattr(data, "demandingness", None) is not None:
+        try:
+            new_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=float(data.demandingness), signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+        except (ValueError, TypeError):
+            pass
+    if getattr(data, "max_runtime", None) is not None:
+        try:
+            digits = re.findall(r'\d+', str(data.max_runtime))
+            if digits:
+                new_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=int(digits[0]), signal_type=SignalType.HARD_CONSTRAINT))
+        except (ValueError, TypeError):
+            pass
+    if getattr(data, "exclude_genres", None):
+        if isinstance(data.exclude_genres, list):
+            new_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=[str(g) for g in data.exclude_genres], signal_type=SignalType.HARD_CONSTRAINT))
+        elif isinstance(data.exclude_genres, str):
+            new_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=[data.exclude_genres], signal_type=SignalType.HARD_CONSTRAINT))
+
+    new_names = {s.name for s in new_signals}
+    merged_signals = [s for s in ctx.tonight_signals if s.name not in new_names]
+    merged_signals.extend(new_signals)
+    ctx.tonight_signals = merged_signals
+    return ctx
+
+
+def _extract_voice_context_fallback(user_text: str, current_ctx: UserContext) -> Tuple[UserContext, bool]:
+    """Local deterministic fallback for extracting signals from user text."""
+    ctx = current_ctx.model_copy(deep=True)
+    lower = (user_text or "").lower()
+    extracted_signals = []
+
+    # Ready to recommend keywords
+    ready = any(kw in lower for kw in ["recommend", "show me", "ready", "fits tonight", "let's see", "find movies", "find what fits", "suggest", "shortlist", "what to watch", "surprise me", "hit me", "let's go", "synthesize", "yes please", "bring up", "show shortlist"])
+
+    # Pacing
+    if any(kw in lower for kw in ["brisk", "fast", "quick", "rapid", "snappy"]):
+        extracted_signals.append(TasteSignal(name=SIGNAL_PACING, value="brisk", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+    elif any(kw in lower for kw in ["leisurely", "slow", "patient", "unhurried"]):
+        extracted_signals.append(TasteSignal(name=SIGNAL_PACING, value="leisurely", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+
+    # Tone
+    if any(kw in lower for kw in ["funny", "laugh", "hilarious", "comedy"]):
+        extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="funny", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+    elif any(kw in lower for kw in ["dark", "bleak", "gritty", "unsettling"]):
+        extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="bleak", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+    elif any(kw in lower for kw in ["intense", "tense", "thrilling", "action", "suspense"]):
+        extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="intense", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+    elif any(kw in lower for kw in ["magical", "wondrous", "whimsical", "fairytale"]):
+        extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="magical", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+    elif any(kw in lower for kw in ["warm", "heartwarming", "feel-good", "wholesome", "gentle"]):
+        extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="warm", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+
+    # Demandingness
+    if any(kw in lower for kw in ["easy", "light", "relaxing", "unwind", "turn my brain off", "not demanding"]):
+        extracted_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=2.0, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+    elif any(kw in lower for kw in ["deep", "challenging", "thought-provoking", "intellectual", "demanding", "heavy"]):
+        extracted_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=4.2, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+
+    # Max Runtime
+    if "under 90" in lower or "under an hour and a half" in lower:
+        extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=90, signal_type=SignalType.HARD_CONSTRAINT))
+    elif "under 2 hours" in lower or "under two hours" in lower or "under 120" in lower:
+        extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=120, signal_type=SignalType.HARD_CONSTRAINT))
+    elif ("short film" in lower or "keep it short" in lower or re.search(r'\bshort\b', lower)) and "shortlist" not in lower:
+        extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=100, signal_type=SignalType.HARD_CONSTRAINT))
+
+    # Exclude genres
+    if "no horror" in lower or "hate horror" in lower or "not horror" in lower:
+        extracted_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=["Horror"], signal_type=SignalType.HARD_CONSTRAINT))
+    if "no sci-fi" in lower or "hate sci-fi" in lower or "not sci-fi" in lower:
+        extracted_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=["Sci-Fi"], signal_type=SignalType.HARD_CONSTRAINT))
+
+    # Services
+    for s_id, s_name in [("netflix", "Netflix"), ("prime", "Prime Video"), ("disney", "Disney+"), ("iplayer", "BBC iPlayer"), ("paramount", "Paramount+"), ("max", "Max"), ("apple", "Apple TV+")]:
+        if s_id in lower and s_name not in ctx.service_access:
+            ctx.service_access.append(s_name)
+
+    # Country
+    if "uk" in lower or "british" in lower:
+        ctx.country = "UK"
+    elif "us" in lower or "american" in lower:
+        ctx.country = "US"
+
+    # Merge signals
+    existing_names = {s.name for s in extracted_signals}
+    updated_tonight = [s for s in ctx.tonight_signals if s.name not in existing_names]
+    updated_tonight.extend(extracted_signals)
+    ctx.tonight_signals = updated_tonight
+
+    return ctx, ready
+
+
 def _process_voice_turn_fallback(turn_req: VoiceTurnRequest) -> VoiceTurnResponse:
     try:
         user_text = (turn_req.user_input or "").strip()
-        lower = user_text.lower()
         ctx = turn_req.current_context.model_copy(deep=True) if turn_req.current_context else UserContext()
         ctx.dialogue_mode = turn_req.mode or "text"
         ctx.voice_name = getattr(ctx, "voice_name", "Charon") or "Charon"
 
-        extracted_signals = []
+        ctx, ready = _extract_voice_context_fallback(user_text, ctx)
 
-        # Ready to recommend keywords (explicit affirmative user intent)
-        ready = any(kw in lower for kw in ["recommend", "show me", "ready", "fits tonight", "let's see", "find movies", "find what fits", "suggest", "shortlist", "what to watch", "surprise me", "hit me", "let's go", "synthesize", "yes please", "bring up", "show shortlist"])
-
-        # Pacing
-        if any(kw in lower for kw in ["brisk", "fast", "quick", "rapid", "snappy"]):
-            extracted_signals.append(TasteSignal(name=SIGNAL_PACING, value="brisk", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-        elif any(kw in lower for kw in ["leisurely", "slow", "patient", "unhurried"]):
-            extracted_signals.append(TasteSignal(name=SIGNAL_PACING, value="leisurely", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-
-        # Tone
-        if any(kw in lower for kw in ["funny", "laugh", "hilarious", "comedy"]):
-            extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="funny", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-        elif any(kw in lower for kw in ["dark", "bleak", "gritty", "unsettling"]):
-            extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="bleak", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-        elif any(kw in lower for kw in ["intense", "tense", "thrilling", "action", "suspense"]):
-            extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="intense", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-        elif any(kw in lower for kw in ["magical", "wondrous", "whimsical", "fairytale"]):
-            extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="magical", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-        elif any(kw in lower for kw in ["warm", "heartwarming", "feel-good", "wholesome", "gentle"]):
-            extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="warm", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-
-        # Demandingness
-        if any(kw in lower for kw in ["easy", "light", "relaxing", "unwind", "turn my brain off", "not demanding"]):
-            extracted_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=2.0, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-        elif any(kw in lower for kw in ["deep", "challenging", "thought-provoking", "intellectual", "demanding", "heavy"]):
-            extracted_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=4.2, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-
-        # Max Runtime
-        if "under 2 hours" in lower or "under two hours" in lower or "under 120" in lower:
-            extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=120, signal_type=SignalType.HARD_CONSTRAINT))
-        elif "under 90" in lower or "under an hour and a half" in lower or "short" in lower:
-            extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=100, signal_type=SignalType.HARD_CONSTRAINT))
-
-        # Exclude genres
-        if "no horror" in lower or "hate horror" in lower or "not horror" in lower:
-            extracted_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=["Horror"], signal_type=SignalType.HARD_CONSTRAINT))
-        if "no sci-fi" in lower or "hate sci-fi" in lower or "not sci-fi" in lower:
-            extracted_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=["Sci-Fi"], signal_type=SignalType.HARD_CONSTRAINT))
-
-        # Services
-        for s_id, s_name in [("netflix", "Netflix"), ("prime", "Prime Video"), ("disney", "Disney+"), ("iplayer", "BBC iPlayer"), ("paramount", "Paramount+"), ("max", "Max"), ("apple", "Apple TV+")]:
-            if s_id in lower and s_name not in ctx.service_access:
-                ctx.service_access.append(s_name)
-
-        # Country
-        if "uk" in lower or "british" in lower:
-            ctx.country = "UK"
-        elif "us" in lower or "american" in lower:
-            ctx.country = "US"
-
-        # Merge signals
-        existing_names = {s.name for s in extracted_signals}
-        updated_tonight = [s for s in ctx.tonight_signals if s.name not in existing_names]
-        updated_tonight.extend(extracted_signals)
-        ctx.tonight_signals = updated_tonight
-
-        # Strict readiness: only if explicit affirmative user intent is detected
         if ready:
             reply = "I've got a good sense of what you're after. Let's see what fits."
-        elif extracted_signals:
-            summary_parts = [f"{s.value}" for s in extracted_signals]
+        elif ctx.tonight_signals:
+            summary_parts = [f"{s.value}" for s in ctx.tonight_signals]
             reply = f"Got it — {', '.join(summary_parts)}. Which channels do you have access to?"
         else:
             reply = "Tell me what you're in the mood for. A pace, genre, feeling or even a film you liked is enough to start."
@@ -459,6 +517,370 @@ def _process_voice_turn_fallback(turn_req: VoiceTurnRequest) -> VoiceTurnRespons
             ready_to_recommend=False,
             mode=turn_req.mode or "text"
         )
+
+
+def extract_voice_context(
+    user_input: str,
+    current_context: UserContext,
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    timeout: float = 3.5
+) -> Tuple[UserContext, bool]:
+    """Extracts structured signals and shortlist readiness from spoken input without generating a redundant conversational reply."""
+    if not user_input or not user_input.strip():
+        return current_context, False
+
+    ctx = current_context.model_copy(deep=True)
+    has_gemini_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_CLOUD_PROJECT"))
+    if has_gemini_key and not os.environ.get("TONI_TESTING"):
+        try:
+            from google import genai
+            from google.genai import types
+
+            gemini_api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            if gemini_api_key:
+                client = genai.Client(api_key=gemini_api_key, vertexai=False)
+            else:
+                client = genai.Client()
+
+            recent_history = ""
+            if conversation_history:
+                recent_history = "\n".join([f"{t.get('role', 'user')}: {t.get('content', '')}" for t in conversation_history[-4:]])
+
+            prompt = f"""You are TONI's structured conversation intake extractor.
+Extract viewer streaming context, taste boundaries, and shortlist readiness. DO NOT generate an assistant reply.
+
+Recent dialogue:
+{recent_history}
+
+Latest user input:
+"{user_input}"
+
+Rules:
+1. Extract pacing ('brisk', 'steady', 'leisurely', 'measured') if indicated.
+2. Extract tone keywords (e.g. 'funny', 'intense', 'dark', 'magical', 'warm', 'satirical') if indicated.
+3. Extract demandingness score 1.0 to 5.0 if indicated.
+4. Extract max_runtime in minutes if viewer states a time limit (e.g. "under 2 hours" -> 120).
+5. Extract exclude_genres as a list of strings if viewer wants to rule out specific genres.
+6. Extract country ('UK' or 'US') and services (e.g. Netflix, Prime Video, BBC iPlayer, etc.) if mentioned.
+7. Set ready_to_recommend to True ONLY if the user explicitly asks to see films / recommendations or confirms they are ready."""
+
+            timeout_ms = int(timeout * 1000) if timeout else 3500
+            http_opts = types.HttpOptions(
+                timeout=timeout_ms,
+                retry_options=types.HttpRetryOptions(attempts=1)
+            )
+
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=ContextExtractionLLMOutput,
+                    temperature=0.1,
+                    http_options=http_opts,
+                )
+            )
+            if response and response.parsed:
+                extracted: ContextExtractionLLMOutput = response.parsed
+                ctx = _merge_signals_into_context(ctx, extracted)
+                lower_input = user_input.lower()
+                explicit_ready = any(kw in lower_input for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
+                ready = bool(extracted.ready_to_recommend) or explicit_ready
+                return ctx, ready
+        except Exception as ex:
+            print(f"[*] Structured context extraction notice: {ex}", file=sys.stderr)
+
+    return _extract_voice_context_fallback(user_input, ctx)
+
+
+async def extract_voice_context_async(
+    user_input: str,
+    current_context: UserContext,
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    timeout: float = 3.5,
+    client: Optional[Any] = None
+) -> Tuple[UserContext, bool]:
+    """Extracts structured signals and shortlist readiness asynchronously with enforced request deadline."""
+    if not user_input or not user_input.strip():
+        return current_context, False
+
+    ctx = current_context.model_copy(deep=True)
+    has_gemini_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_CLOUD_PROJECT"))
+    if has_gemini_key and not os.environ.get("TONI_TESTING"):
+        try:
+            from google import genai
+            from google.genai import types
+
+            if client is None:
+                gemini_api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+                if gemini_api_key:
+                    client = genai.Client(api_key=gemini_api_key, vertexai=False)
+                else:
+                    client = genai.Client()
+
+            recent_history = ""
+            if conversation_history:
+                recent_history = "\n".join([f"{t.get('role', 'user')}: {t.get('content', '')}" for t in conversation_history[-4:]])
+
+            prompt = f"""You are TONI's structured conversation intake extractor.
+Extract viewer streaming context, taste boundaries, and shortlist readiness. DO NOT generate an assistant reply.
+
+Recent dialogue:
+{recent_history}
+
+Latest user input:
+"{user_input}"
+
+Rules:
+1. Extract pacing ('brisk', 'steady', 'leisurely', 'measured') if indicated.
+2. Extract tone keywords (e.g. 'funny', 'intense', 'dark', 'magical', 'warm', 'satirical') if indicated.
+3. Extract demandingness score 1.0 to 5.0 if indicated.
+4. Extract max_runtime in minutes if viewer states a time limit (e.g. "under 2 hours" -> 120).
+5. Extract exclude_genres as a list of strings if viewer wants to rule out specific genres.
+6. Extract country ('UK' or 'US') and services (e.g. Netflix, Prime Video, BBC iPlayer, etc.) if mentioned.
+7. Set ready_to_recommend to True ONLY if the user explicitly asks to see films / recommendations or confirms they are ready."""
+
+            timeout_ms = int(timeout * 1000) if timeout else 3500
+            http_opts = types.HttpOptions(
+                timeout=timeout_ms,
+                retry_options=types.HttpRetryOptions(attempts=1)
+            )
+
+            overall_deadline = (timeout or 3.5) + 0.5
+            response = await asyncio.wait_for(
+                client.aio.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=ContextExtractionLLMOutput,
+                        temperature=0.1,
+                        http_options=http_opts,
+                    )
+                ),
+                timeout=overall_deadline
+            )
+            if response and response.parsed:
+                extracted: ContextExtractionLLMOutput = response.parsed
+                ctx = _merge_signals_into_context(ctx, extracted)
+                lower_input = user_input.lower()
+                explicit_ready = any(kw in lower_input for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
+                ready = bool(extracted.ready_to_recommend) or explicit_ready
+                return ctx, ready
+        except asyncio.CancelledError:
+            raise
+        except Exception as ex:
+            print(f"[*] Async structured context extraction notice: {ex}", file=sys.stderr)
+
+    return _extract_voice_context_fallback(user_input, ctx)
+
+
+class TurnWorkItem:
+    def __init__(
+        self,
+        turn_id: int,
+        user_text: str,
+        bot_text: str,
+        conversation_history: List[Dict[str, str]],
+        force_fallback: bool = False
+    ):
+        self.turn_id = turn_id
+        self.user_text = user_text
+        self.bot_text = bot_text
+        self.conversation_history = conversation_history
+        self.force_fallback = force_fallback
+
+
+class LiveExtractionPipeline:
+    """
+    Owned sequential context extraction pipeline for a single WebSocket voice session.
+    Decouples extraction from the upstream receive loop, bounds queue/task growth under
+    overload by cancelling slow model extraction and substituting deterministic fallback,
+    and commits updates strictly in turn order through ONE ordered commit path.
+    """
+    MAX_PENDING_TURNS = 8
+
+    def __init__(
+        self,
+        websocket: WebSocket,
+        initial_context: UserContext,
+        initial_history: List[Dict[str, str]],
+        client: Optional[Any] = None
+    ):
+        self.websocket = websocket
+        self.session_ctx = initial_context.model_copy(deep=True)
+        self.conversation_history = list(initial_history)
+        self.client = client
+        self.queue: asyncio.Queue[TurnWorkItem] = asyncio.Queue(maxsize=self.MAX_PENDING_TURNS)
+        self.in_flight_task: Optional[asyncio.Task] = None
+        self.in_flight_item: Optional[TurnWorkItem] = None
+        self.in_flight_cancelled_for_overload: bool = False
+        self.is_disconnected: bool = False
+        self.worker_task = asyncio.create_task(self._worker_loop())
+
+    def update_context(self, ctx: UserContext):
+        self.session_ctx = ctx.model_copy(deep=True)
+
+    def update_history(self, history: List[Dict[str, str]]):
+        self.conversation_history = list(history)
+
+    def enqueue_turn(
+        self,
+        turn_id: int,
+        user_text: str,
+        bot_text: str,
+        history_snapshot: List[Dict[str, str]]
+    ) -> bool:
+        """Enqueues a turn snapshot for sequential context extraction.
+        Enforces a strictly bounded overflow policy: if overloaded, cancels
+        the slow in-flight model extraction and drains work using deterministic fallback.
+        One ordered commit path in _worker_loop owns all context mutations,
+        history updates, and completions."""
+        if self.is_disconnected:
+            return False
+
+        item = TurnWorkItem(
+            turn_id=turn_id,
+            user_text=user_text,
+            bot_text=bot_text,
+            conversation_history=history_snapshot
+        )
+
+        # Overload condition: in-flight task is still blocking while 2 or more subsequent turns arrive,
+        # or queue is full. Cancel the slow in-flight model task and switch to fast fallback.
+        if (self.in_flight_task and not self.in_flight_task.done() and self.queue.qsize() >= 2) or self.queue.full():
+            self.in_flight_cancelled_for_overload = True
+            self.in_flight_task.cancel()
+
+        try:
+            self.queue.put_nowait(item)
+            return True
+        except asyncio.QueueFull:
+            print(f"[*] LiveExtractionPipeline queue full (capacity {self.MAX_PENDING_TURNS}), dropping unaccepted turn {turn_id}", file=sys.stderr)
+            return False
+
+    async def _worker_loop(self):
+        try:
+            while not self.is_disconnected:
+                item = await self.queue.get()
+                if item is None or self.is_disconnected:
+                    break
+
+                self.in_flight_item = item
+                full_user = item.user_text
+                full_bot = item.bot_text
+                turn_id = item.turn_id
+                history_snapshot = item.conversation_history
+
+                extracted_ctx = self.session_ctx
+                ready_flag = False
+
+                # If overload cancelled earlier extraction, or queue has backlog, or forced fallback:
+                # Use fast deterministic fallback rather than launching slow model calls
+                use_fallback = (
+                    self.in_flight_cancelled_for_overload or
+                    item.force_fallback or
+                    self.queue.qsize() >= self.MAX_PENDING_TURNS - 1 or
+                    not full_user
+                )
+
+                if full_user:
+                    if use_fallback:
+                        extracted_ctx, ready_flag = _extract_voice_context_fallback(full_user, self.session_ctx)
+                    else:
+                        try:
+                            self.in_flight_task = asyncio.create_task(
+                                extract_voice_context_async(
+                                    user_input=full_user,
+                                    current_context=self.session_ctx,
+                                    conversation_history=history_snapshot,
+                                    timeout=3.5,
+                                    client=self.client
+                                )
+                            )
+                            res_ctx, res_ready = await self.in_flight_task
+                            if self.in_flight_cancelled_for_overload:
+                                # Invalidate late model result! Substitute deterministic fallback
+                                extracted_ctx, ready_flag = _extract_voice_context_fallback(full_user, self.session_ctx)
+                            else:
+                                extracted_ctx, ready_flag = res_ctx, res_ready
+                        except asyncio.CancelledError:
+                            if self.is_disconnected:
+                                break
+                            # Cancelled due to overload: substitute deterministic fallback
+                            extracted_ctx, ready_flag = _extract_voice_context_fallback(full_user, self.session_ctx)
+                        except Exception as ex:
+                            print(f"[*] Extraction worker error: {ex}", file=sys.stderr)
+                            extracted_ctx, ready_flag = _extract_voice_context_fallback(full_user, self.session_ctx)
+                        finally:
+                            self.in_flight_task = None
+
+                if self.is_disconnected:
+                    break
+
+                # --- ONE ORDERED COMMIT PATH ---
+                # Owns all context mutations, history updates, and completion notifications
+                self.session_ctx = extracted_ctx
+                if full_user:
+                    self.conversation_history.append({"role": "user", "content": full_user})
+                if full_bot:
+                    self.conversation_history.append({"role": "assistant", "content": full_bot})
+
+                # If queue is now empty and not overloaded, reset overload flag
+                if self.queue.empty():
+                    self.in_flight_cancelled_for_overload = False
+
+                lower_user = full_user.lower() if full_user else ""
+                explicit_user_ready = any(kw in lower_user for kw in [
+                    "show me", "recommend", "find movies", "yes please", "bring up",
+                    "find what fits", "what to watch", "let's see", "shortlist",
+                    "show shortlist", "let's go"
+                ])
+                final_ready = ready_flag or explicit_user_ready
+
+                log_conversation_turn(
+                    session_id=f"ws_{id(self.websocket)}",
+                    mode="voice",
+                    user_input=full_user,
+                    assistant_reply=full_bot,
+                    signals=self.session_ctx.tonight_signals,
+                    context=self.session_ctx
+                )
+
+                if not self.is_disconnected:
+                    try:
+                        await self.websocket.send_json({
+                            "type": "turn_complete",
+                            "turn_id": turn_id,
+                            "user_text": full_user,
+                            "assistant_reply": full_bot,
+                            "updated_context": self.session_ctx.model_dump(),
+                            "ready_to_recommend": final_ready
+                        })
+                    except Exception:
+                        pass
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self.in_flight_task = None
+            self.in_flight_item = None
+
+    async def shutdown(self):
+        """Cleanly tears down extraction pipeline, cancelling background tasks and invalidating pending work."""
+        self.is_disconnected = True
+        if self.in_flight_task and not self.in_flight_task.done():
+            self.in_flight_task.cancel()
+            try:
+                await self.in_flight_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        if self.worker_task and not self.worker_task.done():
+            self.worker_task.cancel()
+            try:
+                await self.worker_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
 
 
 def process_voice_turn(turn_req: VoiceTurnRequest) -> VoiceTurnResponse:
@@ -555,43 +977,7 @@ Your task:
         ctx.dialogue_mode = turn_req.mode
         ctx.voice_name = getattr(turn_req.current_context, "voice_name", "Charon") or "Charon"
 
-        # Update fields
-        if data.country and str(data.country).upper() in ("UK", "US"):
-            ctx.country = str(data.country).upper()
-        if data.services:
-            for s in data.services:
-                s_str = str(s).strip()
-                if s_str and s_str not in ctx.service_access:
-                    ctx.service_access.append(s_str)
-
-        # Update signals with defensive casting
-        new_signals = []
-        if data.pacing:
-            new_signals.append(TasteSignal(name=SIGNAL_PACING, value=str(data.pacing).lower().strip(), signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-        if data.tone:
-            new_signals.append(TasteSignal(name=SIGNAL_TONE, value=str(data.tone).lower().strip(), signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-        if data.demandingness is not None:
-            try:
-                new_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=float(data.demandingness), signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-            except (ValueError, TypeError):
-                pass
-        if data.max_runtime is not None:
-            try:
-                digits = re.findall(r'\d+', str(data.max_runtime))
-                if digits:
-                    new_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=int(digits[0]), signal_type=SignalType.HARD_CONSTRAINT))
-            except (ValueError, TypeError):
-                pass
-        if data.exclude_genres:
-            if isinstance(data.exclude_genres, list):
-                new_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=[str(g) for g in data.exclude_genres], signal_type=SignalType.HARD_CONSTRAINT))
-            elif isinstance(data.exclude_genres, str):
-                new_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=[data.exclude_genres], signal_type=SignalType.HARD_CONSTRAINT))
-
-        new_names = {s.name for s in new_signals}
-        merged_signals = [s for s in ctx.tonight_signals if s.name not in new_names]
-        merged_signals.extend(new_signals)
-        ctx.tonight_signals = merged_signals
+        ctx = _merge_signals_into_context(ctx, data)
 
         lower_input = turn_req.user_input.lower()
         explicit_user_ready = any(kw in lower_input for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
@@ -702,6 +1088,7 @@ async def websocket_voice_live(websocket: WebSocket):
     conversation_history: List[Dict[str, str]] = []
 
     has_gemini_key = bool(os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+    client = None
     gemini_session = None
     gemini_recv_task = None
     live_cm = None
@@ -710,8 +1097,13 @@ async def websocket_voice_live(websocket: WebSocket):
     user_transcript_buf: List[str] = []
     assistant_transcript_buf: List[str] = []
 
+    turn_counter = 0
+    turn_active = False
+
+    extraction_pipeline: Optional[LiveExtractionPipeline] = None
+
     async def forward_gemini_responses(session):
-        nonlocal session_ctx, conversation_history, user_transcript_buf, assistant_transcript_buf
+        nonlocal session_ctx, conversation_history, user_transcript_buf, assistant_transcript_buf, turn_counter, turn_active, extraction_pipeline
         try:
             while True:
                 async for response in session.receive():
@@ -723,14 +1115,21 @@ async def websocket_voice_live(websocket: WebSocket):
                         assistant_transcript_buf.clear()
                         continue
                     if content.input_transcription and content.input_transcription.text:
+                        if not turn_active:
+                            turn_counter += 1
+                            turn_active = True
                         user_chunk = content.input_transcription.text
                         user_transcript_buf.append(user_chunk)
                         await websocket.send_json({
                             "type": "transcript",
                             "text": user_chunk,
-                            "role": "user"
+                            "role": "user",
+                            "turn_id": turn_counter
                         })
                     if content.model_turn:
+                        if not turn_active:
+                            turn_counter += 1
+                            turn_active = True
                         for part in content.model_turn.parts:
                             if part.inline_data and part.inline_data.data:
                                 raw_data = part.inline_data.data
@@ -738,63 +1137,56 @@ async def websocket_voice_live(websocket: WebSocket):
                                 await websocket.send_json({
                                     "type": "audio",
                                     "data": audio_b64,
-                                    "mime_type": "audio/pcm;rate=24000"
+                                    "mime_type": "audio/pcm;rate=24000",
+                                    "turn_id": turn_counter
                                 })
                     if content.output_transcription and content.output_transcription.text:
+                        if not turn_active:
+                            turn_counter += 1
+                            turn_active = True
                         bot_chunk = enforce_toni_brand_name(content.output_transcription.text)
                         assistant_transcript_buf.append(bot_chunk)
                         await websocket.send_json({
                             "type": "transcript",
                             "text": bot_chunk,
-                            "role": "assistant"
+                            "role": "assistant",
+                            "turn_id": turn_counter
                         })
                     if content.turn_complete:
+                        completed_turn_id = turn_counter
+                        turn_active = False
                         full_user = "".join(user_transcript_buf).strip()
                         full_bot = enforce_toni_brand_name("".join(assistant_transcript_buf).strip())
-                        ready_flag = False
-                        if full_user:
-                            conversation_history.append({"role": "user", "content": full_user})
-                            try:
-                                turn_req = VoiceTurnRequest(
-                                    user_input=full_user,
-                                    mode="voice",
-                                    current_context=session_ctx,
-                                    conversation_history=conversation_history
-                                )
-                                turn_res = await asyncio.to_thread(process_voice_turn, turn_req)
-                                session_ctx = turn_res.updated_context
-                                ready_flag = turn_res.ready_to_recommend
-                            except Exception as ex:
-                                print(f"[*] Voice turn context update notice: {ex}", file=sys.stderr)
-                        if full_bot:
-                            conversation_history.append({"role": "assistant", "content": full_bot})
-
                         user_transcript_buf.clear()
                         assistant_transcript_buf.clear()
 
-                        lower_user = full_user.lower() if full_user else ""
-                        explicit_user_ready = any(kw in lower_user for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
-                        final_ready = ready_flag or explicit_user_ready
-
-                        log_conversation_turn(
-                            session_id=f"ws_{id(websocket)}",
-                            mode="voice",
-                            user_input=full_user,
-                            assistant_reply=full_bot,
-                            signals=session_ctx.tonight_signals,
-                            context=session_ctx
-                        )
-
+                        # 1. Distinguish end of streamed speech from completion of context extraction
                         await websocket.send_json({
-                            "type": "turn_complete",
-                            "assistant_reply": full_bot,
-                            "updated_context": session_ctx.model_dump(),
-                            "ready_to_recommend": final_ready
+                            "type": "speech_complete",
+                            "turn_id": completed_turn_id
                         })
+
+                        # 2. Snapshot history and enqueue for background extraction without blocking receive loop
+                        if extraction_pipeline:
+                            history_snapshot = list(conversation_history)
+                            extraction_pipeline.enqueue_turn(
+                                turn_id=completed_turn_id,
+                                user_text=full_user,
+                                bot_text=full_bot,
+                                history_snapshot=history_snapshot
+                            )
         except asyncio.CancelledError:
             pass
         except Exception as e:
             print(f"[!] Gemini Live receiver error: {e}", file=sys.stderr)
+            try:
+                await websocket.send_json({
+                    "type": "error",
+                    "error": "upstream_receiver_failed",
+                    "message": "Upstream voice connection encountered an error."
+                })
+            except Exception:
+                pass
 
     if has_gemini_key and not os.environ.get("TONI_MOCK_GEMINI_LIVE"):
         try:
@@ -806,6 +1198,13 @@ async def websocket_voice_live(websocket: WebSocket):
                 client = genai.Client(api_key=gemini_api_key, vertexai=False)
             else:
                 client = genai.Client()
+
+            extraction_pipeline = LiveExtractionPipeline(
+                websocket=websocket,
+                initial_context=session_ctx,
+                initial_history=conversation_history,
+                client=client
+            )
 
             config = types.LiveConnectConfig(
                 response_modalities=[types.Modality.AUDIO],
@@ -855,6 +1254,14 @@ Always wait for the viewer to confirm they are ready before offering to reveal r
             print(f"[*] Gemini Live session setup failed ({type(e).__name__}): {repr(e)}", file=sys.stderr)
             gemini_session = None
 
+    if extraction_pipeline is None:
+        extraction_pipeline = LiveExtractionPipeline(
+            websocket=websocket,
+            initial_context=session_ctx,
+            initial_history=conversation_history,
+            client=client
+        )
+
     try:
         while True:
             msg = await websocket.receive_text()
@@ -869,13 +1276,18 @@ Always wait for the viewer to confirm they are ready before offering to reveal r
                 if "context" in data:
                     try:
                         session_ctx = UserContext.model_validate(data["context"])
+                        if extraction_pipeline:
+                            extraction_pipeline.update_context(session_ctx)
                     except Exception:
                         pass
                 if "conversation_history" in data and isinstance(data["conversation_history"], list):
                     conversation_history = data["conversation_history"]
+                    if extraction_pipeline:
+                        extraction_pipeline.update_history(conversation_history)
+                is_live_ready = bool(gemini_session is not None and connected_model is not None)
                 await websocket.send_json({
                     "type": "init_ack",
-                    "status": "ready",
+                    "status": "ready" if is_live_ready else "fallback",
                     "voice_name": session_ctx.voice_name or "Charon",
                     "live_model": connected_model or "offline-fallback"
                 })
@@ -899,11 +1311,14 @@ Always wait for the viewer to confirm they are ready before offering to reveal r
                 user_text = data.get("text", "") or data.get("user_input", "")
                 if gemini_session:
                     try:
+                        turn_counter += 1
+                        turn_active = True
                         user_transcript_buf.append(user_text)
                         await websocket.send_json({
                             "type": "transcript",
                             "text": user_text,
-                            "role": "user"
+                            "role": "user",
+                            "turn_id": turn_counter
                         })
                         from google.genai import types
                         user_content = types.Content(role="user", parts=[types.Part.from_text(text=user_text)])
@@ -941,6 +1356,8 @@ Always wait for the viewer to confirm they are ready before offering to reveal r
                     })
                     await websocket.send_json({
                         "type": "turn_complete",
+                        "turn_id": turn_counter,
+                        "user_text": user_text,
                         "assistant_reply": turn_res.assistant_reply,
                         "updated_context": session_ctx.model_dump(),
                         "ready_to_recommend": final_ready
@@ -951,13 +1368,37 @@ Always wait for the viewer to confirm they are ready before offering to reveal r
     except Exception as e:
         print(f"[!] WebSocket live notice: {e}", file=sys.stderr)
     finally:
-        if gemini_recv_task:
+        # 1. Cancel and await upstream receiver task
+        if gemini_recv_task and not gemini_recv_task.done():
             gemini_recv_task.cancel()
+            try:
+                await gemini_recv_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        # 2. Shutdown extraction pipeline (cancels in-flight extraction & worker task and awaits them)
+        if extraction_pipeline:
+            try:
+                await extraction_pipeline.shutdown()
+            except Exception:
+                pass
+
+        # 3. Exit the Live session BEFORE closing client
         if gemini_session and live_cm:
             try:
                 await live_cm.__aexit__(None, None, None)
             except Exception:
                 pass
+            gemini_session = None
+            live_cm = None
+
+        # 4. Close client exactly once (if owned)
+        if client and hasattr(client, "aio") and hasattr(client.aio, "aclose"):
+            try:
+                await client.aio.aclose()
+            except Exception:
+                pass
+            client = None
 
 
 @app.post("/api/recommend", response_model=RecommendationResponse, summary="Generate Movie Recommendations")
@@ -996,6 +1437,11 @@ if STATIC_DIR.exists():
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     def serve_index() -> HTMLResponse:
         index_file = STATIC_DIR / "index.html"
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
         if index_file.exists():
-            return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
-        return HTMLResponse(content="<h1>TONI API is Running</h1><p>Visit <a href='/docs'>/docs</a> for Swagger UI.</p>")
+            return HTMLResponse(content=index_file.read_text(encoding="utf-8"), headers=headers)
+        return HTMLResponse(content="<h1>TONI API is Running</h1><p>Visit <a href='/docs'>/docs</a> for Swagger UI.</p>", headers=headers)

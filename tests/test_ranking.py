@@ -451,6 +451,9 @@ def test_candidate_pool_refill_guarantees_top_3(monkeypatch):
         for i in range(10)
     ]
 
+    monkeypatch.setenv("PARALLEL_API_KEY", "mock-parallel-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-gemini-key")
+
     monkeypatch.setattr("src.ranking.discover_candidates_with_gemini", lambda ctx: mock_candidates)
 
     # Only 1 discovered candidate survives availability
