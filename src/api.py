@@ -6,6 +6,8 @@ Exposes production-ready REST API endpoints to serve recommendation requests,
 streaming availability lookups, and demo personas to Tina's frontend or external callers.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import re
@@ -19,7 +21,7 @@ import asyncio
 import traceback
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 from dotenv import load_dotenv
 

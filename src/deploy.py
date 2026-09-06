@@ -12,6 +12,14 @@ import subprocess
 import shutil
 from pathlib import Path
 
+# Ensure UTF-8 output on Windows terminals
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Color coding for terminal output
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -34,17 +42,17 @@ def run_local_tests() -> bool:
     cmd = [sys.executable, "-m", "pytest"]
     
     try:
-        res = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True)
+        res = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace")
         if res.returncode == 0:
-            print(f"{GREEN}✔ All tests passed successfully.{RESET}")
+            print(f"{GREEN}[OK] All tests passed successfully.{RESET}")
             return True
         else:
-            print(f"{RED}✘ Local verification tests failed!{RESET}")
+            print(f"{RED}[FAIL] Local verification tests failed!{RESET}")
             print(res.stdout)
             print(res.stderr)
             return False
     except Exception as e:
-        print(f"{RED}✘ Failed to run tests: {e}{RESET}")
+        print(f"{RED}[FAIL] Failed to run tests: {e}{RESET}")
         return False
 
 def parse_env_secrets() -> dict:
@@ -52,7 +60,7 @@ def parse_env_secrets() -> dict:
     print(f"\n{BOLD}{CYAN}[2/4] Auditing environment variables...{RESET}")
     secrets = {}
     if not DOTENV_PATH.exists():
-        print(f"{YELLOW}⚠ No .env file found at root. Using empty defaults.{RESET}")
+        print(f"{YELLOW}[!] No .env file found at root. Using empty defaults.{RESET}")
         return secrets
     
     with open(DOTENV_PATH, "r") as f:
@@ -67,7 +75,7 @@ def parse_env_secrets() -> dict:
                 if key in ["PARALLEL_API_KEY", "WATCHMODE_API_KEY", "TMDB_API_KEY"]:
                     if val:
                         secrets[key] = val
-                        print(f"  ✔ Found secret config for {GREEN}{key}{RESET}")
+                        print(f"  [OK] Found secret config for {GREEN}{key}{RESET}")
     return secrets
 
 def get_gcloud_config() -> dict:
@@ -109,7 +117,7 @@ def main():
     # 2. Get Secrets
     secrets = parse_env_secrets()
     if not secrets:
-        print(f"{RED}⚠ Warning: No keys (PARALLEL_API_KEY) found in .env! Deployment might fail at runtime.{RESET}")
+        print(f"{RED}[!] Warning: No keys (PARALLEL_API_KEY) found in .env! Deployment might fail at runtime.{RESET}")
     
     # 3. Fetch Configuration
     print(f"\n{BOLD}{CYAN}[3/4] Initialising Google Cloud settings...{RESET}")
