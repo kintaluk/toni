@@ -296,7 +296,7 @@ def test_websocket_voice_live_endpoint():
         })
         ack = ws.receive_json()
         assert ack["type"] == "init_ack"
-        assert ack["status"] == "ready"
+        assert ack["status"] == "fallback"  # Truthful offline fallback
         assert ack["voice_name"] == "Charon"
 
         ws.send_json({
@@ -311,6 +311,59 @@ def test_websocket_voice_live_endpoint():
                 break
         assert "transcript" in received_types
         assert "turn_complete" in received_types
+
+
+def test_websocket_voice_live_ready_when_session_active(monkeypatch):
+    """Verify WebSocket /api/voice/live sends status: ready when Gemini session is active."""
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-gemini-key")
+    monkeypatch.delenv("TONI_MOCK_GEMINI_LIVE", raising=False)
+
+    class DummyGeminiSession:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+        async def receive(self):
+            import asyncio
+            while True:
+                await asyncio.sleep(10)
+                yield None
+        async def send(self, *args, **kwargs):
+            pass
+        async def close(self):
+            pass
+
+    class DummyLive:
+        def connect(self, *args, **kwargs):
+            return DummyGeminiSession()
+
+    class DummyAio:
+        live = DummyLive()
+
+    class DummyClient:
+        aio = DummyAio()
+
+    import google.genai
+    monkeypatch.setattr(google.genai, "Client", lambda *args, **kwargs: DummyClient())
+
+    with client.websocket_connect("/api/voice/live") as ws:
+        ws.send_json({
+            "type": "init",
+            "context": {
+                "country": "UK",
+                "service_access": ["Netflix"],
+                "allow_rent_buy": False,
+                "intake_depth": "just_give_me_something",
+                "dialogue_mode": "voice",
+                "voice_name": "Charon",
+                "tonight_signals": [],
+                "persistent_taste": [],
+                "interaction_history": {}
+            }
+        })
+        ack = ws.receive_json()
+        assert ack["type"] == "init_ack"
+        assert ack["status"] == "ready"
 
 
 def test_seed_film_trailer_urls():

@@ -141,9 +141,15 @@ def log_trace(
     print(f"[TRACE] {json.dumps(trace_data)}", flush=True)
 
 
+import builtins
+import os
+import tempfile
 import threading
 
-_CACHE_LOCK = threading.RLock()
+if not hasattr(builtins, "_TONI_CACHE_LOCKS"):
+    builtins._TONI_CACHE_LOCKS = {}
+
+_CACHE_LOCK = builtins._TONI_CACHE_LOCKS.setdefault(str(CACHE_PATH.resolve()), threading.RLock())
 
 
 def load_from_cache(title: str, year: int) -> Optional[List[Dict[str, Any]]]:
@@ -180,7 +186,10 @@ def load_from_cache(title: str, year: int) -> Optional[List[Dict[str, Any]]]:
 
 
 def save_to_cache(title: str, year: int, data: List[Dict[str, Any]]) -> None:
-    """Save extracted evidence to logs/evidence_cache.json with a timestamp, bounding the cache to 50 items."""
+    """Save extracted evidence to logs/evidence_cache.json with a timestamp, bounding the cache to 50 items.
+
+    Uses atomic replacement without unsafe direct overwrite fallback.
+    """
     with _CACHE_LOCK:
         CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         cache = {}
@@ -208,12 +217,22 @@ def save_to_cache(title: str, year: int, data: List[Dict[str, Any]]) -> None:
             for old_key in sorted_keys[:(len(cache) - 50)]:
                 del cache[old_key]
                 
-        tmp_path = CACHE_PATH.with_suffix(".tmp")
+        # Atomic replacement via temporary file in the same directory
+        payload = json.dumps(cache, indent=2)
+        tmp_fd, tmp_file_path = tempfile.mkstemp(dir=CACHE_PATH.parent, prefix="ev_cache_", suffix=".tmp")
         try:
-            tmp_path.write_text(json.dumps(cache, indent=2), encoding="utf-8")
-            tmp_path.replace(CACHE_PATH)
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp_f:
+                tmp_f.write(payload)
+                tmp_f.flush()
+                os.fsync(tmp_f.fileno())
+            os.replace(tmp_file_path, CACHE_PATH)
         except Exception:
-            CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+            try:
+                if os.path.exists(tmp_file_path):
+                    os.remove(tmp_file_path)
+            except Exception:
+                pass
+            raise
 
 
 def get_film_evidence(
@@ -304,9 +323,12 @@ def get_film_evidence(
             errors=errors_list
         )
 
-        # Cache the valid results
+        # Cache the valid results safely without failing the extraction
         if evidence_results:
-            save_to_cache(title, year, evidence_results)
+            try:
+                save_to_cache(title, year, evidence_results)
+            except Exception as ce:
+                print(f"[!] Evidence cache save failure for '{title}': {ce}", file=sys.stderr)
 
         return evidence_results
 

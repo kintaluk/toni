@@ -87,15 +87,20 @@ Reviews:
 
 import hashlib
 import threading
+import time
 
-_PROFILE_CACHE: Dict[str, Tuple[FilmProfile, EvidenceState, str]] = {}
+_PROFILE_CACHE: Dict[str, Dict[str, Any]] = {}
 _PROFILE_CACHE_LOCK = threading.RLock()
+_PROFILE_IN_FLIGHT: Dict[str, threading.Event] = {}
+_PROFILE_MAX_ENTRIES = 100
+_PROFILE_TTL_SEC = 86400  # 24 hours
+_PROFILE_SCHEMA_VERSION = "v2"
 
 
 def _compute_profile_cache_key(title: str, year: int, director: str, reviews: List[Dict[str, Any]]) -> str:
     serialized = json.dumps(reviews, sort_keys=True)
     content_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:16]
-    return f"{title.lower()}:{year}:{director.lower()}:{content_hash}:v1"
+    return f"{title.lower().strip()}:{year}:{director.lower().strip()}:{content_hash}:{_PROFILE_SCHEMA_VERSION}"
 
 
 def generate_film_profile(
@@ -107,107 +112,137 @@ def generate_film_profile(
     """Generates the FilmProfile, EvidenceState, and consensus rationale for a movie using Gemini 2.5 Pro.
 
     Falls back to a robust mock generator if reviews list is empty or API keys are missing.
+    Results are cached with a 24-hour TTL and bounded size, with in-flight request deduplication.
     """
     cache_key = _compute_profile_cache_key(title, year, director, reviews)
     with _PROFILE_CACHE_LOCK:
         if cache_key in _PROFILE_CACHE:
-            return _PROFILE_CACHE[cache_key]
+            entry = _PROFILE_CACHE[cache_key]
+            if time.time() - entry.get("timestamp", 0) < _PROFILE_TTL_SEC:
+                return entry["result"]
+            else:
+                del _PROFILE_CACHE[cache_key]
 
-    # Fallback/Mock Generator for our seed films if no reviews are supplied or API key is missing
-    has_gemini_key = bool(os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GEMINI_API_KEY"))
-    if not reviews or not has_gemini_key or os.environ.get("TONI_MOCK_GEMINI_LIVE") == "true":
-        # Local mock profiles for our main seed films to keep integration testing fast and robust
-        title_lower = title.lower().strip()
-        if "inception" in title_lower:
-            return (
-                FilmProfile(
-                    story_and_writing=4.5,
-                    pacing_and_structure=4.5,
-                    performances=4.3,
-                    tone_and_emotional_character=["mind-bending", "tense", "thrilling", "intellectual"],
-                    craft_and_execution=4.8,
-                    accessibility_and_demandingness=4.0,
-                ),
-                EvidenceState.STRONG_AGREEMENT,
-                "Critics broadly praised the direction, visual design, and intricate plotting of Nolan's sci-fi film."
-            )
-        elif "babylon" in title_lower:
-            return (
-                FilmProfile(
-                    story_and_writing=3.2,
-                    pacing_and_structure=2.8,
-                    performances=4.2,
-                    tone_and_emotional_character=["exhausting", "hedonistic", "chaotic", "unsettling"],
-                    craft_and_execution=4.6,
-                    accessibility_and_demandingness=4.2,
-                ),
-                EvidenceState.MEANINGFUL_DISAGREEMENT,
-                "Critics were divided, noting ambitious craft alongside a dense and demanding narrative structure."
-            )
+        if cache_key in _PROFILE_IN_FLIGHT:
+            evt = _PROFILE_IN_FLIGHT[cache_key]
+            is_leader = False
         else:
-            # General fallback profile
-            return (
-                FilmProfile(
-                    story_and_writing=3.5,
-                    pacing_and_structure=3.5,
-                    performances=3.5,
-                    tone_and_emotional_character=["warm", "engaging"],
-                    craft_and_execution=3.5,
-                    accessibility_and_demandingness=3.0,
-                ),
-                EvidenceState.SPARSE_EVIDENCE,
-                "Limited critical reviews are available; the film displays standard storytelling and execution."
-            )
+            evt = threading.Event()
+            _PROFILE_IN_FLIGHT[cache_key] = evt
+            is_leader = True
 
-    # Live Gemini Call
-    from google import genai
-    from google.genai import types
+    if not is_leader:
+        evt.wait(timeout=15.0)
+        with _PROFILE_CACHE_LOCK:
+            if cache_key in _PROFILE_CACHE:
+                return _PROFILE_CACHE[cache_key]["result"]
 
-    client = genai.Client()
-    prompt = build_profiling_prompt(title, year, director, reviews)
-
-    response = None
-    last_exception = None
-    for model_candidate in ["gemini-pro-latest", "gemini-flash-latest", "gemini-2.5-pro"]:
-        try:
-            response = client.models.generate_content(
-                model=model_candidate,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.0,  # Temperature 0 for deterministic critical evaluation
-                    response_mime_type="application/json",
-                    response_schema=GeminiProfileSchema,
-                ),
-            )
-            if response and response.parsed:
-                break
-        except Exception as e:
-            last_exception = e
-            print(f"[!] Profiling candidate {model_candidate} failed for '{title}': {e}", file=sys.stderr)
-            continue
-
-    if not response or not response.parsed:
-        err_msg = f"Gemini profiling failed to return parseable response schema for '{title}' (last model exception: {last_exception})."
-        raise RuntimeError(err_msg)
-
-    data: GeminiProfileSchema = response.parsed
-
-    # Convert the string to the EvidenceState enum safely
     try:
-        ev_state = EvidenceState(data.evidence_state)
-    except ValueError:
-        ev_state = EvidenceState.SPARSE_EVIDENCE
+        # Fallback/Mock Generator for our seed films if no reviews are supplied or API key is missing
+        has_gemini_key = bool(os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GEMINI_API_KEY"))
+        if not reviews or not has_gemini_key or os.environ.get("TONI_MOCK_GEMINI_LIVE") == "true":
+            # Local mock profiles for our main seed films to keep integration testing fast and robust
+            title_lower = title.lower().strip()
+            if "inception" in title_lower:
+                res = (
+                    FilmProfile(
+                        story_and_writing=4.5,
+                        pacing_and_structure=4.5,
+                        performances=4.3,
+                        tone_and_emotional_character=["mind-bending", "tense", "thrilling", "intellectual"],
+                        craft_and_execution=4.8,
+                        accessibility_and_demandingness=4.0,
+                    ),
+                    EvidenceState.STRONG_AGREEMENT,
+                    "Critics broadly praised the direction, visual design, and intricate plotting of Nolan's sci-fi film."
+                )
+            elif "babylon" in title_lower:
+                res = (
+                    FilmProfile(
+                        story_and_writing=3.2,
+                        pacing_and_structure=2.8,
+                        performances=4.2,
+                        tone_and_emotional_character=["exhausting", "hedonistic", "chaotic", "unsettling"],
+                        craft_and_execution=4.6,
+                        accessibility_and_demandingness=4.2,
+                    ),
+                    EvidenceState.MEANINGFUL_DISAGREEMENT,
+                    "Critics were divided, noting ambitious craft alongside a dense and demanding narrative structure."
+                )
+            else:
+                res = (
+                    FilmProfile(
+                        story_and_writing=3.5,
+                        pacing_and_structure=3.5,
+                        performances=3.5,
+                        tone_and_emotional_character=["warm", "engaging"],
+                        craft_and_execution=3.5,
+                        accessibility_and_demandingness=3.0,
+                    ),
+                    EvidenceState.SPARSE_EVIDENCE,
+                    "Limited critical reviews are available; the film displays standard storytelling and execution."
+                )
+            with _PROFILE_CACHE_LOCK:
+                _PROFILE_CACHE[cache_key] = {"result": res, "timestamp": time.time()}
+            return res
 
-    profile = FilmProfile(
-        story_and_writing=max(1.0, min(5.0, data.story_and_writing)),
-        pacing_and_structure=max(1.0, min(5.0, data.pacing_and_structure)),
-        performances=max(1.0, min(5.0, data.performances)),
-        tone_and_emotional_character=data.tone_and_emotional_character,
-        craft_and_execution=max(1.0, min(5.0, data.craft_and_execution)),
-        accessibility_and_demandingness=max(1.0, min(5.0, data.accessibility_and_demandingness)),
-    )
+        # Live Gemini Call
+        from google import genai
+        from google.genai import types
 
-    result = (profile, ev_state, data.consensus_rationale)
-    with _PROFILE_CACHE_LOCK:
-        _PROFILE_CACHE[cache_key] = result
-    return result
+        client = genai.Client()
+        prompt = build_profiling_prompt(title, year, director, reviews)
+
+        response = None
+        last_exception = None
+        for model_candidate in ["gemini-pro-latest", "gemini-flash-latest", "gemini-2.5-pro"]:
+            try:
+                response = client.models.generate_content(
+                    model=model_candidate,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.0,  # Temperature 0 for deterministic critical evaluation
+                        response_mime_type="application/json",
+                        response_schema=GeminiProfileSchema,
+                    ),
+                )
+                if response and response.parsed:
+                    break
+            except Exception as e:
+                last_exception = e
+                print(f"[!] Profiling candidate {model_candidate} failed for '{title}': {e}", file=sys.stderr)
+                continue
+
+        if not response or not response.parsed:
+            err_msg = f"Gemini profiling failed to return parseable response schema for '{title}' (last model exception: {last_exception})."
+            raise RuntimeError(err_msg)
+
+        data: GeminiProfileSchema = response.parsed
+
+        # Convert the string to the EvidenceState enum safely
+        try:
+            ev_state = EvidenceState(data.evidence_state)
+        except ValueError:
+            ev_state = EvidenceState.SPARSE_EVIDENCE
+
+        profile = FilmProfile(
+            story_and_writing=max(1.0, min(5.0, data.story_and_writing)),
+            pacing_and_structure=max(1.0, min(5.0, data.pacing_and_structure)),
+            performances=max(1.0, min(5.0, data.performances)),
+            tone_and_emotional_character=data.tone_and_emotional_character,
+            craft_and_execution=max(1.0, min(5.0, data.craft_and_execution)),
+            accessibility_and_demandingness=max(1.0, min(5.0, data.accessibility_and_demandingness)),
+        )
+
+        result = (profile, ev_state, data.consensus_rationale)
+        with _PROFILE_CACHE_LOCK:
+            _PROFILE_CACHE[cache_key] = {"result": result, "timestamp": time.time()}
+            if len(_PROFILE_CACHE) > _PROFILE_MAX_ENTRIES:
+                oldest = min(_PROFILE_CACHE.keys(), key=lambda k: _PROFILE_CACHE[k].get("timestamp", 0))
+                del _PROFILE_CACHE[oldest]
+        return result
+    finally:
+        if is_leader:
+            with _PROFILE_CACHE_LOCK:
+                _PROFILE_IN_FLIGHT.pop(cache_key, None)
+            evt.set()

@@ -12,13 +12,14 @@ if SRC_PATH not in sys.path:
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment(tmp_path_factory):
     """Session-scoped fixture to isolate the test suite from external APIs."""
-    # Set default mock availability and live socket flags for fast offline testing
+    # Set default mock availability, live socket flags, and testing mode
+    os.environ["TONI_TESTING"] = "1"
     os.environ["TONI_USE_MOCK_AVAILABILITY"] = "true"
     os.environ["TONI_MOCK_GEMINI_LIVE"] = "true"
 
-    # Temporarily isolate external Gemini keys for offline tests
+    # Temporarily isolate external keys for offline tests
     isolated_keys = {}
-    for key in ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT"]:
+    for key in ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT", "PARALLEL_API_KEY"]:
         if key in os.environ:
             isolated_keys[key] = os.environ.pop(key)
 
@@ -79,13 +80,29 @@ def setup_test_environment(tmp_path_factory):
     
     patcher = patch("src.evidence.Parallel", mock_parallel_class)
     patcher2 = patch("evidence.Parallel", mock_parallel_class)
+    patcher3 = patch("parallel.Parallel", mock_parallel_class)
     patcher.start()
     patcher2.start()
+    patcher3.start()
+    # Block external network sockets
+    import socket
+    orig_connect = socket.socket.connect
+
+    def guarded_connect(self, address):
+        host = address[0] if isinstance(address, tuple) and len(address) > 0 else str(address)
+        if host in ("127.0.0.1", "::1", "localhost", "testserver") or str(host).startswith("127."):
+            return orig_connect(self, address)
+        raise RuntimeError(f"External network connection blocked during test isolation: {address}")
+
+    patch_socket = patch.object(socket.socket, "connect", guarded_connect)
+    patch_socket.start()
     
     yield
     
+    patch_socket.stop()
     patcher.stop()
     patcher2.stop()
+    patcher3.stop()
     patch_trace1.stop()
     patch_cache1.stop()
     patch_trace2.stop()
