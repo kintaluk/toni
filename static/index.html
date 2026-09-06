@@ -613,12 +613,14 @@
       mark.classList.add("aperture-micro-step");
     }
 
+    let scrollDebounceTimeout = null;
     function scrollToBottom() {
       const scrollContainer = document.getElementById("main-scroll-container");
       if (scrollContainer) {
-        setTimeout(() => {
+        if (scrollDebounceTimeout) clearTimeout(scrollDebounceTimeout);
+        scrollDebounceTimeout = setTimeout(() => {
           scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: "smooth" });
-        }, 80);
+        }, 50);
       }
     }
 
@@ -749,6 +751,18 @@
       });
     }
 
+    // Delegated trailer button listener for secure, quote-safe playback
+    document.addEventListener("click", (e) => {
+      const btn = e.target.closest(".watch-trailer-btn");
+      if (btn) {
+        e.stopPropagation();
+        const title = btn.getAttribute("data-trailer-title") || "";
+        const year = btn.getAttribute("data-trailer-year") || "";
+        const url = btn.getAttribute("data-trailer-url") || "";
+        openTrailerModal(title, year, url);
+      }
+    });
+
     // --- GENUINE GEMINI LIVE API WEBSOCKET & PCM AUDIO ENGINE ---
 
     // SpeechRecognition safety guard & listening state
@@ -851,7 +865,7 @@
       }
     }
 
-    function handleBargeIn() {
+    function cancelLocalPlayback() {
       if (activeAudioSourceNodes.length > 0) {
         activeAudioSourceNodes.forEach(node => {
           try { node.stop(); } catch(e) {}
@@ -862,11 +876,15 @@
         nextAudioPlaybackTime = audioPlaybackContext.currentTime;
       }
       isToniSpeaking = false;
-      if (liveWs && liveWs.readyState === WebSocket.OPEN) {
-        liveWs.send(JSON.stringify({ type: "interrupt" }));
-      }
       if (voiceActive) {
         updateVoiceUIState("listening");
+      }
+    }
+
+    function handleBargeIn() {
+      cancelLocalPlayback();
+      if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+        liveWs.send(JSON.stringify({ type: "interrupt" }));
       }
     }
 
@@ -1186,7 +1204,7 @@
               }
             }
           } else if (msg.type === "interrupted") {
-            handleBargeIn();
+            cancelLocalPlayback();
             finalizeVoiceAssistantMessage();
           }
         } catch (e) {
@@ -1366,12 +1384,14 @@
       triggerPipelineExecution();
     }
 
-    // Append a TONI agent message bubble
-    function appendToniMessage(contentHtml, id = null) {
+    // Append a TONI agent message bubble (escapes content by default for safety)
+    function appendToniMessage(content, id = null, isTrustedHtml = false) {
       const thread = document.getElementById("toni-chat-thread");
       const wrap = document.createElement("div");
       wrap.className = "flex items-start gap-3 chat-message-anim";
       if (id) wrap.id = id;
+
+      const safeContent = isTrustedHtml ? content : escapeHtml(content);
 
       wrap.innerHTML = `
         <img src="static/assets/TONI_Mark_Aperture_Notch_Primary.svg" 
@@ -1381,7 +1401,7 @@
         <div class="flex-1 max-w-xl bg-white/85 rounded-[6px] border border-ink/15 p-4 sm:p-5 shadow-xs space-y-3">
           <div class="text-[11px] font-bold text-ink uppercase tracking-wider font-sans">TONI</div>
           <div class="text-xs sm:text-sm text-ink font-serif leading-relaxed">
-            ${contentHtml}
+            ${safeContent}
           </div>
         </div>
       `;
@@ -1485,7 +1505,7 @@
           </button>
         </div>
       `;
-      appendToniMessage(html, "msg-step-1");
+      appendToniMessage(html, "msg-step-1", true);
     }
 
     function selectEffort(depth, label) {
@@ -1555,7 +1575,7 @@
           </div>
         </div>
       `;
-      appendToniMessage(html, "msg-step-2");
+      appendToniMessage(html, "msg-step-2", true);
     }
 
     function selectMarket(country) {
@@ -1656,7 +1676,7 @@
           </button>
         </div>
       `;
-      appendToniMessage(html, "msg-step-3");
+      appendToniMessage(html, "msg-step-3", true);
     }
 
     function toggleService(name) {
@@ -1779,7 +1799,7 @@
           </div>
         </div>
       `;
-      appendToniMessage(html, "msg-step-4");
+      appendToniMessage(html, "msg-step-4", true);
     }
 
     function setPacing(val, btn) {
@@ -1834,7 +1854,7 @@
           </button>
         </div>
       `;
-      appendToniMessage(html, "msg-step-ready");
+      appendToniMessage(html, "msg-step-ready", true);
     }
 
     // Handle user free-form typed text
@@ -2173,8 +2193,10 @@
                 <!-- Watch Trailer Button or Unavailable Fallback -->
                 ${hasTrailerAvailable(rec) ? `
                 <button type="button" 
-                        onclick="openTrailerModal('${escapeHtml(rec.metadata.title).replace(/'/g, "\\'")}', '${rec.metadata.year}', '${escapeHtml(rec.metadata.trailer_url || '')}')"
-                        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-[3px] text-xs font-semibold bg-white text-ink border border-ink/20 hover:border-lime hover:bg-lime/15 transition shadow-2xs">
+                        class="watch-trailer-btn inline-flex items-center gap-1.5 px-3 py-1 rounded-[3px] text-xs font-semibold bg-white text-ink border border-ink/20 hover:border-lime hover:bg-lime/15 transition shadow-2xs"
+                        data-trailer-title="${escapeHtml(rec.metadata.title)}"
+                        data-trailer-year="${escapeHtml(rec.metadata.year)}"
+                        data-trailer-url="${escapeHtml(rec.metadata.trailer_url || '')}">
                   <span class="text-lime-dark font-bold">▶</span>
                   <span>Watch trailer</span>
                 </button>
@@ -2264,8 +2286,10 @@
               <div class="flex items-center gap-2 self-end sm:self-auto">
                 ${hasTrailerAvailable(rec) ? `
                 <button type="button" 
-                        onclick="event.stopPropagation(); openTrailerModal('${escapeHtml(rec.metadata.title).replace(/'/g, "\\'")}', '${rec.metadata.year}', '${escapeHtml(rec.metadata.trailer_url || '')}')"
-                        class="px-2.5 py-1 rounded-[3px] text-[11px] font-semibold bg-white text-ink border border-ink/20 hover:border-lime">
+                        class="watch-trailer-btn px-2.5 py-1 rounded-[3px] text-[11px] font-semibold bg-white text-ink border border-ink/20 hover:border-lime"
+                        data-trailer-title="${escapeHtml(rec.metadata.title)}"
+                        data-trailer-year="${escapeHtml(rec.metadata.year)}"
+                        data-trailer-url="${escapeHtml(rec.metadata.trailer_url || '')}">
                   ▶ Trailer
                 </button>
                 ` : `
@@ -2351,8 +2375,14 @@
       const tSig = (ctx.tonight_signals || []).find(s => s.name === "tone");
       if (tSig) chatState.tone = tSig.value;
 
+      const rSig = (ctx.tonight_signals || []).find(s => s.name === "max_runtime");
+      if (rSig) chatState.max_runtime = rSig.value;
+
+      const gSig = (ctx.tonight_signals || []).find(s => s.name === "exclude_genre" || s.name === "exclude_genres");
+      if (gSig) chatState.exclude_genres = Array.isArray(gSig.value) ? gSig.value : [gSig.value];
+
       setTimeout(() => {
-        appendToniMessage(`Loaded persona <strong>${name}</strong> (${ctx.country}, ${ctx.service_access.join(', ')}). Ready to find what fits!`);
+        appendToniMessage(`Loaded persona <strong>${escapeHtml(name)}</strong> (${escapeHtml(ctx.country)}, ${escapeHtml(ctx.service_access.join(', '))}). Ready to find what fits!`, null, true);
         renderReadyTurn();
       }, 300);
     }

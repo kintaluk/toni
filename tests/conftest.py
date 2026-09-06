@@ -12,24 +12,36 @@ if SRC_PATH not in sys.path:
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment(tmp_path_factory):
     """Session-scoped fixture to isolate the test suite from external APIs."""
-    # Set default mock availability flag
+    # Set default mock availability and live socket flags for fast offline testing
     os.environ["TONI_USE_MOCK_AVAILABILITY"] = "true"
+    os.environ["TONI_MOCK_GEMINI_LIVE"] = "true"
+
+    # Temporarily isolate external Gemini keys for offline tests
+    isolated_keys = {}
+    for key in ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT"]:
+        if key in os.environ:
+            isolated_keys[key] = os.environ.pop(key)
 
     # Create temporary directories for logs and cache to prevent test pollution
     temp_dir = tmp_path_factory.mktemp("test_logs_and_cache")
     temp_trace_path = temp_dir / "parallel_traces.jsonl"
     temp_cache_path = temp_dir / "evidence_cache.json"
+    temp_conv_path = temp_dir / "conversations.jsonl"
 
-    # Patch TRACE_LOG_PATH and CACHE_PATH globally for all tests
+    # Patch TRACE_LOG_PATH, CACHE_PATH, and CONVERSATIONS_LOG_PATH globally for all tests
     patch_trace1 = patch("src.evidence.TRACE_LOG_PATH", temp_trace_path)
     patch_cache1 = patch("src.evidence.CACHE_PATH", temp_cache_path)
     patch_trace2 = patch("evidence.TRACE_LOG_PATH", temp_trace_path)
     patch_cache2 = patch("evidence.CACHE_PATH", temp_cache_path)
+    patch_conv1 = patch("src.api.CONVERSATIONS_LOG_PATH", temp_conv_path)
+    patch_conv2 = patch("api.CONVERSATIONS_LOG_PATH", temp_conv_path)
 
     patch_trace1.start()
     patch_cache1.start()
     patch_trace2.start()
     patch_cache2.start()
+    patch_conv1.start()
+    patch_conv2.start()
 
     # Setup global Parallel stub
     mock_client = MagicMock()
@@ -78,3 +90,8 @@ def setup_test_environment(tmp_path_factory):
     patch_cache1.stop()
     patch_trace2.stop()
     patch_cache2.stop()
+    patch_conv1.stop()
+    patch_conv2.stop()
+
+    for k, v in isolated_keys.items():
+        os.environ[k] = v

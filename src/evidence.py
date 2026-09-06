@@ -141,58 +141,79 @@ def log_trace(
     print(f"[TRACE] {json.dumps(trace_data)}", flush=True)
 
 
+import threading
+
+_CACHE_LOCK = threading.RLock()
+
+
 def load_from_cache(title: str, year: int) -> Optional[List[Dict[str, Any]]]:
     """Load cached evidence from logs/evidence_cache.json if present and not expired."""
-    if not CACHE_PATH.exists():
-        return None
-    try:
-        cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
-        key = f"{title.lower()}-{year}"
-        entry = cache.get(key)
-        if not entry:
+    with _CACHE_LOCK:
+        if not CACHE_PATH.exists():
             return None
-        
-        # Treat old-style cache entries (which are lists, not dicts with timestamp) as expired
-        if isinstance(entry, list):
-            return None
+        try:
+            content = CACHE_PATH.read_text(encoding="utf-8").strip()
+            if not content:
+                return None
+            cache = json.loads(content)
+            if not isinstance(cache, dict):
+                return None
+            key = f"{title.lower()}-{year}"
+            entry = cache.get(key)
+            if not entry:
+                return None
             
-        if isinstance(entry, dict) and "data" in entry and "timestamp" in entry:
-            # TTL is 24 hours (86400 seconds)
-            TTL_SEC = 86400
-            age = time.time() - entry["timestamp"]
-            if age < TTL_SEC:
-                return entry["data"]
+            # Treat old-style cache entries (which are lists, not dicts with timestamp) as expired
+            if isinstance(entry, list):
+                return None
                 
-        return None
-    except Exception:
-        return None
+            if isinstance(entry, dict) and "data" in entry and "timestamp" in entry:
+                # TTL is 24 hours (86400 seconds)
+                TTL_SEC = 86400
+                age = time.time() - entry["timestamp"]
+                if age < TTL_SEC:
+                    return entry["data"]
+                    
+            return None
+        except Exception:
+            return None
 
 
 def save_to_cache(title: str, year: int, data: List[Dict[str, Any]]) -> None:
     """Save extracted evidence to logs/evidence_cache.json with a timestamp, bounding the cache to 50 items."""
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    cache = {}
-    if CACHE_PATH.exists():
+    with _CACHE_LOCK:
+        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        cache = {}
+        if CACHE_PATH.exists():
+            try:
+                content = CACHE_PATH.read_text(encoding="utf-8").strip()
+                if content:
+                    loaded = json.loads(content)
+                    if isinstance(loaded, dict):
+                        cache = loaded
+            except Exception:
+                cache = {}
+        key = f"{title.lower()}-{year}"
+        cache[key] = {
+            "timestamp": time.time(),
+            "data": data
+        }
+        
+        # Bound the cache size to 50 entries
+        if len(cache) > 50:
+            sorted_keys = sorted(
+                cache.keys(),
+                key=lambda k: cache[k].get("timestamp", 0) if isinstance(cache[k], dict) else 0
+            )
+            for old_key in sorted_keys[:(len(cache) - 50)]:
+                del cache[old_key]
+                
+        tmp_path = CACHE_PATH.with_suffix(".tmp")
         try:
-            cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+            tmp_path.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+            tmp_path.replace(CACHE_PATH)
         except Exception:
-            pass
-    key = f"{title.lower()}-{year}"
-    cache[key] = {
-        "timestamp": time.time(),
-        "data": data
-    }
-    
-    # Bound the cache size to 50 entries
-    if len(cache) > 50:
-        sorted_keys = sorted(
-            cache.keys(),
-            key=lambda k: cache[k].get("timestamp", 0) if isinstance(cache[k], dict) else 0
-        )
-        for old_key in sorted_keys[:(len(cache) - 50)]:
-            del cache[old_key]
-            
-    CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+            CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
 
 
 def get_film_evidence(
