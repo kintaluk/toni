@@ -38,6 +38,16 @@ def _tmdb_api_key():
 # --- SERVICE NAME NORMALIZATION MAP ---
 # Standardizes provider names and IDs from API presets and external lookups
 SERVICE_NAME_MAP = {
+    # UK subscription routes. Sky Store remains a separate rent/buy service.
+    "sky": "sky go",
+    "sky go": "sky go",
+    "sky_go": "sky go",
+    "sky cinema": "sky go",
+    "now cinema": "now cinema",
+    "now_cinema": "now cinema",
+    "now tv cinema": "now cinema",
+    "now tv": "now cinema",
+    "nowtv": "now cinema",
     # Disney
     "disney plus": "disney+",
     "disney+": "disney+",
@@ -132,6 +142,8 @@ class ProviderAPIError(Exception):
 
 def make_request(url: str, headers: dict = None, timeout: float = 3.0) -> tuple[int, dict]:
     """Perform a safe HTTP GET request and parse JSON."""
+    if timeout <= 0:
+        return 504, {"error": "Availability budget exhausted"}
     req = urllib.request.Request(url, headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
@@ -236,13 +248,14 @@ def tmdb_search(title: str, year: int, timeout: float = 3.0) -> Optional[int]:
             _TMDB_IN_FLIGHT[key] = evt
 
     if evt_to_wait is not None:
-        evt_to_wait.wait(timeout=timeout + 1.0)
+        evt_to_wait.wait(timeout=max(0.0, timeout))
         with _TMDB_CACHE_LOCK:
             if key in _TMDB_IN_FLIGHT_RESULTS:
                 res_val = _TMDB_IN_FLIGHT_RESULTS[key]
                 if isinstance(res_val, Exception):
                     raise res_val
                 return res_val.get("movie_id") if isinstance(res_val, dict) else None
+        raise ProviderAPIError("TMDB search is still in progress")
 
     # Perform external search
     try:
@@ -542,17 +555,17 @@ def get_film_availability(title: str, year: int, context: UserContext, timeout: 
             return mock_res
 
     # Overall operation deadline
-    deadline = time.time() + timeout
+    deadline = time.monotonic() + max(0.0, timeout)
     watchmode_failed = False
     tmdb_failed = False
 
     # 1. Try Live Watchmode API
     if _watchmode_api_key():
-        remaining = max(0.5, deadline - time.time())
+        remaining = max(0.0, deadline - time.monotonic())
         try:
             title_id = watchmode_search(title, year, timeout=min(3.0, remaining))
             if title_id:
-                rem_sources = max(0.5, deadline - time.time())
+                rem_sources = max(0.0, deadline - time.monotonic())
                 sources = watchmode_get_sources(title_id, timeout=min(3.0, rem_sources))
                 matched_services = []
                 for s in sources:
@@ -589,11 +602,11 @@ def get_film_availability(title: str, year: int, context: UserContext, timeout: 
 
     # 2. Fallback to Live TMDB API
     if _tmdb_api_key():
-        remaining = max(0.5, deadline - time.time())
+        remaining = max(0.0, deadline - time.monotonic())
         try:
             movie_id = tmdb_search(title, year, timeout=min(3.0, remaining))
             if movie_id:
-                rem_providers = max(0.5, deadline - time.time())
+                rem_providers = max(0.0, deadline - time.monotonic())
                 providers = tmdb_get_watch_providers(movie_id, timeout=min(3.0, rem_providers))
                 market_providers = providers.get(api_country, {})
                 matched_services = []
@@ -792,4 +805,3 @@ def get_film_trailer_url(title: str, year: int) -> Optional[str]:
 
     _TRAILER_CACHE[key] = None
     return None
-

@@ -72,7 +72,7 @@ def parse_env_secrets() -> dict:
                 key, val = line.split("=", 1)
                 key = key.strip()
                 val = val.strip().strip("'\"")
-                if key in ["PARALLEL_API_KEY", "WATCHMODE_API_KEY", "TMDB_API_KEY"]:
+                if key in ["PARALLEL_API_KEY", "WATCHMODE_API_KEY", "TMDB_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"]:
                     if val:
                         secrets[key] = val
                         print(f"  [OK] Found secret config for {GREEN}{key}{RESET}")
@@ -117,7 +117,7 @@ def main():
     # 2. Get Secrets
     secrets = parse_env_secrets()
     if not secrets:
-        print(f"{RED}[!] Warning: No keys (PARALLEL_API_KEY) found in .env! Deployment might fail at runtime.{RESET}")
+        print(f"{RED}[!] Warning: No keys (PARALLEL_API_KEY, GEMINI_API_KEY) found in .env! Deployment might fail at runtime.{RESET}")
     
     # 3. Fetch Configuration
     print(f"\n{BOLD}{CYAN}[3/4] Initialising Google Cloud settings...{RESET}")
@@ -129,17 +129,24 @@ def main():
     region = gcloud_cfg["region"]
     project_id = gcloud_cfg["project"] if gcloud_cfg["project"] else "GCP_PROJECT_ID"
     
-    # Environment variables (do not include reserved PORT variable or secrets here)
+    # Record the exact source tree packaged by this build.
+    sys.path.insert(0, str(SRC_DIR))
+    from build_provenance import write_manifest
+    manifest_data = write_manifest(REPO_ROOT)
+    base_git_sha = manifest_data["base_git_sha"]
+    git_sha = base_git_sha
+    source_fp = manifest_data["source_fingerprint"]
+    print(f"  [OK] Generated build_manifest.json ({source_fp})")
+
+    # Environment variables: preserve Gemini Developer API configuration and inject provenance
     env_vars_list = [
-        "GOOGLE_GENAI_USE_VERTEXAI=True"
+        "GOOGLE_GENAI_USE_VERTEXAI=False",
+        f"GOOGLE_CLOUD_PROJECT={project_id}",
+        f"GIT_SHA={git_sha}",
+        f"BASE_GIT_SHA={base_git_sha}",
+        f"SOURCE_FINGERPRINT={source_fp}"
     ]
     env_vars_arg = ",".join(env_vars_list)
-    
-    # Secrets mapped via Cloud Run Secret Manager integration
-    secrets_arg = ""
-    if secrets:
-        secrets_list = [f"{k}={k}:latest" for k in secrets.keys()]
-        secrets_arg = ",".join(secrets_list)
     
     # Define Artifact Registry path (replaces deprecated gcr.io)
     image_tag = f"{region}-docker.pkg.dev/{project_id}/toni-repo/{service_name}:latest"
@@ -147,18 +154,21 @@ def main():
     # Build Deploy Command list
     build_cmd = f"gcloud builds submit --tag {image_tag} ."
     
-    deploy_cmd_parts = [
-        f"gcloud run deploy {service_name}",
-        f"  --image {image_tag}",
-        "  --platform managed",
-        f"  --region {region}",
-        "  --allow-unauthenticated",
-        f"  --set-env-vars=\"{env_vars_arg}\""
-    ]
-    if secrets_arg:
-        deploy_cmd_parts.append(f"  --set-secrets=\"{secrets_arg}\"")
-        
-    deploy_cmd = " \\\n".join(deploy_cmd_parts)
+    candidate_deploy_cmd = (
+        f"gcloud run deploy {service_name} \\\n"
+        f"  --image {image_tag} \\\n"
+        f"  --platform managed \\\n"
+        f"  --region {region} \\\n"
+        f"  --no-traffic \\\n"
+        f"  --tag candidate \\\n"
+        f"  --update-env-vars=\"{env_vars_arg}\""
+    )
+
+    production_promote_cmd = (
+        f"gcloud run services update-traffic {service_name} \\\n"
+        f"  --region {region} \\\n"
+        f"  --to-revisions=VERIFIED_REVISION=100"
+    )
     
     print(f"\n{BOLD}{CYAN}[4/4] Generation completed!{RESET}")
     print(f"To deploy TONI to Google Cloud Run, execute the following commands in your CLI:\n")
@@ -166,15 +176,20 @@ def main():
     print(f"{BOLD}{YELLOW}# 1. Build and push container using Google Cloud Build:{RESET}")
     print(f"{GREEN}{build_cmd}{RESET}\n")
     
-    print(f"{BOLD}{YELLOW}# 2. Deploy container to Google Cloud Run:{RESET}")
-    print(f"{GREEN}{deploy_cmd}{RESET}\n")
+    print(f"{BOLD}{YELLOW}# 2. Deploy candidate revision to Google Cloud Run (no traffic):{RESET}")
+    print(f"{GREEN}{candidate_deploy_cmd}{RESET}\n")
+
+    print(f"{BOLD}{YELLOW}# 3. Promote candidate to 100% production traffic after verification gates pass:{RESET}")
+    print(f"{GREEN}{production_promote_cmd}{RESET}\n")
     
     print(f"{BOLD}{CYAN}==================================================={RESET}")
-    print(f"{BOLD}{WHITE}Dry-run notes:{RESET}")
-    print(f" - Running Cloud Build compiles the Docker container directly in the cloud via Artifact Registry.")
-    print(f" - Artifact Registry ({region}-docker.pkg.dev) is utilized as gcr.io is deprecated.")
+    print(f"{BOLD}{WHITE}Deployment notes:{RESET}")
+    print(f" - Gemini Developer API backend is enforced via GOOGLE_GENAI_USE_VERTEXAI=False.")
+    print(f" - Candidate deployment uses --no-traffic --tag candidate to allow isolated end-to-end verification.")
+    print(f" - Existing container environment variables (API keys) are preserved using --update-env-vars.")
+    print(f"{BOLD}{CYAN}==================================================={RESET}")
     print(f" - Deploying to Cloud Run automatically exposes port 8080 and configures HTTPS endpoints.")
-    print(f" - Environment secrets (e.g., Parallel and Watchmode keys) are mapped using Google Cloud Secret Manager.")
+    print(f" - Existing Cloud Run key configuration is preserved; this command does not migrate secrets.")
     print(f"{BOLD}{CYAN}==================================================={RESET}")
 
 if __name__ == "__main__":

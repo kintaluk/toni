@@ -325,14 +325,14 @@ def test_film_profile_cache_bounds_and_offline_profile():
 # --- ITEM 9: PACKAGING EXCLUSIONS AND BUNDLE INTEGRITY ---
 
 def test_packaging_exclusions_and_css_bundle():
-    """Verify .dockerignore contains PNG asset exclusions and toni.bundle.css exists."""
+    """Verify runtime assets are packaged and the compiled CSS bundle exists."""
     repo_root = Path(__file__).resolve().parent.parent
     dockerignore = repo_root / ".dockerignore"
     bundle_css = repo_root / "static" / "assets" / "toni.bundle.css"
 
     assert dockerignore.exists(), ".dockerignore must exist at repo root"
     content = dockerignore.read_text(encoding="utf-8")
-    assert "static/assets/*.png" in content, ".dockerignore must exclude static/assets/*.png"
+    assert "static/assets/*.png" not in content, "Manifest-listed runtime assets must be packaged"
 
     assert bundle_css.exists(), "static/assets/toni.bundle.css must exist"
     assert bundle_css.stat().st_size > 1000, "toni.bundle.css must be compiled and non-trivial"

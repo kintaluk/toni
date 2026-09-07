@@ -22,6 +22,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY static/ ./static/
 COPY licenses/ ./licenses/
+COPY Dockerfile build_manifest.json ./
+RUN python -c "from src.build_provenance import verify_manifest; assert verify_manifest()['manifest_verified'], 'Packaged files do not match the source manifest'"
 
 # Create runtime logs directory and ensure permissions
 RUN mkdir -p logs && chown -R 1000:1000 /app

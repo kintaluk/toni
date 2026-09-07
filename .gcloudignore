@@ -1,0 +1,13 @@
+.gcloudignore
+.git
+.gitignore
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+tests/
+validation/
+logs/
+spikes/
+node_modules/

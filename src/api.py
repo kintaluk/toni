@@ -17,6 +17,7 @@ import struct
 import base64
 import json
 import secrets
+import hashlib
 import asyncio
 import traceback
 from collections import defaultdict
@@ -53,7 +54,11 @@ from contracts import (
     SIGNAL_DEMANDINGNESS,
     SIGNAL_MAX_RUNTIME,
     SIGNAL_EXCLUDE_GENRE,
+    SIGNAL_PREFERRED_GENRES,
+    SIGNAL_REFERENCE_FILMS,
 )
+from gemini_client import get_gemini_client, EXTRACTION_MODEL, VOICE_MODEL
+from fastapi.openapi.utils import get_openapi
 from ranking import rank_movies
 from availability import SERVICE_NAME_MAP
 
@@ -137,6 +142,8 @@ PROVIDER_PRESETS = {
         {"id": "netflix", "name": "Netflix", "tier": "subscription"},
         {"id": "prime_video", "name": "Prime Video", "tier": "subscription"},
         {"id": "disney+", "name": "Disney+", "tier": "subscription"},
+        {"id": "sky_go", "name": "Sky Go", "tier": "subscription"},
+        {"id": "now_cinema", "name": "NOW Cinema", "tier": "subscription"},
         {"id": "bbc_iplayer", "name": "BBC iPlayer", "tier": "free_licence_gated"},
         {"id": "itvx", "name": "ITVX", "tier": "free"},
         {"id": "channel_4", "name": "Channel 4", "tier": "free"},
@@ -214,17 +221,52 @@ DEMO_PERSONAS = [
 CONVERSATIONS_LOG_PATH = Path("logs") / "conversations.jsonl"
 
 
+def join_transcript_chunks(chunks: List[str]) -> str:
+    """Preserve upstream text deltas; whitespace is part of each delta."""
+    return "".join(chunk for chunk in chunks if chunk).strip()
+
+
+from build_provenance import source_manifest, verify_manifest
+
+
+def compute_source_fingerprint() -> str:
+    return source_manifest()["source_fingerprint"]
+
+
+BASE_GIT_SHA = "e1b14c748273bf309b1790571ecf768cd96c3103"
+
+
 @app.get("/api/health", summary="Health Check")
 def health_check() -> Dict[str, Any]:
-    """Check API health and status of external integration configurations."""
+    """Check API health, revision metadata, and status of external integrations."""
     parallel_key = os.environ.get("PARALLEL_API_KEY")
+    gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    provenance = verify_manifest()
+    source_fp = provenance["source_fingerprint"]
+    configured_git_sha = os.environ.get("GIT_SHA")
+    effective_git_sha = configured_git_sha if configured_git_sha and configured_git_sha not in ("unknown", "prod") else BASE_GIT_SHA
+
     return {
         "status": "healthy",
         "service": "TONI Recommendation Engine",
         "version": "1.0.0",
+        "base_git_sha": provenance["base_git_sha"],
+        "git_sha": effective_git_sha,
+        "is_dirty": provenance["is_dirty"],
+        "source_fingerprint": source_fp,
+        "source_provenance": {
+            "base_commit": provenance["base_git_sha"],
+            "manifest_verified": provenance["manifest_verified"],
+            "source_fingerprint": source_fp,
+            "status": "repaired_uncommitted"
+        },
+        "revision": os.environ.get("K_REVISION", "local"),
+        "gemini_backend": "Gemini Developer API (vertexai=False)",
         "integrations": {
             "parallel_web": bool(parallel_key),
-            "google_cloud_project": bool(os.environ.get("GOOGLE_CLOUD_PROJECT")),
+            "gemini_developer_api": bool(gemini_key),
+            "google_genai_use_vertexai": os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "False"),
+            "google_cloud_project": os.environ.get("GOOGLE_CLOUD_PROJECT", ""),
             "watchmode_api": bool(os.environ.get("WATCHMODE_API_KEY")),
             "tmdb_api": bool(os.environ.get("TMDB_API_KEY")),
         }
@@ -398,9 +440,16 @@ class VoiceTurnLLMOutput(BaseModel):
     tone: Optional[str] = Field(default=None, description="tone preference e.g. funny, intense, magical, dark, warm, satirical")
     demandingness: Optional[float] = Field(default=None, description="score 1.0 to 5.0")
     max_runtime: Optional[int] = Field(default=None, description="runtime limit in minutes")
+    clear_max_runtime: bool = Field(default=False, description="True if user explicitly cleared runtime constraints, e.g. 'any length is fine' or 'no limit'")
     exclude_genres: Optional[List[str]] = Field(default=None, description="genres to exclude")
+    clear_exclusions: bool = Field(default=False, description="True if user explicitly cleared genre exclusions")
+    remove_exclusions: Optional[List[str]] = Field(default=None, description="specific genres to remove from exclusions")
+    preferred_genres: Optional[List[str]] = Field(default=None, description="genres the user positively desires")
+    reference_films: Optional[List[str]] = Field(default=None, description="specific film titles mentioned as positive reference favourites")
     country: Optional[str] = Field(default=None, description="UK or US if mentioned")
     services: Optional[List[str]] = Field(default=None, description="streaming services mentioned")
+    replace_services: Optional[List[str]] = Field(default=None, description="streaming services if user specifies exclusive list e.g. 'Netflix only'")
+    remove_services: Optional[List[str]] = Field(default=None, description="streaming services to remove e.g. 'remove Disney+'")
     ready_to_recommend: bool = Field(default=False, description="True if user wants recommendations now or sufficient taste details have been shared")
 
 
@@ -410,21 +459,56 @@ class ContextExtractionLLMOutput(BaseModel):
     tone: Optional[str] = Field(default=None, description="tone preference e.g. funny, intense, magical, dark, warm, satirical")
     demandingness: Optional[float] = Field(default=None, description="score 1.0 to 5.0")
     max_runtime: Optional[int] = Field(default=None, description="runtime limit in minutes")
+    clear_max_runtime: bool = Field(default=False, description="True if user explicitly cleared runtime constraints, e.g. 'any length is fine' or 'no limit'")
     exclude_genres: Optional[List[str]] = Field(default=None, description="genres to exclude")
+    clear_exclusions: bool = Field(default=False, description="True if user explicitly cleared genre exclusions")
+    remove_exclusions: Optional[List[str]] = Field(default=None, description="specific genres to remove from exclusions")
+    preferred_genres: Optional[List[str]] = Field(default=None, description="genres the user positively desires")
+    reference_films: Optional[List[str]] = Field(default=None, description="specific film titles mentioned as positive reference favourites")
     country: Optional[str] = Field(default=None, description="UK or US if mentioned")
     services: Optional[List[str]] = Field(default=None, description="streaming services mentioned")
+    replace_services: Optional[List[str]] = Field(default=None, description="streaming services if user specifies exclusive list e.g. 'Netflix only'")
+    remove_services: Optional[List[str]] = Field(default=None, description="streaming services to remove e.g. 'remove Disney+'")
     ready_to_recommend: bool = Field(default=False, description="True if user explicitly requests recommendations or confirms they are ready")
 
 
+def _apply_explicit_service_access(ctx: UserContext, user_input: str) -> UserContext:
+    """Expand an explicit all-platform declaration to this market's supported services."""
+    text = user_input.lower().replace("’", "'")
+    all_platforms = re.search(r"\b(?:all|every)\s+(?:the\s+)?(?:streaming\s+)?(?:platforms?|services?|channels?)\b", text)
+    if not all_platforms:
+        all_platforms = re.search(r"\b(?:access\s+to|subscribe\s+to)\s+(?:everything|all(?:\s+of\s+them)?)\b", text)
+    if not all_platforms:
+        # A possessive answer to the service question, including natural speech fillers.
+        # Do not interpret unrelated uses such as "I want to watch all of them".
+        all_platforms = re.search(r"\b(?:have|got|use)\s+(?:access\s+to\s+)?(?:all\s+of\s+them|them\s+all)\b", text)
+    prefix = text[:all_platforms.start()] if all_platforms else ""
+    negated = re.search(r"\b(?:not|don't|dont|haven't|can't|cannot|no|without)\s+(?:(?:have|got|access|to|use|subscribe|really|currently)\s+)*$", prefix)
+    access = re.search(r"\b(?:have|got|access\s+to|subscribe\s+to|use)\b", text)
+    if all_platforms and access and not negated:
+        ctx.service_access = [p['name'] for p in PROVIDER_PRESETS.get(ctx.country, [])]
+    return ctx
+
+
 def _merge_signals_into_context(ctx: UserContext, data: Any) -> UserContext:
-    """Defensively merges extracted structured signals and metadata into the UserContext."""
+    """Defensively merges extracted structured signals and metadata into the UserContext with explicit clearing semantics."""
     if hasattr(data, "country") and data.country and str(data.country).upper() in ("UK", "US"):
         ctx.country = str(data.country).upper()
-    if hasattr(data, "services") and data.services:
-        for s in data.services:
-            s_str = str(s).strip()
-            if s_str and s_str not in ctx.service_access:
-                ctx.service_access.append(s_str)
+
+    # 1. Services: replacement, removal, addition
+    replace_services = getattr(data, "replace_services", None)
+    remove_services = getattr(data, "remove_services", None)
+    if replace_services is not None:
+        ctx.service_access = [str(s).strip() for s in replace_services if str(s).strip()]
+    else:
+        if remove_services:
+            rem_set = {str(r).lower().strip() for r in remove_services}
+            ctx.service_access = [s for s in ctx.service_access if s.lower().strip() not in rem_set]
+        if hasattr(data, "services") and data.services:
+            for s in data.services:
+                s_str = str(s).strip()
+                if s_str and s_str not in ctx.service_access:
+                    ctx.service_access.append(s_str)
 
     new_signals = []
     if getattr(data, "pacing", None):
@@ -436,24 +520,75 @@ def _merge_signals_into_context(ctx: UserContext, data: Any) -> UserContext:
             new_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=float(data.demandingness), signal_type=SignalType.SOFT_SESSION_PREFERENCE))
         except (ValueError, TypeError):
             pass
-    if getattr(data, "max_runtime", None) is not None:
+
+    # 2. Runtime: clear vs set
+    clear_runtime = bool(getattr(data, "clear_max_runtime", False))
+    max_rt = getattr(data, "max_runtime", None)
+    if max_rt in (0, -1):
+        clear_runtime = True
+
+    if clear_runtime:
+        ctx.tonight_signals = [s for s in ctx.tonight_signals if s.name != SIGNAL_MAX_RUNTIME]
+    elif max_rt is not None:
         try:
-            digits = re.findall(r'\d+', str(data.max_runtime))
-            if digits:
+            digits = re.findall(r'\d+', str(max_rt))
+            if digits and int(digits[0]) > 0:
                 new_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=int(digits[0]), signal_type=SignalType.HARD_CONSTRAINT))
         except (ValueError, TypeError):
             pass
-    if getattr(data, "exclude_genres", None):
-        if isinstance(data.exclude_genres, list):
-            new_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=[str(g) for g in data.exclude_genres], signal_type=SignalType.HARD_CONSTRAINT))
-        elif isinstance(data.exclude_genres, str):
-            new_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=[data.exclude_genres], signal_type=SignalType.HARD_CONSTRAINT))
+
+    # 3. Exclusions: clear, remove, or replace
+    clear_excl = bool(getattr(data, "clear_exclusions", False))
+    rem_excl = getattr(data, "remove_exclusions", None)
+    excl_genres = getattr(data, "exclude_genres", None)
+
+    # Find existing exclusions
+    existing_excl_sig = next((s for s in ctx.tonight_signals if s.name == SIGNAL_EXCLUDE_GENRE), None)
+    current_excl = []
+    if existing_excl_sig:
+        if isinstance(existing_excl_sig.value, list):
+            current_excl = list(existing_excl_sig.value)
+        elif isinstance(existing_excl_sig.value, str):
+            current_excl = [existing_excl_sig.value]
+
+    if clear_excl:
+        ctx.tonight_signals = [s for s in ctx.tonight_signals if s.name != SIGNAL_EXCLUDE_GENRE]
+    elif rem_excl:
+        rem_set = {str(r).lower().strip() for r in rem_excl}
+        current_excl = [g for g in current_excl if g.lower().strip() not in rem_set]
+        ctx.tonight_signals = [s for s in ctx.tonight_signals if s.name != SIGNAL_EXCLUDE_GENRE]
+        if current_excl:
+            new_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=current_excl, signal_type=SignalType.HARD_CONSTRAINT))
+    elif excl_genres is not None:
+        ctx.tonight_signals = [s for s in ctx.tonight_signals if s.name != SIGNAL_EXCLUDE_GENRE]
+        if isinstance(excl_genres, list) and excl_genres:
+            new_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=[str(g).strip() for g in excl_genres if str(g).strip()], signal_type=SignalType.HARD_CONSTRAINT))
+        elif isinstance(excl_genres, str) and excl_genres.strip():
+            new_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=[excl_genres.strip()], signal_type=SignalType.HARD_CONSTRAINT))
+
+    # 4. Preferred Genres & Reference Films
+    pref_genres = getattr(data, "preferred_genres", None)
+    if pref_genres is not None:
+        ctx.tonight_signals = [s for s in ctx.tonight_signals if s.name != SIGNAL_PREFERRED_GENRES]
+        if isinstance(pref_genres, list) and pref_genres:
+            new_signals.append(TasteSignal(name=SIGNAL_PREFERRED_GENRES, value=[str(g).strip() for g in pref_genres if str(g).strip()], signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+        elif isinstance(pref_genres, str) and pref_genres.strip():
+            new_signals.append(TasteSignal(name=SIGNAL_PREFERRED_GENRES, value=[pref_genres.strip()], signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+
+    ref_films = getattr(data, "reference_films", None)
+    if ref_films is not None:
+        ctx.tonight_signals = [s for s in ctx.tonight_signals if s.name != SIGNAL_REFERENCE_FILMS]
+        if isinstance(ref_films, list) and ref_films:
+            new_signals.append(TasteSignal(name=SIGNAL_REFERENCE_FILMS, value=[str(f).strip() for f in ref_films if str(f).strip()], signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+        elif isinstance(ref_films, str) and ref_films.strip():
+            new_signals.append(TasteSignal(name=SIGNAL_REFERENCE_FILMS, value=[ref_films.strip()], signal_type=SignalType.SOFT_SESSION_PREFERENCE))
 
     new_names = {s.name for s in new_signals}
     merged_signals = [s for s in ctx.tonight_signals if s.name not in new_names]
     merged_signals.extend(new_signals)
     ctx.tonight_signals = merged_signals
     return ctx
+
 
 
 def check_explicit_search_intent(user_text: str) -> bool:
@@ -481,66 +616,212 @@ def check_explicit_search_intent(user_text: str) -> bool:
     return any(st in lower for st in search_triggers)
 
 
+GENRE_CANONICAL = {
+    "horror": "Horror",
+    "sci-fi": "Sci-Fi",
+    "scifi": "Sci-Fi",
+    "science fiction": "Sci-Fi",
+    "comedy": "Comedy",
+    "comedies": "Comedy",
+    "romance": "Romance",
+    "romantic": "Romance",
+    "action": "Action",
+    "drama": "Drama",
+    "dramas": "Drama",
+    "thriller": "Thriller",
+    "thrillers": "Thriller",
+    "suspense": "Thriller",
+    "documentary": "Documentary",
+    "documentaries": "Documentary",
+    "animation": "Animation",
+    "animated": "Animation",
+    "cartoon": "Animation",
+    "cartoons": "Animation",
+    "fantasy": "Fantasy",
+    "mystery": "Mystery",
+    "mysteries": "Mystery",
+    "crime": "Crime",
+    "western": "Western",
+    "musical": "Musical",
+    "adventure": "Adventure",
+    "adventures": "Adventure",
+    "family": "Family",
+    "kids": "Family",
+    "children": "Family",
+    "children's": "Family",
+    "history": "History",
+    "historical": "History",
+    "war": "War",
+}
+
+
 def _extract_voice_context_fallback(user_text: str, current_ctx: UserContext) -> Tuple[UserContext, bool]:
-    """Local deterministic fallback for extracting signals from user text."""
+    """Local deterministic fallback for extracting signals from user text with robust negation, runtime clearing, and service replacement."""
     ctx = current_ctx.model_copy(deep=True)
-    lower = (user_text or "").lower()
+    raw_lower = (user_text or "").lower()
     extracted_signals = []
 
     # Ready to recommend via contextual search intent
-    ready = check_explicit_search_intent(lower)
+    ready = check_explicit_search_intent(raw_lower)
 
-    # Pacing
-    if any(kw in lower for kw in ["brisk", "fast", "quick", "rapid", "snappy"]):
+    # 1. Parse Negations / Excluded Genres
+    excluded = set()
+    for s in ctx.tonight_signals:
+        if s.name == SIGNAL_EXCLUDE_GENRE:
+            if isinstance(s.value, list):
+                excluded.update(s.value)
+            elif isinstance(s.value, str):
+                excluded.add(s.value)
+
+    # Detect clearance of exclusions (e.g. "horror is fine now", "remove that exclusion")
+    if any(p in raw_lower for p in ["remove that exclusion", "remove the exclusion", "clear exclusions", "remove exclusions", "no exclusions"]):
+        excluded.clear()
+
+    for key, cname in GENRE_CANONICAL.items():
+        if any(p in raw_lower for p in [f"{key} is fine", f"allow {key}", f"remove {key}", f"unblock {key}", f"include {key}"]):
+            excluded.discard(cname)
+
+    # Parse multi-negation phrases: "no [genre1] or [genre2]"
+    masked_text = raw_lower
+    multi_neg_patterns = [
+        r"\b(?:no|not|without|exclude|avoid|don't want|dont want)\s+([a-z\-]+)\s+or\s+([a-z\-]+)\b",
+        r"\b(?:no|not|without|exclude|avoid|don't want|dont want)\s+([a-z\-]+)\s+nor\s+([a-z\-]+)\b",
+    ]
+    for mpat in multi_neg_patterns:
+        for match in re.finditer(mpat, raw_lower):
+            g1, g2 = match.group(1), match.group(2)
+            if g1 in GENRE_CANONICAL:
+                excluded.add(GENRE_CANONICAL[g1])
+            if g2 in GENRE_CANONICAL:
+                excluded.add(GENRE_CANONICAL[g2])
+            masked_text = masked_text.replace(match.group(0), " ")
+
+    # Parse single negation phrases: "no [genre]", "not [genre]", "hate [genre]", "without [genre]", "exclude [genre]"
+    for key, cname in GENRE_CANONICAL.items():
+        neg_patterns = [
+            rf"\b(?:no|not|hate|without|exclude|avoid|don't want|dont want)\s+(?:any\s+)?{key}\b",
+            rf"\b{key}\s+is\s+out\b",
+            rf"\brule\s+out\s+{key}\b",
+        ]
+        for pat in neg_patterns:
+            if re.search(pat, raw_lower):
+                excluded.add(cname)
+                masked_text = re.sub(pat, " ", masked_text)
+        if f"no {key}" in raw_lower:
+            excluded.add(cname)
+            masked_text = masked_text.replace(f"no {key}", " ")
+
+    # Always clear existing exclude-genre signal from ctx.tonight_signals
+    ctx.tonight_signals = [s for s in ctx.tonight_signals if s.name != SIGNAL_EXCLUDE_GENRE]
+    if excluded:
+        extracted_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=sorted(list(excluded)), signal_type=SignalType.HARD_CONSTRAINT))
+
+    # 2. Runtime / Duration handling
+    runtime_clear_phrases = [
+        "any length", "no time limit", "no length limit", "doesn't matter how long",
+        "does not matter how long", "any runtime", "no limit", "as long as it takes",
+        "length doesn't matter", "time doesn't matter", "any duration", "no duration limit"
+    ]
+    clear_runtime = any(p in raw_lower for p in runtime_clear_phrases)
+
+    if clear_runtime:
+        ctx.tonight_signals = [s for s in ctx.tonight_signals if s.name != SIGNAL_MAX_RUNTIME]
+    else:
+        # Max Runtime (enhanced with flexible phrasing)
+        runtime_m = re.search(r'(?:under|less than|nothing over|no more than|max(?:imum)?)\s+(\d+)\s*(?:min|minute|m\b)', raw_lower)
+        if runtime_m:
+            extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=int(runtime_m.group(1)), signal_type=SignalType.HARD_CONSTRAINT))
+        elif any(p in raw_lower for p in ["under 2 hours", "under two hours", "nothing over 2 hours", "nothing over two hours", "no more than 2 hours", "less than 2 hours", "under 120"]):
+            extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=120, signal_type=SignalType.HARD_CONSTRAINT))
+        elif any(p in raw_lower for p in ["under 90", "under an hour and a half", "nothing over 90", "no more than 90"]):
+            extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=90, signal_type=SignalType.HARD_CONSTRAINT))
+        elif ("short film" in raw_lower or "keep it short" in raw_lower or re.search(r'\bshort\b', raw_lower)) and "shortlist" not in raw_lower:
+            extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=100, signal_type=SignalType.HARD_CONSTRAINT))
+
+    # 3. Pacing (on masked_text)
+    if any(kw in masked_text for kw in ["brisk", "fast", "quick", "rapid", "snappy"]):
         extracted_signals.append(TasteSignal(name=SIGNAL_PACING, value="brisk", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-    elif any(kw in lower for kw in ["leisurely", "slow", "patient", "unhurried"]):
+    elif any(kw in masked_text for kw in ["leisurely", "slow", "patient", "unhurried"]):
         extracted_signals.append(TasteSignal(name=SIGNAL_PACING, value="leisurely", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
 
-    # Tone
-    if any(kw in lower for kw in ["funny", "laugh", "hilarious", "comedy"]):
+    # 4. Tone (on masked_text to avoid matching negated words)
+    if any(kw in masked_text for kw in ["funny", "laugh", "hilarious", "comedy"]):
         extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="funny", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-    elif any(kw in lower for kw in ["dark", "bleak", "gritty", "unsettling"]):
+    elif any(kw in masked_text for kw in ["dark", "bleak", "gritty", "unsettling"]):
         extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="bleak", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-    elif any(kw in lower for kw in ["intense", "tense", "thrilling", "action", "suspense"]):
+    elif any(kw in masked_text for kw in ["intense", "tense", "thrilling", "action", "suspense"]):
         extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="intense", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-    elif any(kw in lower for kw in ["magical", "wondrous", "whimsical", "fairytale"]):
+    elif any(kw in masked_text for kw in ["magical", "wondrous", "whimsical", "fairytale"]):
         extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="magical", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-    elif any(kw in lower for kw in ["warm", "heartwarming", "feel-good", "wholesome", "gentle"]):
+    elif any(kw in masked_text for kw in ["warm", "heartwarming", "feel-good", "wholesome", "gentle", "heartfelt"]):
         extracted_signals.append(TasteSignal(name=SIGNAL_TONE, value="warm", signal_type=SignalType.SOFT_SESSION_PREFERENCE))
 
-    # Demandingness
-    if any(kw in lower for kw in ["easy", "light", "relaxing", "unwind", "turn my brain off", "not demanding"]):
+    # 5. Demandingness (on masked_text)
+    if any(kw in masked_text for kw in ["easy", "light", "relaxing", "unwind", "turn my brain off", "not demanding"]):
         extracted_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=2.0, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
-    elif any(kw in lower for kw in ["deep", "challenging", "thought-provoking", "intellectual", "demanding", "heavy"]):
+    elif any(kw in masked_text for kw in ["deep", "challenging", "thought-provoking", "intellectual", "demanding", "heavy"]):
         extracted_signals.append(TasteSignal(name=SIGNAL_DEMANDINGNESS, value=4.2, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
 
-    # Max Runtime (enhanced with flexible phrasing: nothing over, no more than, less than, under)
-    runtime_m = re.search(r'(?:under|less than|nothing over|no more than|max(?:imum)?)\s+(\d+)\s*(?:min|minute|m\b)', lower)
-    if runtime_m:
-        extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=int(runtime_m.group(1)), signal_type=SignalType.HARD_CONSTRAINT))
-    elif any(p in lower for p in ["under 2 hours", "under two hours", "nothing over 2 hours", "nothing over two hours", "no more than 2 hours", "less than 2 hours", "under 120"]):
-        extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=120, signal_type=SignalType.HARD_CONSTRAINT))
-    elif any(p in lower for p in ["under 90", "under an hour and a half", "nothing over 90", "no more than 90"]):
-        extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=90, signal_type=SignalType.HARD_CONSTRAINT))
-    elif ("short film" in lower or "keep it short" in lower or re.search(r'\bshort\b', lower)) and "shortlist" not in lower:
-        extracted_signals.append(TasteSignal(name=SIGNAL_MAX_RUNTIME, value=100, signal_type=SignalType.HARD_CONSTRAINT))
+    # 6. Positive Genre Extraction (on masked_text)
+    pos_genre_patterns = [
+        r"^\s*([a-z\-]+)(?:\s+(?:please|tonight))?[.!?]*\s*$",
+        r"\b(?:i want|i'd like|id like|looking for|in the mood for|give me|show me)\s+(?:a\s+|an\s+|some\s+)?(?:good\s+|great\s+)?([a-z\-]+)\b",
+        r"\b(?:a|an)\s+([a-z\-]+)\s+(?:film|movie|feature)\b",
+        r"\b([a-z\-]+)\s+(?:film|movie)\s+(?:tonight|please)\b",
+    ]
+    detected_pos_genres = []
+    for pat in pos_genre_patterns:
+        for match in re.finditer(pat, masked_text):
+            candidate_g = match.group(1).lower().strip()
+            if candidate_g in GENRE_CANONICAL:
+                cname = GENRE_CANONICAL[candidate_g]
+                if cname not in excluded and cname not in detected_pos_genres:
+                    detected_pos_genres.append(cname)
 
-    # Exclude genres
-    if "no horror" in lower or "hate horror" in lower or "not horror" in lower:
-        extracted_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=["Horror"], signal_type=SignalType.HARD_CONSTRAINT))
-    if "no sci-fi" in lower or "hate sci-fi" in lower or "not sci-fi" in lower:
-        extracted_signals.append(TasteSignal(name=SIGNAL_EXCLUDE_GENRE, value=["Sci-Fi"], signal_type=SignalType.HARD_CONSTRAINT))
+    if detected_pos_genres:
+        ctx.tonight_signals = [s for s in ctx.tonight_signals if s.name != SIGNAL_PREFERRED_GENRES]
+        extracted_signals.append(TasteSignal(name=SIGNAL_PREFERRED_GENRES, value=detected_pos_genres, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
 
-    # Services
-    for s_id, s_name in [("netflix", "Netflix"), ("prime", "Prime Video"), ("disney", "Disney+"), ("iplayer", "BBC iPlayer"), ("paramount", "Paramount+"), ("max", "Max"), ("apple", "Apple TV+")]:
-        if s_id in lower and s_name not in ctx.service_access:
-            ctx.service_access.append(s_name)
+    # 7. Services & Country
+    all_service_keys = [
+        ("netflix", "Netflix"),
+        ("prime", "Prime Video"),
+        ("disney", "Disney+"),
+        ("iplayer", "BBC iPlayer"),
+        (r"sky(?:\s+(?:go|cinema))?(?!\s+store)", "Sky Go"),
+        (r"now\s+(?:tv(?:\s+cinema)?|cinema)", "NOW Cinema"),
+        ("paramount", "Paramount+"),
+        ("max", "Max"),
+        ("apple", "Apple TV+")
+    ]
 
-    # Country
-    if "uk" in lower or "british" in lower:
+    is_exclusive_services = False
+    exclusive_matches = []
+    for s_id, s_name in all_service_keys:
+        if re.search(rf"\b(?:only\s+{s_id}|{s_id}\s+only|just\s+{s_id}|only\s+have\s+{s_id})\b", raw_lower):
+            is_exclusive_services = True
+            exclusive_matches.append(s_name)
+
+    if is_exclusive_services and exclusive_matches:
+        ctx.service_access = list(exclusive_matches)
+    else:
+        for s_id, s_name in all_service_keys:
+            if re.search(rf"\b(?:remove|drop|cancel|without|no)\s+(?:the\s+)?{s_id}\b", raw_lower):
+                ctx.service_access = [s for s in ctx.service_access if s != s_name]
+            elif re.search(rf"\b{s_id}\b", raw_lower) and s_name not in ctx.service_access:
+                ctx.service_access.append(s_name)
+
+    if is_exclusive_services:
+        for s_id, s_name in all_service_keys:
+            if re.search(rf"\b(?:remove|drop|cancel|without|no)\s+(?:the\s+)?{s_id}\b", raw_lower):
+                ctx.service_access = [s for s in ctx.service_access if s != s_name]
+
+    if re.search(r"\b(?:uk|united kingdom|british)\b", raw_lower):
         ctx.country = "UK"
-    elif "us" in lower or "american" in lower:
+    elif re.search(r"\b(?:us|united states|american)\b", raw_lower):
         ctx.country = "US"
+
+    ctx = _apply_explicit_service_access(ctx, user_text)
 
     # Merge signals
     existing_names = {s.name for s in extracted_signals}
@@ -549,6 +830,7 @@ def _extract_voice_context_fallback(user_text: str, current_ctx: UserContext) ->
     ctx.tonight_signals = updated_tonight
 
     return ctx, ready
+
 
 
 def _process_voice_turn_fallback(turn_req: VoiceTurnRequest) -> VoiceTurnResponse:
@@ -563,7 +845,19 @@ def _process_voice_turn_fallback(turn_req: VoiceTurnRequest) -> VoiceTurnRespons
         if ready:
             reply = "I've got a good sense of what you're after. Let's see what fits."
         elif ctx.tonight_signals:
-            summary_parts = [f"{s.value}" for s in ctx.tonight_signals]
+            summary_parts = []
+            for s in ctx.tonight_signals:
+                if s.name == SIGNAL_EXCLUDE_GENRE:
+                    if isinstance(s.value, list):
+                        summary_parts.append("no " + " or ".join(s.value))
+                    else:
+                        summary_parts.append(f"no {s.value}")
+                elif s.name == SIGNAL_MAX_RUNTIME:
+                    summary_parts.append(f"under {s.value} mins")
+                elif isinstance(s.value, list):
+                    summary_parts.append(", ".join(str(v) for v in s.value))
+                else:
+                    summary_parts.append(str(s.value))
             reply = f"Got it — {', '.join(summary_parts)}. Which channels do you have access to?"
         else:
             reply = "Tell me what you're in the mood for. A pace, genre, feeling or even a film you liked is enough to start."
@@ -600,17 +894,12 @@ def extract_voice_context(
         return current_context, False
 
     ctx = current_context.model_copy(deep=True)
-    has_gemini_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_CLOUD_PROJECT"))
+    has_gemini_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
     if has_gemini_key and not os.environ.get("TONI_TESTING"):
         try:
-            from google import genai
             from google.genai import types
 
-            gemini_api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-            if gemini_api_key:
-                client = genai.Client(api_key=gemini_api_key, vertexai=False)
-            else:
-                client = genai.Client()
+            client = get_gemini_client()
 
             recent_history = ""
             if conversation_history:
@@ -629,10 +918,12 @@ Rules:
 1. Extract pacing ('brisk', 'steady', 'leisurely', 'measured') if indicated.
 2. Extract tone keywords (e.g. 'funny', 'intense', 'dark', 'magical', 'warm', 'satirical') if indicated.
 3. Extract demandingness score 1.0 to 5.0 if indicated.
-4. Extract max_runtime in minutes if viewer states a time limit (e.g. "under 2 hours" -> 120).
-5. Extract exclude_genres as a list of strings if viewer wants to rule out specific genres.
-6. Extract country ('UK' or 'US') and services (e.g. Netflix, Prime Video, BBC iPlayer, etc.) if mentioned.
-7. Set ready_to_recommend to True ONLY if the user explicitly asks to see films / recommendations or confirms they are ready."""
+4. Extract max_runtime in minutes if viewer states a time limit (e.g. "under 2 hours" -> 120). If viewer clears or removes time limits (e.g. "any length is fine", "no limit"), set clear_max_runtime=True.
+5. Extract exclude_genres as a list of strings if viewer wants to rule out specific genres. If viewer clears or unblocks genre exclusions (e.g. "horror is fine now", "remove that exclusion"), set clear_exclusions=True or populate remove_exclusions.
+6. Extract preferred_genres (e.g. ['Comedy']) if viewer explicitly asks for or desires certain genres.
+7. Extract reference_films if viewer mentions specific films they like or want films similar to.
+8. Extract country ('UK' or 'US') and services. If viewer specifies exclusive services (e.g. 'Netflix only', 'I only have Netflix'), populate replace_services. If viewer asks to remove services (e.g. 'remove Disney+'), populate remove_services.
+9. Set ready_to_recommend to True ONLY if the user explicitly asks to see films / recommendations or confirms they are ready."""
 
             timeout_ms = int(timeout * 1000) if timeout else 10000
             if not str(os.environ.get("GEMINI_API_KEY", "")).startswith("mock"):
@@ -655,6 +946,7 @@ Rules:
             if response and response.parsed:
                 extracted: ContextExtractionLLMOutput = response.parsed
                 ctx = _merge_signals_into_context(ctx, extracted)
+                ctx = _apply_explicit_service_access(ctx, user_input)
                 lower_input = user_input.lower()
                 explicit_ready = any(kw in lower_input for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
                 ready = bool(extracted.ready_to_recommend) or explicit_ready
@@ -685,18 +977,13 @@ async def extract_voice_context_async(
         return current_context, False
 
     ctx = current_context.model_copy(deep=True)
-    has_gemini_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_CLOUD_PROJECT"))
+    has_gemini_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
     if has_gemini_key and not os.environ.get("TONI_TESTING"):
         try:
-            from google import genai
             from google.genai import types
 
             if client is None:
-                gemini_api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-                if gemini_api_key:
-                    client = genai.Client(api_key=gemini_api_key, vertexai=False)
-                else:
-                    client = genai.Client()
+                client = get_gemini_client()
 
             recent_history = ""
             if conversation_history:
@@ -715,10 +1002,12 @@ Rules:
 1. Extract pacing ('brisk', 'steady', 'leisurely', 'measured') if indicated.
 2. Extract tone keywords (e.g. 'funny', 'intense', 'dark', 'magical', 'warm', 'satirical') if indicated.
 3. Extract demandingness score 1.0 to 5.0 if indicated.
-4. Extract max_runtime in minutes if viewer states a time limit (e.g. "under 2 hours" -> 120).
-5. Extract exclude_genres as a list of strings if viewer wants to rule out specific genres.
-6. Extract country ('UK' or 'US') and services (e.g. Netflix, Prime Video, BBC iPlayer, etc.) if mentioned.
-7. Set ready_to_recommend to True ONLY if the user explicitly asks to see films / recommendations or confirms they are ready."""
+4. Extract max_runtime in minutes if viewer states a time limit (e.g. "under 2 hours" -> 120). If viewer clears or removes time limits (e.g. "any length is fine", "no limit"), set clear_max_runtime=True.
+5. Extract exclude_genres as a list of strings if viewer wants to rule out specific genres. If viewer clears or unblocks genre exclusions (e.g. "horror is fine now", "remove that exclusion"), set clear_exclusions=True or populate remove_exclusions.
+6. Extract preferred_genres (e.g. ['Comedy']) if viewer explicitly asks for or desires certain genres.
+7. Extract reference_films if viewer mentions specific films they like or want films similar to.
+8. Extract country ('UK' or 'US') and services. If viewer specifies exclusive services (e.g. 'Netflix only', 'I only have Netflix'), populate replace_services. If viewer asks to remove services (e.g. 'remove Disney+'), populate remove_services.
+9. Set ready_to_recommend to True ONLY if the user explicitly asks to see films / recommendations or confirms they are ready."""
 
             timeout_ms = int(timeout * 1000) if timeout else 10000
             if not str(os.environ.get("GEMINI_API_KEY", "")).startswith("mock"):
@@ -745,6 +1034,7 @@ Rules:
             if response and response.parsed:
                 extracted: ContextExtractionLLMOutput = response.parsed
                 ctx = _merge_signals_into_context(ctx, extracted)
+                ctx = _apply_explicit_service_access(ctx, user_input)
                 lower_input = user_input.lower()
                 explicit_ready = any(kw in lower_input for kw in ["show me", "recommend", "find movies", "yes please", "bring up", "find what fits", "what to watch", "let's see", "shortlist", "show shortlist", "let's go"])
                 ready = bool(extracted.ready_to_recommend) or explicit_ready
@@ -804,9 +1094,17 @@ class LiveExtractionPipeline:
         self.in_flight_cancelled_for_overload: bool = False
         self.is_disconnected: bool = False
         self.last_committed_turn_id: int = 0
+        self.context_epoch = 0
+        self.context_edits = {}
         self.worker_task = asyncio.create_task(self._worker_loop())
 
     def update_context(self, ctx: UserContext):
+        before = self.session_ctx.model_dump()
+        after = ctx.model_dump()
+        self.context_epoch += 1
+        for field, value in after.items():
+            if value != before.get(field):
+                self.context_edits[field] = self.context_epoch
         self.session_ctx = ctx.model_copy(deep=True)
 
     def update_history(self, history: List[Dict[str, str]]):
@@ -861,6 +1159,7 @@ class LiveExtractionPipeline:
                 history_snapshot = item.conversation_history
 
                 extracted_ctx = self.session_ctx
+                extraction_epoch = self.context_epoch
                 ready_flag = False
                 extraction_mode = "fallback"
 
@@ -926,6 +1225,13 @@ class LiveExtractionPipeline:
 
                 # --- ONE ORDERED COMMIT PATH ---
                 # Owns all context mutations, history updates, and completion notifications
+                # Explicit UI edits arriving during extraction take precedence over
+                # the older model snapshot. Other newly extracted fields still merge.
+                preserved = {field: getattr(self.session_ctx, field)
+                             for field, epoch in self.context_edits.items()
+                             if epoch > extraction_epoch}
+                if preserved:
+                    extracted_ctx = extracted_ctx.model_copy(update=preserved, deep=True)
                 self.session_ctx = extracted_ctx
                 if full_user:
                     self.conversation_history.append({"role": "user", "content": full_user})
@@ -993,10 +1299,9 @@ def process_voice_turn(turn_req: VoiceTurnRequest) -> VoiceTurnResponse:
         return _process_voice_turn_fallback(turn_req)
 
     try:
-        from google import genai
         from google.genai import types
 
-        client = genai.Client()
+        client = get_gemini_client()
 
         # Sanitize conversation_history cleanly into plain text lines ("user: ...", "assistant: ...")
         clean_history = []
@@ -1062,7 +1367,7 @@ MANDATORY: You must NEVER recommend, pitch, name, or list specific film titles o
 """
 
         response = None
-        for model_candidate in ["gemini-3.6-flash", "gemini-flash-latest", "gemini-pro-latest"]:
+        for model_candidate in [EXTRACTION_MODEL, "gemini-2.5-flash", "gemini-2.5-pro"]:
             try:
                 response = client.models.generate_content(
                     model=model_candidate,
@@ -1087,6 +1392,7 @@ MANDATORY: You must NEVER recommend, pitch, name, or list specific film titles o
         ctx.voice_name = getattr(turn_req.current_context, "voice_name", "Charon") or "Charon"
 
         ctx = _merge_signals_into_context(ctx, data)
+        ctx = _apply_explicit_service_access(ctx, turn_req.user_input)
 
         explicit_user_ready = check_explicit_search_intent(turn_req.user_input)
         ready_flag = (bool(data.ready_to_recommend) or explicit_user_ready) and not any(
@@ -1115,7 +1421,7 @@ MANDATORY: You must NEVER recommend, pitch, name, or list specific film titles o
 def get_voice_config() -> Dict[str, Any]:
     """Return runtime configuration for Gemini Live voice and audio interfaces."""
     return {
-        "model": "gemini-2.5-flash-native-audio-latest",
+        "model": VOICE_MODEL,
         "voice_name": "Charon",
         "sample_rate_hz": 16000,
         "supported_modes": ["voice", "text"],
@@ -1257,7 +1563,7 @@ async def websocket_voice_live(websocket: WebSocket):
                         if not turn_active:
                             turn_counter += 1
                             turn_active = True
-                        bot_chunk = enforce_toni_brand_name(content.output_transcription.text)
+                        bot_chunk = content.output_transcription.text
                         assistant_transcript_buf.append(bot_chunk)
                         await websocket.send_json({
                             "type": "transcript",
@@ -1268,14 +1574,15 @@ async def websocket_voice_live(websocket: WebSocket):
                     if content.turn_complete:
                         completed_turn_id = turn_counter
                         turn_active = False
-                        full_user = "".join(user_transcript_buf).strip()
-                        full_bot = enforce_toni_brand_name("".join(assistant_transcript_buf).strip())
+                        full_user = join_transcript_chunks(user_transcript_buf)
+                        full_bot = enforce_toni_brand_name(join_transcript_chunks(assistant_transcript_buf))
                         user_transcript_buf.clear()
                         assistant_transcript_buf.clear()
 
                         # 1. Distinguish end of streamed speech from completion of context extraction
                         await websocket.send_json({
                             "type": "speech_complete",
+                            "assistant_reply": full_bot,
                             "turn_id": completed_turn_id
                         })
 
@@ -1303,14 +1610,9 @@ async def websocket_voice_live(websocket: WebSocket):
 
     if has_gemini_key and not os.environ.get("TONI_MOCK_GEMINI_LIVE"):
         try:
-            from google import genai
             from google.genai import types
 
-            gemini_api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-            if gemini_api_key:
-                client = genai.Client(api_key=gemini_api_key, vertexai=False)
-            else:
-                client = genai.Client()
+            client = get_gemini_client()
 
             extraction_pipeline = LiveExtractionPipeline(
                 websocket=websocket,
@@ -1329,7 +1631,9 @@ async def websocket_voice_live(websocket: WebSocket):
                     )
                 ),
                 system_instruction=types.Content(
-                    parts=[types.Part(text="""You are TONI, an expert cinema guide helping someone choose what to watch tonight. You speak in a warm, thoughtful, discerning persona as TONI (1-3 sentences maximum per turn). Your name is always TONI. Never refer to yourself as Charon, Gemini, or any internal voice or model identifier. Never lecture or recite long lists.
+                    parts=[types.Part(text="""You are TONI, an expert cinema guide helping someone choose what to watch tonight. Your name is always TONI. Never refer to yourself as Charon, Gemini, or any internal voice or model identifier.
+
+VOICE LENGTH CONTRACT: Give ONE short sentence per turn, usually 8-16 words, never more than 25 words. Ask only ONE concise question. Your speech is validated before playback, so long replies make the viewer wait in silence. Do not repeat the viewer's preferences, introduce yourself repeatedly, add preambles, or list all the information you need. Ask the next missing question only. Country and streaming services may be combined in one short question. Examples: "Hi! What are you in the mood for tonight?" / "Which country are you in, and what streaming services do you have?" / "Any runtime limits, or shall we find what fits?"
 
 SPEAKER IDENTITY CONTRACT:
 - Your name is TONI. You are the assistant.
@@ -1345,8 +1649,9 @@ Gather the minimum missing information naturally. Do not force a fixed question 
 MANDATORY RULES:
 1. You must NEVER recommend, pitch, name, or invent film titles or shortlists to watch tonight. The application performs live search and displays recommendation cards visually on screen.
 2. You may acknowledge films the viewer mentions as reference taste signals (e.g., 'Alien has great atmosphere; are you looking for sci-fi suspense, or something lighter?'), but never propose films for tonight.
-3. When the viewer confirms they are ready to search (or says 'find what fits'), reply ONLY with a brief transition (such as 'I'll find what fits.') and conclude your turn immediately without generating or naming films.
-4. Always wait for the viewer to confirm they are ready before concluding intake. If the viewer provides multiple details up front, adapt smoothly without repeating answered questions.""")]
+3. Voice never starts a search automatically. When the viewer asks to search, say "Tap Find my results when you're ready." Do not claim you have started searching. The viewer must press the on-screen button.
+4. Always wait for the viewer to confirm they are ready before concluding intake. If the viewer provides multiple details up front, adapt smoothly without repeating answered questions.
+5. If enough preferences are known, say "Tap Find my results whenever you're ready." If country or services are missing, ask for the missing information without adding a readiness question. The button can collect any missing access choices before searching.""")]
                 ),
                 input_audio_transcription=types.AudioTranscriptionConfig(),
                 output_audio_transcription=types.AudioTranscriptionConfig(),
@@ -1359,8 +1664,8 @@ MANDATORY RULES:
             )
             connected_model = None
             live_models = [
+                VOICE_MODEL,
                 "gemini-2.5-flash-native-audio-latest",
-                "gemini-3.1-flash-live-preview",
                 "gemini-live-2.5-flash-native-audio",
             ]
             for m in live_models:
@@ -1414,6 +1719,14 @@ MANDATORY RULES:
                     "voice_name": session_ctx.voice_name or "Charon",
                     "live_model": connected_model or "offline-fallback"
                 })
+
+            elif msg_type == "context_update":
+                try:
+                    updated = UserContext.model_validate(data.get("context", {}))
+                    extraction_pipeline.update_context(updated)
+                    session_ctx = updated
+                except Exception:
+                    await websocket.send_json({"type": "context_update_rejected"})
 
             elif msg_type == "interrupt":
                 await websocket.send_json({"type": "interrupted"})
@@ -1656,3 +1969,30 @@ if STATIC_DIR.exists():
         if index_file.exists():
             return HTMLResponse(content=index_file.read_text(encoding="utf-8"), headers=headers)
         return HTMLResponse(content="<h1>TONI API is Running</h1><p>Visit <a href='/docs'>/docs</a> for Swagger UI.</p>", headers=headers)
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    openapi_schema["paths"]["/api/voice/live"] = {
+        "get": {
+            "summary": "Live Bidirectional Voice & Context WebSocket",
+            "description": "WebSocket endpoint supporting real-time streaming audio (PCM 16-bit 16kHz input / 24kHz output), live speech recognition, barge-in detection, and real-time context extraction using Gemini Live.",
+            "responses": {
+                "101": {
+                    "description": "Switching Protocols to WebSocket connection"
+                }
+            }
+        }
+    }
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi

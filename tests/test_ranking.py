@@ -214,7 +214,7 @@ def test_ranking_unverified_exclusion_count(monkeypatch):
     
     # Mock get_film_availability to return UNVERIFIED for "Inception" and "Babylon"
     # and AVAILABLE for others.
-    def mock_get_film_availability(title, year, context):
+    def mock_get_film_availability(title, year, context, timeout=6.0):
         if title in ["Inception", "Babylon"]:
             return AvailabilityResult(status=AvailabilityStatus.UNVERIFIED, provider="Watchmode", country="US")
         elif title in ["The Godfather"]:
@@ -276,10 +276,10 @@ def test_live_pipeline_ranking_execution(monkeypatch):
         for i in range(15)
     ]
 
-    monkeypatch.setattr("src.ranking.discover_candidates_with_gemini", lambda ctx: mock_candidates)
+    monkeypatch.setattr("src.ranking.discover_candidates_with_gemini", lambda ctx, **kwargs: mock_candidates)
 
     # Availability gate: only films 0, 1, 2, 3 survive
-    def mock_get_film_availability(title, year, context):
+    def mock_get_film_availability(title, year, context, timeout=6.0):
         if title in ["Film 0", "Film 1", "Film 2", "Film 3"]:
             return AvailabilityResult(
                 status=AvailabilityStatus.AVAILABLE,
@@ -301,7 +301,7 @@ def test_live_pipeline_ranking_execution(monkeypatch):
         lambda title, year, director, force_live, timeout: [{"url": f"https://example.com/reviews/{title.lower().replace(' ', '-')}"}]
     )
 
-    def mock_generate_profile(title, year, director, reviews):
+    def mock_generate_profile(title, year, director, reviews, deadline=None):
         return (
             FilmProfile(
                 story_and_writing=4.2,
@@ -354,11 +354,11 @@ def test_live_pipeline_availability_gate_before_parallel(monkeypatch):
         )
         for i in range(15)
     ]
-    monkeypatch.setattr("src.ranking.discover_candidates_with_gemini", lambda ctx: mock_candidates)
+    monkeypatch.setattr("src.ranking.discover_candidates_with_gemini", lambda ctx, **kwargs: mock_candidates)
 
     checked_availability = []
     # Only movies 2, 4, 6 are available; rest are unavailable
-    def mock_get_film_availability(title, year, context):
+    def mock_get_film_availability(title, year, context, timeout=6.0):
         checked_availability.append(title)
         if title in ["Discovered Movie 2", "Discovered Movie 4", "Discovered Movie 6"]:
             return AvailabilityResult(
@@ -378,7 +378,7 @@ def test_live_pipeline_availability_gate_before_parallel(monkeypatch):
 
     monkeypatch.setattr("src.ranking.get_film_evidence", mock_get_film_evidence)
 
-    def mock_generate_profile(title, year, director, reviews):
+    def mock_generate_profile(title, year, director, reviews, deadline=None):
         return (
             FilmProfile(
                 story_and_writing=4.0,
@@ -454,10 +454,10 @@ def test_candidate_pool_refill_guarantees_top_3(monkeypatch):
     monkeypatch.setenv("PARALLEL_API_KEY", "mock-parallel-key")
     monkeypatch.setenv("GEMINI_API_KEY", "mock-gemini-key")
 
-    monkeypatch.setattr("src.ranking.discover_candidates_with_gemini", lambda ctx: mock_candidates)
+    monkeypatch.setattr("src.ranking.discover_candidates_with_gemini", lambda ctx, **kwargs: mock_candidates)
 
     # Only 1 discovered candidate survives availability
-    def mock_availability(title, year, ctx):
+    def mock_availability(title, year, ctx, timeout=6.0):
         if title == "Discovered Film 0":
             return AvailabilityResult(status=AvailabilityStatus.AVAILABLE, provider="Mock", country="UK", matched_services=["Netflix"])
         elif title.startswith("Discovered"):

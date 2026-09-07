@@ -630,7 +630,7 @@ def test_restart_before_text_or_voice_auto_recommendation_timers_fire():
     }));
     """
     result = _run_stale_test_in_node(js)
-    assert result["timerScheduled"] is True
+    assert result["timerScheduled"] is False
     assert result["timerAfterRestart"] is True
     assert result["recommendCallCount"] == 0
     assert result["finalView"] == "intake"
@@ -1383,7 +1383,10 @@ def test_manual_request_consumes_pending_turn_but_allows_subsequent_affirmative_
     await new Promise(r => setImmediate(r));
     await new Promise(r => setImmediate(r));
 
-    // 6. Advance timers: Turn 2's automatic trigger should fire!
+    // No automatic search: explicitly request the updated context.
+    window.triggerPipelineExecution();
+    await new Promise(r => setImmediate(r));
+    // Drain timers for the explicit request.
     await advanceAllTimers();
     const callsAfterTurn2 = recommendCallCount;
 
@@ -1579,7 +1582,10 @@ def test_reproduce_refinement_b_submitted_while_find_awaits_turn_a():
 
     const stateAfterBResolved = window.getRecommendationState();
 
-    // Advance timers so B's 600ms timer fires
+    // Explicitly request B; an affirmative phrase alone must not auto-search.
+    window.triggerPipelineExecution();
+    await new Promise(r => setImmediate(r));
+    // Drain render timers
     await advanceTimers(800);
     await new Promise(r => setImmediate(r));
 

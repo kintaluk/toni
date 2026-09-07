@@ -169,7 +169,7 @@ def test_dockerignore_rules_and_packaging_manifest():
     """
     Verify packaging rules:
     - node_modules and build tooling excluded
-    - png files excluded except whitelisted apple-touch-icon
+    - runtime assets included so the packaged manifest can be verified
     - licenses included
     """
     repo_root = Path(__file__).resolve().parent.parent
@@ -179,8 +179,10 @@ def test_dockerignore_rules_and_packaging_manifest():
     assert "node_modules/" in lines
     assert "package.json" in lines
     assert "tailwind.config.js" in lines
-    assert "static/assets/*.png" in lines
-    assert "!static/assets/TONI_Apple_Touch_Icon_180px_Deep_Ink*.png" in lines
+    assert "static/assets/*.png" not in lines
+    dockerfile = (repo_root / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY Dockerfile build_manifest.json ./" in dockerfile
+    assert "assert verify_manifest()['manifest_verified']" in dockerfile
 
     # License check
     assert (repo_root / "licenses" / "Newsreader-OFL.txt").exists()

@@ -11,7 +11,7 @@
   <link rel="alternate icon" href="static/assets/TONI_Favicon.b2a70f4f.ico">
   <link rel="apple-touch-icon" href="static/assets/TONI_Apple_Touch_Icon_180px_Deep_Ink.a1ed45de.png">
   <link rel="stylesheet" href="static/assets/TONI_Design_Tokens.4dc3ef46.css" onerror="this.href='assets/TONI_Design_Tokens.4dc3ef46.css'">
-  <link rel="stylesheet" href="static/assets/toni.bundle.5e0155ee.css" onerror="this.href='assets/toni.bundle.5e0155ee.css'">
+  <link rel="stylesheet" href="static/assets/toni.bundle.aaa33bbb.css" onerror="this.href='assets/toni.bundle.aaa33bbb.css'">
   
   <!-- Typography: Newsreader (Editorial Serif) & Plus Jakarta Sans (Modern Interface) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -28,9 +28,14 @@
       -moz-osx-font-smoothing: grayscale;
       height: 100%;
     }
+    body { height: 100dvh; overflow: hidden; }
+    #main-scroll-container { min-height: 0; scroll-padding-bottom: 1.5rem; }
+    .voice-thinking-dots { display: inline-block; animation: toni-thinking 1.2s ease-in-out infinite; }
+    @keyframes toni-thinking { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .voice-thinking-dots { animation: none; } }
 
     /* Custom Focus Ring with Refined Electric Lime */
-    button:focus-visible, input:focus-visible, select:focus-visible {
+    button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
       outline: 2px solid #C2E85E;
       outline-offset: 2px;
     }
@@ -138,12 +143,7 @@
 
       <!-- Header actions: Restart Chat & Results toggle -->
       <div class="flex items-center gap-2">
-        <button type="button" 
-                id="header-chat-btn"
-                onclick="returnToChat()" 
-                class="hidden text-xs font-semibold text-ink px-3 py-1.5 rounded-[4px] border border-ink/20 hover:border-lime bg-white shadow-2xs transition">
-          💬 Return to chat
-        </button>
+
         <button type="button" 
                 onclick="restartConversation()" 
                 title="Restart conversation" 
@@ -176,6 +176,19 @@
 
       <!-- VIEW A: CONVERSATIONAL INTAKE (#intake-view with #toni-chat-thread) -->
       <section id="intake-view" class="space-y-6">
+        <div class="max-w-2xl mx-auto space-y-3" aria-labelledby="toni-intro-title">
+          <h1 id="toni-intro-title" class="font-serif text-3xl sm:text-4xl font-medium text-ink tracking-tight">Less scrolling. Find what fits tonight.</h1>
+          <p class="text-sm text-ink-muted leading-relaxed">Meet TONI, your film-finding companion. Tell me your mood, your streaming services and how much time you have. I’ll suggest films and explain why they fit.</p>
+          <details class="rounded-[4px] border border-ink/15 bg-white/50 p-3.5">
+            <summary class="cursor-pointer text-xs font-semibold text-ink">What is TONI?</summary>
+            <div class="mt-3 space-y-3 text-sm text-ink-muted leading-relaxed">
+              <p>TONI helps you choose a film for tonight. Type, tap the suggested answers, or try a voice conversation. When you’re ready, tap <strong>Find my results</strong> to build your shortlist.</p>
+              <p>Your preferences guide the recommendations. TONI searches for review evidence and checks streaming availability in your country, then explains the fit and where the evidence is limited or mixed. Availability can change, so confirm it with the provider before watching.</p>
+              <p>Recent films are the starting point. Use the quick refinements above your results to adjust runtime, mood or release year, including <strong>Any year</strong> for older films.</p>
+              <p>Voice uses Gemini Live and is an experimental beta. Response timing and audio reliability are still being refined. You can always type or use the buttons.</p>
+            </div>
+          </details>
+        </div>
         <div id="toni-chat-thread" class="space-y-6 max-w-2xl mx-auto">
           <!-- Messages will be dynamically rendered here as conversation bubbles -->
         </div>
@@ -213,7 +226,7 @@
 
       <!-- VIEW C: DEDICATED "WHAT FITS?" RESULTS PAGE -->
       <section id="results-view" class="hidden space-y-8 chat-message-anim">
-        
+
         <!-- Results Page Header -->
         <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 border-b border-ink/15">
           <div>
@@ -233,12 +246,13 @@
 
           <!-- Quick Return to Chat -->
           <div class="flex items-center gap-2 flex-shrink-0">
-            <button type="button" 
-                    onclick="returnToChat()" 
-                    class="px-4 py-2 rounded-full border border-ink/20 hover:border-lime bg-white text-ink text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs hover:shadow-xs">
-              <span>← Adjust in chat</span>
-            </button>
+
           </div>
+        </div>
+
+        <!-- Results Quick Refine Controls -->
+        <div id="results-quick-refine-bar" class="mb-4">
+          <!-- Injected dynamically in renderDedicatedResultsPage -->
         </div>
 
         <!-- Top 3 Watchcards Container -->
@@ -254,14 +268,10 @@
         <!-- Bottom Page Controls -->
         <div class="pt-8 border-t border-ink/10 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p class="text-xs text-ink-muted font-serif">
-            Not quite what you were in the mood for? Tell TONI what you'd like more or less of.
+            Use the quick refinements above, or start fresh for a different request.
           </p>
           <div class="flex items-center gap-3">
-            <button type="button" 
-                    onclick="returnToChat()" 
-                    class="px-5 py-2.5 rounded-full bg-ink text-bone text-xs font-semibold hover:text-lime transition shadow-sm">
-              ← Refine in chat
-            </button>
+
             <button type="button" 
                     onclick="restartConversation()" 
                     class="px-4 py-2.5 rounded-full border border-ink/20 bg-bone text-ink text-xs font-semibold hover:border-ink/40 transition">
@@ -290,16 +300,24 @@
         </button>
       </div>
 
+      <div id="persistent-results-action" class="hidden mb-2">
+        <button type="button" id="find-my-results-btn" onclick="handleReadyCTAClick()"
+                class="w-full px-4 py-2.5 rounded-full bg-ink text-bone text-xs font-medium hover:text-lime">
+          Find my results →
+        </button>
+      </div>
       <form id="chat-input-form" class="flex items-center gap-2" onsubmit="handleUserTextInput(event)">
         <!-- Single-Brain Voice/Text Mode Switching Button -->
         <button type="button" 
                 id="voice-mic-btn" 
                 onclick="toggleSingleBrainVoice()" 
-                title="Talk to TONI" 
-                aria-label="Talk to TONI" 
+                title="Talk to TONI — experimental voice beta"
+                aria-label="Talk to TONI, voice beta"
+                aria-describedby="voice-beta-help"
                 class="px-3 py-2 rounded-full border border-ink/20 hover:border-lime bg-white text-ink transition-all active:scale-95 flex items-center gap-1.5 flex-shrink-0 text-xs font-sans font-medium shadow-2xs">
           <span class="text-base">🎙️</span>
           <span id="voice-btn-label" class="hidden sm:inline">Talk to TONI</span>
+          <span class="rounded bg-lime px-1.5 py-0.5 text-[10px] font-semibold text-ink">Beta</span>
         </button>
 
         <!-- Natural Language Chat Input -->
@@ -307,7 +325,7 @@
                id="chat-text-input" 
                autocomplete="off" 
                placeholder="Type a response or describe what you're in the mood for..." 
-               class="flex-1 bg-white border border-ink/20 rounded-full px-4 py-2.5 text-xs sm:text-sm text-ink placeholder:text-ink-subtle focus:outline-none focus:border-lime font-sans shadow-2xs">
+               class="min-w-0 flex-1 bg-white border border-ink/20 rounded-full px-4 py-2.5 text-xs sm:text-sm text-ink placeholder:text-ink-subtle focus:outline-none focus:border-lime font-sans shadow-2xs">
 
         <!-- Send Button -->
         <button type="submit" 
@@ -319,8 +337,8 @@
         </button>
       </form>
 
-      <p class="text-[10px] text-ink-subtle text-center mt-2 font-sans">
-        Talk to TONI by voice or text, or tap any suggested answer button above.
+      <p id="voice-beta-help" class="text-xs text-ink-muted text-center mt-2 font-sans">
+        Voice responses may take a moment. You can always type or use the buttons.
       </p>
     </div>
   </footer>
@@ -626,6 +644,7 @@
 
     // View state
     let currentView = "intake";
+    const RECENT_RELEASE_YEAR = new Date().getFullYear() - 3;
 
     // Conversational State Machine
     const chatState = {
@@ -633,6 +652,7 @@
       country: "UK",
       country_confirmed: false,
       allow_rent_buy: false,
+      min_release_year: RECENT_RELEASE_YEAR,
       intake_depth: "",
       service_access: [],
       pacing: "measured",
@@ -668,6 +688,8 @@
         }
       },
       max_runtime: null,
+      preferred_genres: [],
+      reference_films: [],
       freeform_mood: "",
       dialogue_mode: "text",
       conversation_history: [],
@@ -750,6 +772,7 @@
 
     let cachedProviders = {};
     let isGenerating = false;
+    let pendingRefinementState = null;
     let voiceActive = false;
     let isListening = false;
     let voiceSessionGeneration = 0;
@@ -952,6 +975,14 @@
         const url = btn.getAttribute("data-trailer-url") || "";
         openTrailerModal(title, year, url);
       }
+      const moreBtn = e.target.closest("[data-action='more-like-this'], .btn-more-like-this");
+      if (moreBtn) {
+        e.stopPropagation();
+        const filmTitle = moreBtn.getAttribute("data-film-title") || "";
+        if (filmTitle && typeof refineMoreLike === "function") {
+          refineMoreLike(filmTitle);
+        }
+      }
     });
 
     // --- GENUINE GEMINI LIVE API WEBSOCKET & PCM AUDIO ENGINE ---
@@ -971,17 +1002,34 @@
       return audioPlaybackContext;
     }
 
-    const MAX_TURN_AUDIO_BUFFER_BYTES = 384 * 1024; // ~8.0s of 24kHz 16-bit mono PCM (~48KB/sec)
+    const MAX_TURN_AUDIO_BUFFER_BYTES = 4 * 1024 * 1024; // 4 MB (~60s of 24kHz 16-bit mono PCM)
     let currentTurnAudioChunks = [];
     let currentTurnAudioByteCount = 0;
+    let currentTurnAudioOverflowed = false;
+    let currentAudioTurnId = null;
+    let playingAudioTurnId = null;
     let audioPlaybackAuthorized = true;
+
+    // Track transcripts and playback status per turn
+    const turnTranscripts = new Map(); // turnId -> { text: string, validated: boolean, validResult: object }
+    const turnReleasedAudio = new Set(); // Set of turnIds where audio has already been enqueued for playback
+
+    let pendingTranscriptTimer = null;
 
     function clearTurnAudioBuffer() {
       currentTurnAudioChunks = [];
       currentTurnAudioByteCount = 0;
+      currentTurnAudioOverflowed = false;
+      currentAudioTurnId = null;
+      if (pendingTranscriptTimer) {
+        clearTimeout(pendingTranscriptTimer);
+        pendingTranscriptTimer = null;
+      }
     }
 
     function stopPlaybackAudio() {
+      for (const turnId of turnTranscripts.keys()) discardPendingVoiceReply(turnId);
+      playingAudioTurnId = null;
       clearTurnAudioBuffer();
       if (activeAudioSourceNodes.length > 0) {
         activeAudioSourceNodes.forEach(node => {
@@ -1083,20 +1131,104 @@
       }
     }
 
-    function releaseTurnAudioBuffer(assistantText) {
+    function releaseTurnAudioBuffer(turnIdOrText, fallbackAssistantText) {
       if (!audioPlaybackAuthorized || searchHandoffActive) {
         clearTurnAudioBuffer();
         return;
       }
-      const validation = validateAssistantAudioOutput(assistantText);
-      if (validation.valid) {
-        const chunks = currentTurnAudioChunks;
-        clearTurnAudioBuffer();
-        for (const chunk of chunks) {
-          enqueuePlaybackChunk(chunk);
+      let turnId = null;
+      let textArg = null;
+      if (typeof turnIdOrText === "number") {
+        turnId = turnIdOrText;
+        textArg = fallbackAssistantText;
+      } else if (typeof turnIdOrText === "string") {
+        if (/^\d+$/.test(turnIdOrText.trim())) {
+          turnId = parseInt(turnIdOrText.trim(), 10);
+          textArg = fallbackAssistantText;
+        } else {
+          // Direct transcript text passed
+          textArg = turnIdOrText;
+          turnId = null;
         }
       } else {
+        turnId = (typeof currentVoiceTurnId === "number" && currentVoiceTurnId > 0) ? currentVoiceTurnId : null;
+        textArg = fallbackAssistantText;
+      }
+
+      if (typeof turnId === "number" && turnId > 0 && turnReleasedAudio.has(turnId)) {
+        // Already released for this turn (e.g. speech_complete handled it before turn_complete)
+        return;
+      }
+      if (turnId && currentAudioTurnId && turnId !== currentAudioTurnId) return;
+      if (turnTranscripts.get(turnId)?.cancelled) {
         clearTurnAudioBuffer();
+        return;
+      }
+      // Empty completions (including interrupted replies) own no audio to release.
+      // They must not create a timer that can later discard another turn's speech.
+      if (!currentTurnAudioChunks.length && !currentTurnAudioOverflowed) return;
+      if (currentTurnAudioOverflowed) {
+        clearTurnAudioBuffer();
+        discardPendingVoiceReply(turnId);
+        console.warn("[TONI Audio] Spoken turn exceeded maximum buffer limit (4MB / ~60s); audio withheld to prevent playing truncated speech.");
+        ensureRecoverableIntakePrompt();
+        return;
+      }
+
+      // Look up transcript for this turn
+      const turnRecord = (turnId !== undefined && turnId !== null) ? turnTranscripts.get(turnId) : null;
+      const textToValidate = (textArg || (turnRecord && turnRecord.text) || currentVoiceAssistantText || "").trim();
+
+      // NEVER bypass audio validation for missing text
+      const validation = validateAssistantAudioOutput(textToValidate);
+      if (validation.valid) {
+        if (pendingTranscriptTimer) {
+          clearTimeout(pendingTranscriptTimer);
+          pendingTranscriptTimer = null;
+        }
+        if (typeof turnId === "number" && turnId > 0) {
+          turnReleasedAudio.add(turnId);
+          if (turnRecord) {
+            turnRecord.validated = true;
+            turnRecord.validResult = validation;
+          }
+        }
+        const chunks = currentTurnAudioChunks;
+        clearTurnAudioBuffer();
+        if (chunks.length) playingAudioTurnId = turnId;
+        let firstPlayback = null;
+        for (const chunk of chunks) {
+          const playback = enqueuePlaybackChunk(chunk);
+          if (!firstPlayback && playback) firstPlayback = playback;
+        }
+        revealVoiceReplyAtPlayback(turnId, textToValidate, firstPlayback);
+        if (chunks.length) console.info("[TONI Audio] Released spoken turn", {
+          turnId, chunks: chunks.length, contextState: audioPlaybackContext?.state
+        });
+      } else if (validation.reason === "missing_transcript") {
+        // Audio arrived before assistant transcript.
+        // Retain currentTurnAudioChunks intact; do NOT play yet (requires validated transcript).
+        if (!pendingTranscriptTimer) {
+          const timeoutTurnId = turnId;
+          const timeoutAudioTurnId = currentAudioTurnId;
+          pendingTranscriptTimer = setTimeout(() => {
+            pendingTranscriptTimer = null;
+            if (currentAudioTurnId === timeoutAudioTurnId && currentTurnAudioChunks.length > 0
+                && (!timeoutTurnId || !turnReleasedAudio.has(timeoutTurnId))) {
+              console.warn("[TONI Audio Validator] Pending turn audio expired awaiting transcript; withholding.");
+              clearTurnAudioBuffer();
+              discardPendingVoiceReply(timeoutTurnId);
+              ensureRecoverableIntakePrompt();
+            }
+          }, 5000);
+        }
+      } else {
+        if (pendingTranscriptTimer) {
+          clearTimeout(pendingTranscriptTimer);
+          pendingTranscriptTimer = null;
+        }
+        clearTurnAudioBuffer();
+        discardPendingVoiceReply(turnId);
         if (validation.reason !== "search_handoff_active") {
           console.warn("[TONI Audio Validator] Spoken output withheld:", validation.reason);
           ensureRecoverableIntakePrompt();
@@ -1146,6 +1278,7 @@
           const idx = activeAudioSourceNodes.indexOf(source);
           if (idx > -1) activeAudioSourceNodes.splice(idx, 1);
           if (activeAudioSourceNodes.length === 0) {
+            playingAudioTurnId = null;
             isToniSpeaking = false;
             if (audioPlaybackContext) {
               nextAudioPlaybackTime = audioPlaybackContext.currentTime;
@@ -1159,12 +1292,15 @@
             }
           }
         };
+        return { context: ctx, startTime };
       } catch (e) {
         console.warn("PCM audio playback error:", e);
       }
     }
 
     function cancelLocalPlayback() {
+      for (const turnId of turnTranscripts.keys()) discardPendingVoiceReply(turnId);
+      playingAudioTurnId = null;
       if (activeAudioSourceNodes.length > 0) {
         activeAudioSourceNodes.forEach(node => {
           try {
@@ -1291,6 +1427,8 @@
       stopMicCapture();
       stopPlaybackAudio();
       clearTurnAudioBuffer();
+      turnTranscripts.clear();
+      turnReleasedAudio.clear();
       audioPlaybackAuthorized = false;
 
       if (liveWs) {
@@ -1332,7 +1470,16 @@
       let localRecordContext = null;
       let localProcessor = null;
 
+      const micTimeoutId = setTimeout(() => {
+        if (pendingMicSetups.has(currentVoiceGen) && !micReady) {
+          console.warn("Microphone setup timed out after 8.0s");
+          abortLocal();
+          teardownVoiceSession(currentVoiceGen, "Microphone setup timed out. Please check browser microphone permissions or continue in chat.");
+        }
+      }, 8000);
+
       function abortLocal() {
+        if (micTimeoutId) clearTimeout(micTimeoutId);
         pending.cancelled = true;
         if (localStream) {
           try { localStream.getTracks().forEach(t => t.stop()); } catch(e) {}
@@ -1399,22 +1546,8 @@
           }
         }
 
-        const source = localRecordContext.createMediaStreamSource(localStream);
-        const processor = localRecordContext.createScriptProcessor(4096, 1, 1);
-        localProcessor = processor;
-        pending.processor = processor;
-
-        const silentGain = localRecordContext.createGain();
-        silentGain.gain.value = 0;
-        source.connect(processor);
-        processor.connect(silentGain);
-        silentGain.connect(localRecordContext.destination);
-
-        processor.onaudioprocess = (e) => {
-          // Gate microphone processing and sending on session ownership, mic readiness, AND server ready acknowledgement
+        function handleMicFrame(inputData, sampleRate, currentVoiceGen) {
           if (voiceSessionGeneration !== currentVoiceGen || !voiceActive || !micReady || !liveWsReady) return;
-          const inputData = e.inputBuffer.getChannelData(0);
-
           let sum = 0;
           for (let i = 0; i < inputData.length; i++) {
             sum += inputData[i] * inputData[i];
@@ -1426,11 +1559,10 @@
             if (voiceActive && isListening) updateVoiceUIState("listening");
           }
 
-          if (isToniSpeaking && rms > 0.035) {
-            handleBargeIn();
-          }
+          // Loudness alone is not speech: speaker pickup and clicks must not
+          // cancel playback. Gemini VAD / a new user transcript confirms interruption.
 
-          if (!isToniSpeaking) {
+          if (!isToniSpeaking && currentTurnAudioChunks.length === 0) {
             const mark = document.getElementById("header-aperture-mark");
             const statusText = document.getElementById("voice-status-text");
             if (rms > 0.015) {
@@ -1450,21 +1582,87 @@
             }
           }
 
-          if (isToniSpeaking) return;
-
-          const downsampled = downsampleTo16kHz(inputData, localRecordContext.sampleRate);
+          const downsampled = downsampleTo16kHz(inputData, sampleRate);
           const pcmBuffer = floatTo16BitPCM(downsampled);
           const base64Chunk = arrayBufferToBase64(pcmBuffer);
 
           if (liveWs && liveWs.readyState === WebSocket.OPEN && !searchHandoffActive) {
             lastMicAudioSentTime = Date.now();
-            isMicAudioInFlight = true;
+            if (rms > 0.015) isMicAudioInFlight = true;
             liveWs.send(JSON.stringify({
               type: "audio",
               data: base64Chunk
             }));
           }
-        };
+        }
+
+        const source = localRecordContext.createMediaStreamSource(localStream);
+        const silentGain = localRecordContext.createGain();
+        silentGain.gain.value = 0;
+        let processor = null;
+
+        if (typeof AudioWorkletNode !== "undefined" && localRecordContext.audioWorklet && typeof localRecordContext.audioWorklet.addModule === "function") {
+          try {
+            const workletCode = `
+              class ToniMicProcessor extends AudioWorkletProcessor {
+                constructor() {
+                  super();
+                  this.frame = new Float32Array(Math.round(sampleRate * 0.04));
+                  this.offset = 0;
+                }
+                process(inputs) {
+                  const input = inputs[0];
+                  if (input && input.length > 0) {
+                    for (const sample of input[0]) {
+                      this.frame[this.offset++] = sample;
+                      if (this.offset === this.frame.length) {
+                        this.port.postMessage(this.frame);
+                        this.offset = 0;
+                      }
+                    }
+                  }
+                  return true;
+                }
+              }
+              registerProcessor('toni-mic-processor', ToniMicProcessor);
+            `;
+            const blob = new Blob([workletCode], { type: 'application/javascript' });
+            const workletUrl = URL.createObjectURL(blob);
+            await localRecordContext.audioWorklet.addModule(workletUrl);
+            URL.revokeObjectURL(workletUrl);
+
+            if (pending.cancelled || voiceSessionGeneration !== currentVoiceGen || !voiceActive) {
+              abortLocal();
+              return;
+            }
+
+            const workletNode = new AudioWorkletNode(localRecordContext, 'toni-mic-processor');
+            workletNode.port.onmessage = (e) => {
+              handleMicFrame(e.data, localRecordContext.sampleRate, currentVoiceGen);
+            };
+            source.connect(workletNode);
+            workletNode.connect(silentGain);
+            processor = workletNode;
+          } catch (workletErr) {
+            console.warn("[TONI Audio] AudioWorklet initialization failed, falling back to ScriptProcessorNode:", workletErr);
+            processor = null;
+          }
+        }
+
+        if (!processor) {
+          const scriptProcessor = localRecordContext.createScriptProcessor(4096, 1, 1);
+          scriptProcessor.onaudioprocess = (e) => {
+            const inputData = e.inputBuffer.getChannelData(0);
+            handleMicFrame(inputData, localRecordContext.sampleRate, currentVoiceGen);
+          };
+          source.connect(scriptProcessor);
+          scriptProcessor.connect(silentGain);
+          processor = scriptProcessor;
+        }
+
+        localProcessor = processor;
+        pending.processor = processor;
+        silentGain.connect(localRecordContext.destination);
 
         // Recheck before assigning to module-level references
         if (pending.cancelled || voiceSessionGeneration !== currentVoiceGen || !voiceActive) {
@@ -1479,12 +1677,14 @@
         audioRecordContext = localRecordContext;
         audioWorkletOrProcessor = localProcessor;
         micReady = true;
+        if (micTimeoutId) clearTimeout(micTimeoutId);
 
         pendingMicSetups.delete(currentVoiceGen);
 
         checkVoiceReadiness(currentVoiceGen);
 
       } catch (err) {
+        if (micTimeoutId) clearTimeout(micTimeoutId);
         const wasCancelled = pending.cancelled || voiceSessionGeneration !== currentVoiceGen || !voiceActive;
         abortLocal();
         if (wasCancelled) return; // Stale or cancelled failure
@@ -1492,6 +1692,7 @@
         teardownVoiceSession(currentVoiceGen, "Microphone access was denied. Please grant microphone permissions in your browser to speak with TONI, or continue typing below.");
         showBrandModal("Microphone Access", "Please grant microphone permissions in your browser to speak with TONI.");
       } finally {
+        if (micTimeoutId) clearTimeout(micTimeoutId);
         if (voiceSessionGeneration !== currentVoiceGen || !micReady) {
           abortLocal();
         }
@@ -1545,16 +1746,16 @@
         if (btnLabel) btnLabel.innerText = "Listening...";
         if (statusBar) statusBar.classList.remove("hidden");
         if (statusText) statusText.innerText = "Listening...";
-      } else if (state === "responding") {
+      } else if (state === "responding" || state === "thinking") {
         if (mark) {
           mark.classList.add("toni-loader-arcs");
           mark.classList.remove("toni-mark-listening");
           mark.style.transform = "";
         }
         if (micBtn) micBtn.className = "px-3 py-2 rounded-full border border-ink/40 bg-bone text-ink transition-all flex items-center gap-1.5 flex-shrink-0 text-xs font-sans font-medium";
-        if (btnLabel) btnLabel.innerText = "TONI is responding...";
+        if (btnLabel) btnLabel.innerText = state === "thinking" ? "Thinking..." : "TONI is responding...";
         if (statusBar) statusBar.classList.remove("hidden");
-        if (statusText) statusText.innerText = "TONI is responding...";
+        if (statusText) statusText.innerText = state === "thinking" ? "Thinking..." : "TONI is responding...";
       } else {
         if (mark) {
           mark.classList.remove("toni-mark-listening");
@@ -1572,9 +1773,28 @@
     let currentVoiceAssistantBubble = null;
     let currentVoiceAssistantText = "";
 
+    function smartAppendChunk(existing, chunk) {
+      // Text deltas include their own spaces and subword boundaries.
+      return (existing || "") + (chunk || "");
+    }
+
+    const voiceUserRecords=new Map();
+    const committedVoiceTurns=new Set();
+    function reconcileVoiceUser(turnId,text,final=false) {
+      let record=voiceUserRecords.get(turnId);
+      if(!record) { record={bubble:null,history:null}; voiceUserRecords.set(turnId,record); }
+      if(!record.bubble && currentVoiceTurnId===turnId) record.bubble=currentVoiceUserBubble;
+      if(record.bubble) {
+        const el=record.bubble.querySelector('div'); if(el) el.innerText=text;
+      }
+      if(final && text) {
+        if(record.history) record.history.content=text;
+        else {record.history={role:'user',content:text};chatState.conversation_history.push(record.history);}
+      }
+    }
     function appendOrUpdateVoiceUserMessage(chunkText) {
-      currentVoiceUserText += chunkText;
-      voiceTurnUserText += chunkText;
+      currentVoiceUserText = smartAppendChunk(currentVoiceUserText, chunkText);
+      voiceTurnUserText = smartAppendChunk(voiceTurnUserText, chunkText);
       if (!currentVoiceUserBubble) {
         cancelAutoRecommendationTimer();
         if (currentVoiceTurnId !== latestDialogueTurnId || voiceTurnInterrupted) {
@@ -1582,6 +1802,12 @@
           voiceTurnInterrupted = false;
           voiceTurnAssistantStarted = false;
           voiceTurnUserText = chunkText;
+        }
+        const previous=voiceUserRecords.get(currentVoiceTurnId);
+        if(previous?.bubble) {
+          currentVoiceUserBubble=previous.bubble;
+          const el=previous.bubble.querySelector("div"); if(el) el.innerText=currentVoiceUserText;
+          return;
         }
         const thread = document.getElementById("toni-chat-thread");
         const wrap = document.createElement("div");
@@ -1599,32 +1825,78 @@
           textEl.innerText = currentVoiceUserText;
         }
       }
+      reconcileVoiceUser(currentVoiceTurnId,currentVoiceUserText);
       scrollToBottom();
     }
 
     function finalizeVoiceUserMessage() {
       if (currentVoiceUserText) {
-        chatState.conversation_history.push({ role: "user", content: currentVoiceUserText });
+        reconcileVoiceUser(currentVoiceTurnId,currentVoiceUserText,true);
       }
       currentVoiceUserBubble = null;
       currentVoiceUserText = "";
     }
 
-    function appendOrUpdateVoiceAssistantMessage(chunkText) {
+    function ensurePendingVoiceReply(turnId) {
+      let record = turnTranscripts.get(turnId);
+      if (!record) {
+        record = { text: "", validated: false, validResult: null, revealed: false, cancelled: false };
+        turnTranscripts.set(turnId, record);
+      }
+      if (!record.bubble && !record.cancelled) {
+        record.bubble = appendToniMessage('<span role="status">Thinking<span class="voice-thinking-dots" aria-hidden="true">…</span></span>', null, true);
+        record.textElement = record.bubble.querySelector(".font-serif");
+        updateVoiceUIState("thinking");
+        if (!currentVoiceTurnId || currentVoiceTurnId === turnId) currentVoiceAssistantBubble = record.bubble;
+      }
+      return record;
+    }
+
+    function discardPendingVoiceReply(turnId) {
+      const record = turnTranscripts.get(turnId);
+      if (!record || record.revealed || record.cancelled) return;
+      record.cancelled = true;
+      if (record.revealTimer) clearTimeout(record.revealTimer);
+      if (record.bubble) record.bubble.remove();
+      if (currentVoiceAssistantBubble === record.bubble) currentVoiceAssistantBubble = null;
+    }
+
+    function revealVoiceReplyAtPlayback(turnId, text, playback) {
+      const record = ensurePendingVoiceReply(turnId);
+      if (record.cancelled || record.revealed) return;
+      record.text = text;
+      const generation = voiceSessionGeneration;
+      const startedWaiting = Date.now();
+      const reveal = () => {
+        record.revealTimer = null;
+        if (generation !== voiceSessionGeneration || record.cancelled) return;
+        const isPlaying = playback && playback.context.state === "running"
+          && playback.context.currentTime >= playback.startTime;
+        if (isPlaying || !playback || Date.now() - startedWaiting >= 5000) {
+          if (isPlaying) updateVoiceUIState("responding");
+          record.revealed = true;
+          if (record.textElement) record.textElement.textContent = text;
+          if (!isPlaying) {
+            appendToniMessage("Audio couldn't start. You can read the reply above.");
+          }
+          scrollToBottom();
+        } else {
+          record.revealTimer = setTimeout(reveal, 25);
+        }
+      };
+      reveal();
+    }
+
+    function appendOrUpdateVoiceAssistantMessage(chunkText, turnId) {
       if (currentVoiceUserBubble) {
         finalizeVoiceUserMessage();
       }
       voiceTurnAssistantStarted = true;
-      currentVoiceAssistantText += chunkText;
-      if (!currentVoiceAssistantBubble) {
-        currentVoiceAssistantBubble = appendToniMessage(currentVoiceAssistantText);
-      } else {
-        const textEl = currentVoiceAssistantBubble.querySelector(".font-serif");
-        if (textEl) {
-          textEl.textContent = currentVoiceAssistantText;
-        }
-      }
-      scrollToBottom();
+      currentVoiceAssistantText = smartAppendChunk(currentVoiceAssistantText, chunkText);
+
+      const targetTurnId = turnId !== undefined && turnId !== null ? turnId : currentVoiceTurnId;
+      const record = ensurePendingVoiceReply(targetTurnId);
+      record.text = smartAppendChunk(record.text, chunkText);
     }
 
     function finalizeVoiceAssistantMessage() {
@@ -1656,6 +1928,7 @@
         if (socketTurnId !== undefined && socketTurnId !== null) {
           if (!socketTurnMap.has(socketTurnId)) {
             socketTurnMap.set(socketTurnId, ++latestDialogueTurnId);
+            dialoguePreferenceSnapshots.set(latestDialogueTurnId,editEpoch);
           }
           return socketTurnMap.get(socketTurnId);
         }
@@ -1693,10 +1966,20 @@
             if (!audioPlaybackAuthorized || searchHandoffActive) {
               return;
             }
+            if (msg.turn_id !== undefined && msg.turn_id !== null) {
+              const audioTurnId = getOrCreateConvTurnId(msg.turn_id);
+              if (turnReleasedAudio.has(audioTurnId) || audioTurnId <= completedDialogueTurnId) return;
+              if (turnTranscripts.get(audioTurnId)?.cancelled) return;
+              ensurePendingVoiceReply(audioTurnId);
+              if (currentAudioTurnId && currentAudioTurnId !== audioTurnId) clearTurnAudioBuffer();
+              currentAudioTurnId = audioTurnId;
+            }
             const chunkLen = msg.data.length;
             if (currentTurnAudioByteCount + chunkLen > MAX_TURN_AUDIO_BUFFER_BYTES) {
-              console.warn("Turn audio buffer exceeded 8s limit; discarding buffer.");
-              clearTurnAudioBuffer();
+              if (!currentTurnAudioOverflowed) {
+                currentTurnAudioOverflowed = true;
+                console.warn("[TONI Audio] Turn audio buffer exceeded limit (4MB / ~60s); withholding audio to prevent truncated speech.");
+              }
               return;
             }
             currentTurnAudioChunks.push(msg.data);
@@ -1723,6 +2006,14 @@
             const speechTurnId = (msg.turn_id !== undefined && msg.turn_id !== null && socketTurnMap.has(msg.turn_id))
               ? socketTurnMap.get(msg.turn_id)
               : (msg.turn_id ? getOrCreateConvTurnId(msg.turn_id) : currentVoiceTurnId);
+            // Release validated audio immediately while transcript is complete
+            if (typeof msg.assistant_reply === "string" && msg.assistant_reply
+                && (!currentVoiceTurnId || currentVoiceTurnId === speechTurnId)) {
+              currentVoiceAssistantText = msg.assistant_reply;
+              const record = ensurePendingVoiceReply(speechTurnId);
+              record.text = msg.assistant_reply;
+            }
+            releaseTurnAudioBuffer(speechTurnId, msg.assistant_reply || currentVoiceAssistantText);
             if (currentVoiceAssistantBubble && (!currentVoiceTurnId || currentVoiceTurnId === speechTurnId)) {
               finalizeVoiceAssistantMessage();
             }
@@ -1731,6 +2022,16 @@
             }
           } else if (msg.type === "transcript" && msg.text) {
             if (msg.role === "user") {
+              // Interruption handling: user spoke while audio was playing or buffering
+              const inputTurnId = getOrCreateConvTurnId(msg.turn_id);
+              if(committedVoiceTurns.has(inputTurnId)) return;
+              confirmedChoicesKey=""; syncPersistentResultsAction();
+              if ((isToniSpeaking || activeAudioSourceNodes.length > 0 || currentTurnAudioChunks.length > 0)
+                  && inputTurnId !== currentAudioTurnId && inputTurnId !== playingAudioTurnId) {
+                console.info("[TONI Audio] New user turn interrupted playback", {inputTurnId});
+                cancelLocalPlayback();
+                clearTurnAudioBuffer();
+              }
               cancelAutoRecommendationTimer();
               const turnId = getOrCreateConvTurnId(msg.turn_id);
               if (!currentVoiceUserBubble || currentVoiceTurnId !== turnId) {
@@ -1771,12 +2072,14 @@
                 latestDialogueTurnId = Math.max(latestDialogueTurnId, turnId);
               }
               voiceTurnAssistantStarted = true;
-              appendOrUpdateVoiceAssistantMessage(msg.text);
+              appendOrUpdateVoiceAssistantMessage(msg.text, turnId);
             }
           } else if (msg.type === "turn_complete") {
             const completedTurnId = (msg.turn_id !== undefined && msg.turn_id !== null && socketTurnMap.has(msg.turn_id))
               ? socketTurnMap.get(msg.turn_id)
               : (msg.turn_id ? getOrCreateConvTurnId(msg.turn_id) : currentVoiceTurnId);
+            if(committedVoiceTurns.has(completedTurnId)) return;
+            committedVoiceTurns.add(completedTurnId);
             const isLatestTurn = completedTurnId === latestDialogueTurnId;
             const turnUserText = voiceTurnUserText || currentVoiceUserText;
             const turnBotText = currentVoiceAssistantText;
@@ -1790,12 +2093,7 @@
             // Keep conversation history authoritative and current
             const uText = msg.user_text || turnUserText;
             const aText = msg.assistant_reply || turnBotText;
-            if (uText) {
-              const lastUser = [...chatState.conversation_history].reverse().find(m => m.role === "user");
-              if (!lastUser || lastUser.content !== uText) {
-                chatState.conversation_history.push({ role: "user", content: uText });
-              }
-            }
+            if(uText) reconcileVoiceUser(completedTurnId,uText,true);
             if (aText) {
               const lastAssistant = [...chatState.conversation_history].reverse().find(m => m.role === "assistant");
               if (!lastAssistant || lastAssistant.content !== aText) {
@@ -1804,6 +2102,7 @@
             }
 
             if (msg.updated_context) {
+              retireIntakePanels();
               syncContextToState(msg.updated_context, completedTurnId, uText);
             }
             completedDialogueTurnId = Math.max(completedDialogueTurnId, completedTurnId);
@@ -1817,14 +2116,22 @@
             isMicAudioInFlight = false;
 
             // Check if active handoff barrier is awaiting this turn completion
-            if (activeHandoffBarrier && activeHandoffBarrier.acknowledged && activeHandoffBarrier.targetTurnId !== undefined && activeHandoffBarrier.targetTurnId !== null) {
-              if (completedDialogueTurnId >= activeHandoffBarrier.targetTurnId) {
+            if (activeHandoffBarrier && activeHandoffBarrier.acknowledged) {
+              if (activeHandoffBarrier.targetTurnId !== undefined && activeHandoffBarrier.targetTurnId !== null) {
+                if (completedDialogueTurnId >= activeHandoffBarrier.targetTurnId) {
+                  activeHandoffBarrier.resolve();
+                }
+              } else if (completedDialogueTurnId >= latestDialogueTurnId) {
                 activeHandoffBarrier.resolve();
               }
             }
 
-            // Validate and release buffered assistant audio, or withhold it
-            releaseTurnAudioBuffer(aText || msg.assistant_reply);
+            // Validate and release buffered assistant audio if not already released at speech_complete
+            releaseTurnAudioBuffer(completedTurnId, aText || msg.assistant_reply);
+            if (aText && !turnReleasedAudio.has(completedTurnId)
+                && (!currentAudioTurnId || currentAudioTurnId !== completedTurnId)) {
+              revealVoiceReplyAtPlayback(completedTurnId, aText, null);
+            }
 
             syncReadinessUI();
 
@@ -1842,36 +2149,10 @@
                 }
               }, (remainingSec * 1000) + 120);
             }
-            if (msg.ready_to_recommend && wasValidTurn && isLatestTurn) {
-              // Only auto-advance if user explicitly spoke affirmative search intent in this turn
-              const userTextToCheck = (uText || turnUserText || "").toLowerCase();
-              const hasNegative = ["don't recommend", "not yet", "wait", "hold on", "stop"].some(neg => userTextToCheck.includes(neg));
-              const affirmativeVoiceTriggers = ["find what fits", "show me", "recommend", "find movies", "what should i watch", "show shortlist", "let's see what fits", "bring up the shortlist", "bring up the list"];
-              const spokeExplicitSearch = !hasNegative && affirmativeVoiceTriggers.some(t => userTextToCheck.includes(t));
-              if (spokeExplicitSearch &&
-                  completedTurnId === latestDialogueTurnId &&
-                  completedTurnId > lastConsumedDialogueTurnId &&
-                  voiceSessionGeneration === currentVoiceGen &&
-                  voiceActive &&
-                  sessionGeneration === sessionGeneration) {
-                cancelAutoRecommendationTimer();
-                const targetSessionGen = sessionGeneration;
-                const targetVoiceGen = currentVoiceGen;
-                autoRecommendationSessionGen = targetSessionGen;
-                autoRecommendationVoiceGen = targetVoiceGen;
-                autoRecommendationTurnId = completedTurnId;
-                autoRecommendationTimer = setTimeout(() => {
-                  autoRecommendationTimer = null;
-                  if (completedTurnId !== latestDialogueTurnId ||
-                      completedTurnId <= lastConsumedDialogueTurnId ||
-                      voiceSessionGeneration !== targetVoiceGen ||
-                      !voiceActive ||
-                      sessionGeneration !== targetSessionGen) return;
-                  executeVoiceSearchHandoff("voice_affirmation");
-                }, 600);
-              }
-            }
+            // A Live transcript can contain speaker echo or misrecognition.
+            // Only the visible button authorizes a voice-to-search handoff.
           } else if (msg.type === "interrupted") {
+            console.info("[TONI Audio] Gemini confirmed speech interruption");
             cancelLocalPlayback();
             clearTurnAudioBuffer();
             finalizeVoiceUserMessage();
@@ -1983,19 +2264,7 @@
 
         syncReadinessUI();
 
-        if (data.ready_to_recommend) {
-          if (turnId === latestDialogueTurnId && turnId > lastConsumedDialogueTurnId && turnGen === sessionGeneration && turnVoiceGen === voiceSessionGeneration && voiceActive) {
-            cancelAutoRecommendationTimer();
-            autoRecommendationTurnId = turnId;
-            autoRecommendationSessionGen = turnGen;
-            autoRecommendationVoiceGen = turnVoiceGen;
-            autoRecommendationTimer = setTimeout(() => {
-              autoRecommendationTimer = null;
-              if (turnId !== latestDialogueTurnId || turnId <= lastConsumedDialogueTurnId || turnGen !== sessionGeneration || turnVoiceGen !== voiceSessionGeneration || !voiceActive) return;
-              triggerPipelineExecution();
-            }, 600);
-          }
-        }
+        // HTTP voice fallback has the same button-only search authorization as Live.
       } catch (err) {
         console.error("Voice turn error:", err);
         updateVoiceUIState("default");
@@ -2022,6 +2291,12 @@
       if (chatState.max_runtime) {
         tonight_signals.push({ name: "max-runtime", value: parseInt(chatState.max_runtime, 10), signal_type: "hard_constraint" });
       }
+      if (Array.isArray(chatState.preferred_genres) && chatState.preferred_genres.length > 0) {
+        tonight_signals.push({ name: "preferred_genres", value: [...chatState.preferred_genres], signal_type: "soft_session_preference" });
+      }
+      if (Array.isArray(chatState.reference_films) && chatState.reference_films.length > 0) {
+        tonight_signals.push({ name: "reference_films", value: [...chatState.reference_films], signal_type: "soft_session_preference" });
+      }
       if (chatState.freeform_mood) {
         tonight_signals.push({ name: "freeform_mood", value: chatState.freeform_mood, signal_type: "soft_session_preference" });
       }
@@ -2034,6 +2309,7 @@
           country_confirmed: Boolean(chatState.country_confirmed),
           service_access: [...(chatState.service_access || [])],
           allow_rent_buy: Boolean(chatState.allow_rent_buy),
+          min_release_year: chatState.min_release_year,
           intake_depth: chatState.intake_depth || "a_couple_of_questions",
           dialogue_mode: mode,
           voice_name: "Charon",
@@ -2046,7 +2322,13 @@
     }
 
     function syncContextToState(ctx, turnId = 0, userText = "") {
-      if (!ctx) return;
+      if (!ctx || currentView === "results") return;
+      confirmedChoicesKey="";
+      const snapshot=dialoguePreferenceSnapshots.get(turnId);
+      const preserved={};
+      if(snapshot!==undefined) preferenceFields.forEach(field=>{
+        if((localFieldEdits[field] || 0)>snapshot) preserved[field]=JSON.parse(JSON.stringify(chatState[field]));
+      });
       if (userText) {
         if (/\b(?:uk|united\s+kingdom|britain|england)\b/i.test(userText)) {
           chatState.country = "UK";
@@ -2063,7 +2345,7 @@
         }
         if (turnId > 0) fieldVersions.country = turnId;
       }
-      if (ctx.service_access && ctx.service_access.length && (turnId === 0 || turnId >= (fieldVersions.service_access || 0))) {
+      if (Array.isArray(ctx.service_access) && (turnId === 0 || turnId >= (fieldVersions.service_access || 0))) {
         chatState.service_access = ctx.service_access;
         if (turnId > 0) fieldVersions.service_access = turnId;
       }
@@ -2074,7 +2356,26 @@
       if (ctx.tonight_signals) {
         chatState.tonight_signals = ctx.tonight_signals;
       }
-      (ctx.tonight_signals || []).forEach(sig => {
+
+      const signals = ctx.tonight_signals || [];
+      const hasRuntimeSignal = signals.some(s => s.name === "max-runtime" || s.name === "max_runtime");
+      const hasExcludeSignal = signals.some(s => s.name === "exclude-genre" || s.name === "exclude_genre" || s.name === "exclude_genres");
+
+      const userClearedRuntime = Boolean(userText && /\b(?:any\s+length|no\s+time\s+limit|no\s+length\s+limit|doesn't\s+matter\s+how\s+long|any\s+runtime|no\s+limit)\b/i.test(userText));
+      const canUpdateRuntime = (turnId === 0 || turnId >= (fieldVersions.max_runtime || 0));
+      if (canUpdateRuntime && (userClearedRuntime || (Array.isArray(ctx.tonight_signals) && !hasRuntimeSignal))) {
+        chatState.max_runtime = null;
+        if (turnId > 0) fieldVersions.max_runtime = turnId;
+      }
+
+      const userClearedExclusions = Boolean(userText && /\b(?:horror\s+is\s+fine|remove\s+(?:that\s+|the\s+)?exclusion|clear\s+exclusions|no\s+exclusions)\b/i.test(userText));
+      const canUpdateExclusions = (turnId === 0 || turnId >= (fieldVersions.exclude_genres || 0));
+      if (canUpdateExclusions && (userClearedExclusions || (Array.isArray(ctx.tonight_signals) && !hasExcludeSignal))) {
+        setExcludeGenre([]);
+        if (turnId > 0) fieldVersions.exclude_genres = turnId;
+      }
+
+      signals.forEach(sig => {
         if (sig.name === "pacing" && (turnId === 0 || turnId >= (fieldVersions.pacing || 0))) {
           const isExplicitPacingValue = sig.value && sig.value !== "measured";
           const userMentionedPacing = Boolean(userText && /\b(?:measured|pacing|pace|tempo|steady|speed)\b/i.test(userText));
@@ -2103,12 +2404,22 @@
           chatState.max_runtime = parseInt(sig.value, 10);
           if (turnId > 0) fieldVersions.max_runtime = turnId;
         }
+        if ((sig.name === "preferred_genres" || sig.name === "preferred-genres") && (turnId === 0 || turnId >= (fieldVersions.preferred_genres || 0))) {
+          chatState.preferred_genres = Array.isArray(sig.value) ? [...sig.value] : [sig.value];
+          if (turnId > 0) fieldVersions.preferred_genres = turnId;
+        }
+        if ((sig.name === "reference_films" || sig.name === "reference-films") && (turnId === 0 || turnId >= (fieldVersions.reference_films || 0))) {
+          chatState.reference_films = Array.isArray(sig.value) ? [...sig.value] : [sig.value];
+          if (turnId > 0) fieldVersions.reference_films = turnId;
+        }
         if ((sig.name === "freeform_mood" || sig.name === "mood") && (turnId === 0 || turnId >= (fieldVersions.freeform_mood || 0))) {
           chatState.freeform_mood = sig.value;
           if (turnId > 0) fieldVersions.freeform_mood = turnId;
         }
       });
+      Object.assign(chatState,preserved);
       refreshServiceChipsUI();
+      if (typeof renderActiveExclusionChips === "function") renderActiveExclusionChips();
       syncReadinessUI();
     }
 
@@ -2124,43 +2435,86 @@
       }
     }
 
-    function syncReadinessUI() {
-      if (typeof hasSufficientContext === "function" && hasSufficientContext()) {
-        renderInlineReadyCTA();
-      } else {
-        removeInlineReadyCTA();
+    const dialoguePreferenceSnapshots = new Map();
+    let editEpoch=0;
+    let localFieldEdits={};
+    function notePreferenceEdit(fields) {
+      confirmedChoicesKey='';
+      for(const field of fields) localFieldEdits[field]=++editEpoch;
+      syncPersistentResultsAction();
+      const generation=sessionGeneration;
+      Promise.resolve().then(()=>{ if(generation===sessionGeneration) syncLiveContext(); });
+    }
+    function syncLiveContext() {
+      if(voiceActive && liveWsReady && liveWs && liveWs.readyState===WebSocket.OPEN) {
+        liveWs.send(JSON.stringify({type:'context_update',
+          context:buildVoiceTurnPayload('', 'voice').current_context}));
       }
     }
-
-    // Render prominent inline CTA when shortlist readiness is detected
-    function renderInlineReadyCTA() {
-      const thread = document.getElementById("toni-chat-thread");
-      if (!thread) return;
-      const existing = document.getElementById("inline-ready-cta-container");
-      if (existing && (existing.isConnected || existing.parentElement)) return; // Already visible in DOM
-      const ctaWrap = document.createElement("div");
-      ctaWrap.id = "inline-ready-cta-container";
-      ctaWrap.className = "flex justify-start pl-10 my-3 chat-message-anim";
-      ctaWrap.innerHTML = `
-        <div class="p-3.5 bg-lime/15 border border-lime/40 rounded-xl space-y-2.5 max-w-md shadow-xs">
-          <p class="text-xs font-sans text-ink font-medium">
-            I've got enough to make some recommendations.
-          </p>
-          <button type="button" 
-                  id="inline-find-fits-btn"
-                  onclick="handleReadyCTAClick()"
-                  class="px-5 py-2.5 rounded-full bg-ink text-bone font-medium text-xs tracking-wide transition border border-transparent hover:border-lime hover:text-lime shadow-md active:scale-98 flex items-center gap-2">
-            <span>Find what fits</span>
-            <span>→</span>
-          </button>
-        </div>
-      `;
-      thread.appendChild(ctaWrap);
-      triggerApertureMicroStep();
-      scrollToBottom();
+    let pendingIntakePanel = '';
+    let confirmedChoicesKey = '';
+    let refinementDraft = {};
+    let lastSuccessfulPreferences = null;
+    const preferenceFields = ['country','country_confirmed','service_access','allow_rent_buy',
+      'intake_depth','pacing','pacing_explicitly_set','tone','demandingness',
+      'demandingness_explicitly_set','exclude_genres','max_runtime','min_release_year',
+      'preferred_genres','reference_films','freeform_mood'];
+    function capturePreferences() {
+      return JSON.parse(JSON.stringify(Object.fromEntries(preferenceFields.map(k=>[k,chatState[k]]))));
     }
+    function retireIntakePanels() {
+      ['msg-step-1','msg-step-2','msg-step-3','msg-step-4','msg-step-ready'].forEach(id=>{
+        const panel=document.getElementById(id);
+        if(panel) panel.querySelectorAll('button,select,input').forEach(el=>{el.disabled=true;});
+      });
+      pendingIntakePanel='';
+    }
+    function scheduleIntake(render) {
+      const gen=sessionGeneration;
+      const turn=latestDialogueTurnId;
+      setTimeout(()=>{if(gen===sessionGeneration && turn===latestDialogueTurnId && currentView==='intake') render();},350);
+    }
+    function choicesAreConfirmed() {
+      return hasConfirmedSearchAccess() && !pendingIntakePanel &&
+        confirmedChoicesKey === getSearchPayloadKey();
+    }
+    function confirmChoices() {
+      if(isGenerating || completedDialogueTurnId < latestDialogueTurnId || !hasConfirmedSearchAccess()) return;
+      retireIntakePanels();
+      if(voiceActive) teardownVoiceSession();
+      confirmedChoicesKey=getSearchPayloadKey();
+      syncPersistentResultsAction();
+    }
+    function syncReadinessUI() {
+      removeInlineReadyCTA();
+      const sufficient=hasSufficientContext() || (hasConfirmedSearchAccess() && chatState.intake_depth==='just_give_me_something');
+      if(pendingIntakePanel==='summary') {
+        const summary=document.getElementById('msg-step-ready');
+        if(summary?.parentElement) summary.remove();
+        pendingIntakePanel='';
+      }
+      syncPersistentResultsAction();
+      if(currentView==='intake' && !isGenerating && !pendingIntakePanel &&
+          completedDialogueTurnId >= latestDialogueTurnId && sufficient &&
+          !choicesAreConfirmed()) renderReadyTurn();
+    }
+    function syncPersistentResultsAction() {
+      const action=document.getElementById('persistent-results-action');
+      if(!action) return;
+      const available=currentView==='intake' && choicesAreConfirmed();
+      if(available) action.classList.remove('hidden');
+      else action.classList.add('hidden');
+      const button=document.getElementById('find-my-results-btn');
+      if(button) button.disabled=isGenerating || completedDialogueTurnId < latestDialogueTurnId;
+    }
+    function renderInlineReadyCTA() { syncReadinessUI(); }
 
     function handleReadyCTAClick() {
+      if(isGenerating || searchHandoffActive) return Promise.resolve();
+      if(!choicesAreConfirmed()) {
+        if(!requestMissingSearchAccess() && !pendingIntakePanel) renderReadyTurn();
+        return Promise.resolve();
+      }
       // Retain deduplication after barrier clears:
       // If already generating with identical payload key, suppress duplicate CTA click
       const currentPayloadKey = getSearchPayloadKey();
@@ -2172,8 +2526,28 @@
       if (voiceActive) {
         return executeVoiceSearchHandoff("cta_button_click");
       } else {
+        if (requestMissingSearchAccess()) return Promise.resolve();
         return triggerPipelineExecution();
       }
+    }
+
+    function hasConfirmedSearchAccess() {
+      return chatState.country_confirmed && ["UK", "US"].includes(chatState.country)
+        && (chatState.service_access.length > 0 || chatState.allow_rent_buy);
+    }
+
+    function requestMissingSearchAccess() {
+      if (hasConfirmedSearchAccess()) return false;
+      switchToView("intake");
+      const needsCountry = !chatState.country_confirmed || !["UK", "US"].includes(chatState.country);
+      chatState.step = needsCountry ? 2 : 3;
+      const panelId = needsCountry ? "msg-step-2" : "msg-step-3";
+      const oldPanel = document.getElementById(panelId);
+      if (oldPanel?.parentElement) oldPanel.remove();
+      if (needsCountry) renderStep2();
+      else renderStep3();
+      syncReadinessUI();
+      return true;
     }
 
     // Append a TONI agent message bubble (escapes content by default for safety)
@@ -2227,6 +2601,11 @@
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+    }
+
+    function escapeJsArg(str) {
+      if (!str) return "";
+      return String(str).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     }
 
     function safeUrl(url) {
@@ -2298,6 +2677,9 @@
         </div>
       `;
       appendToniMessage(html, "msg-step-1", true);
+      if (scrollDebounceTimeout) clearTimeout(scrollDebounceTimeout);
+      const scrollContainer = document.getElementById("main-scroll-container");
+      if (scrollContainer) scrollContainer.scrollTo({ top: 0, behavior: "auto" });
     }
 
     function selectEffort(depth, label) {
@@ -2305,11 +2687,12 @@
       chatState.intake_depth = depth;
       chatState.step = 2;
       appendUserMessage(label);
-      setTimeout(renderStep2, 350);
+      scheduleIntake(renderStep2);
     }
 
     // STEP 2: Market & Rent/Buy turn
     function renderStep2() {
+      pendingIntakePanel='location'; confirmedChoicesKey=''; syncPersistentResultsAction();
       const html = `
         <p class="text-sm sm:text-base font-medium text-ink">
           Where are you watching from, and should I include rentals or purchases?
@@ -2371,6 +2754,8 @@
     }
 
     function selectMarket(country) {
+      notePreferenceEdit(['country', 'service_access']);
+      if(chatState.country!==country) chatState.service_access=[];
       chatState.country = country;
       chatState.country_confirmed = true;
       const btnUk = document.getElementById("btn-market-uk");
@@ -2389,6 +2774,7 @@
     }
 
     function selectRentBuy(allow) {
+      notePreferenceEdit(['allow_rent_buy']);
       chatState.allow_rent_buy = allow;
       const btnNo = document.getElementById("btn-rent-no");
       const btnYes = document.getElementById("btn-rent-yes");
@@ -2408,14 +2794,18 @@
     function confirmStep2() {
       if (chatState.step > 2) return;
       chatState.country_confirmed = true;
+      retireIntakePanels();
       chatState.step = 3;
       const rentText = chatState.allow_rent_buy ? "Include rentals & purchases" : "Included only";
       appendUserMessage(`${chatState.country}, ${rentText}`);
-      setTimeout(renderStep3, 350);
+      scheduleIntake(renderStep3);
     }
 
     // STEP 3: Streaming Platform turn
     async function renderStep3() {
+      const renderGen=sessionGeneration;
+      const renderTurn=latestDialogueTurnId;
+      pendingIntakePanel='services'; confirmedChoicesKey=''; syncPersistentResultsAction();
       const country = chatState.country;
       let providers = cachedProviders[country];
 
@@ -2427,12 +2817,13 @@
           cachedProviders[country] = providers;
         } catch (e) {
           providers = country === "UK" 
-            ? [{"name": "Netflix"}, {"name": "Prime Video"}, {"name": "Disney+"}, {"name": "BBC iPlayer"}, {"name": "ITVX"}, {"name": "Channel 4"}, {"name": "Paramount+"}, {"name": "Apple TV+"}]
+            ? [{"name": "Netflix"}, {"name": "Prime Video"}, {"name": "Disney+"}, {"name": "Sky Go"}, {"name": "NOW Cinema"}, {"name": "BBC iPlayer"}, {"name": "ITVX"}, {"name": "Channel 4"}, {"name": "Paramount+"}, {"name": "Apple TV+"}]
             : [{"name": "Netflix"}, {"name": "Prime Video"}, {"name": "Disney+"}, {"name": "Max"}, {"name": "Hulu"}, {"name": "Paramount+"}, {"name": "Pluto TV"}, {"name": "Apple TV+"}];
           cachedProviders[country] = providers;
         }
       }
 
+      if(renderGen!==sessionGeneration || renderTurn!==latestDialogueTurnId || currentView!=='intake' || chatState.country!==country) return;
       const chipsHtml = providers.map(p => `
         <button type="button" 
                 onclick="toggleService('${escapeHtml(p.name)}')" 
@@ -2476,6 +2867,7 @@
     }
 
     function toggleService(name) {
+      notePreferenceEdit(['service_access']);
       if (chatState.service_access.includes(name)) {
         chatState.service_access = chatState.service_access.filter(s => s !== name);
       } else {
@@ -2486,6 +2878,7 @@
     }
 
     function selectAllServicesInChat() {
+      notePreferenceEdit(['service_access']);
       const providers = cachedProviders[chatState.country] || [];
       chatState.service_access = providers.map(p => p.name);
       refreshServiceChipsUI();
@@ -2493,6 +2886,7 @@
     }
 
     function clearAllServicesInChat() {
+      notePreferenceEdit(['service_access']);
       chatState.service_access = [];
       refreshServiceChipsUI();
       triggerApertureMicroStep();
@@ -2520,19 +2914,79 @@
       const count = chatState.service_access.length;
       appendUserMessage(count > 0 ? `${count} channels selected (${chatState.service_access.slice(0, 3).join(", ")}${count > 3 ? '...' : ''})` : "Rentals only");
 
-      if (chatState.intake_depth === 'just_give_me_something') {
-        setTimeout(renderReadyTurn, 350);
+      retireIntakePanels();
+      if (chatState.intake_depth === 'just_give_me_something' || chatState.preferred_genres.length || chatState.freeform_mood || chatState.tone) {
+        scheduleIntake(renderReadyTurn);
       } else {
-        setTimeout(renderStep4, 350);
+        scheduleIntake(renderStep4);
       }
     }
 
     let dropdownExclusionUserModified = false;
 
+    function toggleExcludedGenre(genre) {
+      notePreferenceEdit(['exclude_genres']);
+      let effective = [...getEffectiveExcludedGenres()];
+      const idx = effective.findIndex(g => g.toLowerCase() === genre.toLowerCase());
+      if (idx >= 0) {
+        effective.splice(idx, 1);
+      } else {
+        effective.push(genre);
+      }
+      setExcludeGenre(effective);
+      dropdownExclusionUserModified = true;
+      renderActiveExclusionChips();
+      syncReadinessUI();
+    }
+
+    function renderActiveExclusionChips() {
+      const container = document.getElementById("active-exclusions-container");
+      const quickGroup = document.getElementById("quick-exclude-btn-group");
+      const effective = getEffectiveExcludedGenres();
+      if (container) {
+        if (effective.length === 0) {
+          container.className = "mt-2 hidden";
+          container.innerHTML = "";
+        } else {
+          container.className = "mt-2 flex flex-wrap gap-1.5";
+          container.innerHTML = effective.map(g => `
+            <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-red-100 text-red-800 border border-red-200 font-medium">
+              <span>No ${escapeHtml(g)}</span>
+              <button type="button" onclick="toggleExcludedGenre('${escapeHtml(g)}')" class="hover:text-red-900 font-bold ml-1" title="Remove exclusion">✕</button>
+            </span>
+          `).join("");
+        }
+      }
+      if (quickGroup) {
+        quickGroup.querySelectorAll("button").forEach(btn => {
+          const text = btn.innerText;
+          const matched = ["Horror", "Thriller", "Crime", "Comedy", "Sci-Fi", "Romance"].find(g => text.includes(g));
+          if (matched) {
+            const isExcluded = effective.some(e => e.toLowerCase() === matched.toLowerCase());
+            btn.className = `px-2.5 py-1 rounded-full text-xs font-medium border ${isExcluded ? 'border-red-400 bg-red-50 text-red-700 font-semibold' : 'border-ink/20 bg-bone hover:border-ink/40 text-ink'} transition`;
+            btn.innerHTML = isExcluded ? `✕ No ${matched}` : `Rule out ${matched}`;
+          }
+        });
+      }
+      const selectEl = document.getElementById("chat-exclude-genre");
+      if (selectEl) {
+        const isSingleHorror = effective.length === 1 && effective[0].toLowerCase() === 'horror';
+        const isSingleCrime = effective.length === 1 && effective[0].toLowerCase() === 'crime';
+        const isSingleSciFi = effective.length === 1 && effective[0].toLowerCase() === 'sci-fi';
+        const isSingleComedy = effective.length === 1 && effective[0].toLowerCase() === 'comedy';
+        if (effective.length === 0) selectEl.value = "";
+        else if (isSingleHorror) selectEl.value = "Horror";
+        else if (isSingleCrime) selectEl.value = "Crime";
+        else if (isSingleSciFi) selectEl.value = "Sci-Fi";
+        else if (isSingleComedy) selectEl.value = "Comedy";
+      }
+    }
+
     function handleDropdownExclusionChange(target) {
       dropdownExclusionUserModified = true;
       const val = (target && typeof target === "object" && "value" in target) ? target.value : target;
       setExcludeGenre(val);
+      renderActiveExclusionChips();
       const el = document.getElementById("chat-exclude-genre");
       if (el) {
         el.dataset = el.dataset || {};
@@ -2542,6 +2996,7 @@
 
     // STEP 4: Pacing & Mood turn
     function renderStep4() {
+      pendingIntakePanel='preferences'; confirmedChoicesKey=''; syncPersistentResultsAction();
       dropdownExclusionUserModified = false;
       const isDeep = chatState.intake_depth === 'get_to_know_me';
       const effective = getEffectiveExcludedGenres();
@@ -2595,12 +3050,32 @@
             </div>
           </div>
 
-          ${isDeep ? `
-          <!-- Deep mode: Exclusions -->
+          <!-- Exclusions: Quick rule-outs and active chips -->
           <div>
-            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Anything you definitely don't want?</span>
+            <span class="text-[11px] font-bold text-ink-muted uppercase block mb-1 font-sans">Anything you definitely want to rule out?</span>
+            <div class="flex flex-wrap gap-1.5" id="quick-exclude-btn-group">
+              ${["Horror", "Thriller", "Crime", "Comedy", "Sci-Fi", "Romance"].map(g => {
+                const isExcluded = effective.some(e => e.toLowerCase() === g.toLowerCase());
+                return `<button type="button" onclick="toggleExcludedGenre('${g}')" class="px-2.5 py-1 rounded-full text-xs font-medium border ${isExcluded ? 'border-red-400 bg-red-50 text-red-700 font-semibold' : 'border-ink/20 bg-bone hover:border-ink/40 text-ink'} transition">
+                  ${isExcluded ? '✕ No ' + g : 'Rule out ' + g}
+                </button>`;
+              }).join("")}
+            </div>
+            <div id="active-exclusions-container" class="mt-2 ${effective.length ? 'flex flex-wrap gap-1.5' : 'hidden'}">
+              ${effective.map(g => `
+                <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-red-100 text-red-800 border border-red-200 font-medium">
+                  <span>No ${escapeHtml(g)}</span>
+                  <button type="button" onclick="toggleExcludedGenre('${escapeHtml(g)}')" class="hover:text-red-900 font-bold ml-1" title="Remove exclusion">✕</button>
+                </span>
+              `).join("")}
+            </div>
+          </div>
+
+          ${isDeep ? `
+          <!-- Deep mode: Extra Exclusions dropdown -->
+          <div>
             <select id="chat-exclude-genre" onchange="handleDropdownExclusionChange(this)" class="bg-bone border border-ink/20 rounded-[4px] px-3 py-1.5 text-xs text-ink font-medium">
-              <option value="" ${isNone ? 'selected' : ''}>Nothing to rule out</option>
+              <option value="" ${isNone ? 'selected' : ''}>Additional dropdown exclusion</option>
               <option value="Horror" ${isSingleHorror ? 'selected' : ''}>No horror</option>
               <option value="Crime" ${isSingleCrime ? 'selected' : ''}>No crime</option>
               <option value="Sci-Fi" ${isSingleSciFi ? 'selected' : ''}>No sci-fi</option>
@@ -2628,6 +3103,7 @@
     }
 
     function setPacing(val, btn) {
+      notePreferenceEdit(['pacing', 'pacing_explicitly_set']);
       chatState.pacing = val;
       chatState.pacing_explicitly_set = true;
       const group = document.getElementById("pacing-btn-group");
@@ -2644,6 +3120,7 @@
     }
 
     function setTone(val, btn) {
+      notePreferenceEdit(['tone']);
       chatState.tone = val;
       const group = document.getElementById("tone-btn-group");
       if (group) {
@@ -2661,34 +3138,35 @@
       if (selectEl && (dropdownExclusionUserModified || (selectEl.dataset && selectEl.dataset.userChanged === "true"))) {
         setExcludeGenre(selectEl.value);
       }
+      retireIntakePanels();
       chatState.step = 5;
       chatState.pacing_explicitly_set = true;
       const desc = `${chatState.pacing} pace${chatState.tone ? ', ' + chatState.tone : ''}`;
       appendUserMessage(desc);
-      setTimeout(renderReadyTurn, 350);
+      scheduleIntake(renderReadyTurn);
     }
 
     // FINAL TURN: Ready to generate shortlist
     function renderReadyTurn() {
-      chatState.step = 5;
-      const html = `
-        <p class="text-sm sm:text-base font-medium text-ink">
-          That's enough to get started.
-        </p>
-        <p class="text-xs text-ink-muted mt-1">
-          Have a specific actor, director or feeling in mind? Type below, or tap Find what fits to see your shortlist.
-        </p>
-        <div class="pt-3">
-          <button type="button" 
-                  id="final-generate-btn"
-                  onclick="handleReadyCTAClick()"
-                  class="px-6 py-3 rounded-full bg-ink text-bone font-medium text-xs tracking-wide transition border border-transparent hover:border-lime hover:text-lime shadow-md active:scale-98 flex items-center gap-2">
-            <span>Find what fits</span>
-            <span>→</span>
-          </button>
-        </div>
-      `;
-      appendToniMessage(html, "msg-step-ready", true);
+      if(currentView!=='intake' || isGenerating || !hasConfirmedSearchAccess()) return;
+      const existing=document.getElementById('msg-step-ready');
+      if(existing?.parentElement) existing.remove();
+      pendingIntakePanel='summary';
+      chatState.step=5;
+      const parts=[chatState.country, chatState.service_access.join(', ') || 'Rentals only',
+        chatState.allow_rent_buy ? 'Rentals allowed' : 'Included only',
+        ...(chatState.preferred_genres || []), chatState.tone,
+        chatState.pacing_explicitly_set ? chatState.pacing+' pace' : '',
+        chatState.max_runtime ? 'Up to '+chatState.max_runtime+' minutes' : 'Any length',
+        chatState.min_release_year ? chatState.min_release_year+' onwards' : 'Any year',
+        getEffectiveExcludedGenres().length ? 'Exclude: '+getEffectiveExcludedGenres().join(', ') : '',
+        chatState.reference_films.length ? 'Like: '+chatState.reference_films.join(', ') : '',
+        chatState.freeform_mood].filter(Boolean);
+      appendToniMessage(`<p class="font-semibold">Your choices</p>
+        <p>${parts.map(escapeHtml).join(' · ')}</p>
+        <p class="mt-2">Confirm these choices, or tell me what to change.</p>
+        <button type="button" onclick="confirmChoices()" class="mt-3 px-4 py-2 rounded-full bg-ink text-bone text-xs">Confirm choices →</button>`, 'msg-step-ready', true);
+      syncPersistentResultsAction();
     }
 
     // Handle user free-form typed text
@@ -2700,54 +3178,23 @@
       if (!text) return;
       input.value = "";
 
-      // If user types while on results page, bring them back to chat
+      // Results refinements are handled only by the controls above the shortlist.
       const resultsView = document.getElementById("results-view");
       if (resultsView && !resultsView.classList.contains("hidden")) {
-        returnToChat();
-      }
-
-      const lower = text.toLowerCase();
-
-      if (chatState.step === 1) {
-        if (lower.includes("just") || lower.includes("quick") || lower.includes("fast") || lower.includes("something")) {
-          selectEffort("just_give_me_something", text);
-        } else if (lower.includes("deep") || lower.includes("know") || lower.includes("everything")) {
-          selectEffort("get_to_know_me", text);
-        } else {
-          selectEffort("a_couple_of_questions", text);
-        }
         return;
       }
 
-      if (chatState.step === 2) {
-        if (lower.includes("us") || lower.includes("states") || lower.includes("america")) {
-          chatState.country = "US";
-        } else if (lower.includes("uk") || lower.includes("britain") || lower.includes("england")) {
-          chatState.country = "UK";
-        }
-        if (lower.includes("rent") || lower.includes("buy")) {
-          chatState.allow_rent_buy = true;
-        }
-        confirmStep2();
-        return;
+      const effortChoices = {
+        'just give me something':'just_give_me_something',
+        'a couple of questions is fine':'a_couple_of_questions',
+        'get to know what i want':'get_to_know_me'
+      };
+      if(chatState.step===1 && effortChoices[text.toLowerCase()]) {
+        selectEffort(effortChoices[text.toLowerCase()],text); return;
       }
-
-      if (chatState.step === 3) {
-        const providers = cachedProviders[chatState.country] || [];
-        providers.forEach(p => {
-          if (lower.includes(p.name.toLowerCase())) {
-            if (!chatState.service_access.includes(p.name)) {
-              chatState.service_access.push(p.name);
-            }
-          }
-        });
-        if (chatState.service_access.length === 0) {
-          chatState.service_access = ["Netflix", "Prime Video"];
-        }
-        confirmStep3();
-        return;
-      }
-
+      retireIntakePanels();
+      confirmedChoicesKey='';
+      chatState.intake_depth ||= 'a_couple_of_questions';
       appendUserMessage(text);
       enqueueTextDialogueTurn(text);
     }
@@ -2755,6 +3202,8 @@
     function enqueueTextDialogueTurn(userText) {
       const turnGen = sessionGeneration;
       const turnId = ++latestDialogueTurnId;
+      dialoguePreferenceSnapshots.set(turnId,editEpoch);
+      syncPersistentResultsAction();
       // Newer user intent cancels any pending auto-recommendation from earlier turns
       cancelAutoRecommendationTimer();
 
@@ -2792,32 +3241,15 @@
         chatState.conversation_history.push({ role: "user", content: userText });
         chatState.conversation_history.push({ role: "assistant", content: data.assistant_reply });
 
+        retireIntakePanels();
         syncContextToState(data.updated_context, turnId, userText);
+        syncLiveContext();
         completedDialogueTurnId = Math.max(completedDialogueTurnId, turnId);
         appendToniMessage(data.assistant_reply);
 
         syncReadinessUI();
+        if(!hasConfirmedSearchAccess()) requestMissingSearchAccess();
 
-        if (data.ready_to_recommend) {
-          const lower = userText.toLowerCase();
-          const affirmativeTriggers = ["show me", "recommend", "find movies", "find what fits", "yes please", "what should i watch", "let's see", "surprise me", "bring up", "shortlist", "show shortlist", "let's go"];
-          if (affirmativeTriggers.some(t => lower.includes(t))) {
-            // Reject obsolete scheduling: only schedule if this turn is still the latest intent and session
-            // and has not been consumed by an explicit recommendation request
-            if (turnId === latestDialogueTurnId && turnGen === sessionGeneration && turnId > lastConsumedDialogueTurnId) {
-              cancelAutoRecommendationTimer();
-              autoRecommendationTurnId = turnId;
-              autoRecommendationSessionGen = turnGen;
-              autoRecommendationTimer = setTimeout(() => {
-                autoRecommendationTimer = null;
-                // Reject obsolete execution
-                if (turnId === latestDialogueTurnId && turnGen === sessionGeneration && turnId > lastConsumedDialogueTurnId) {
-                  triggerPipelineExecution();
-                }
-              }, 600);
-            }
-          }
-        }
       } catch (err) {
         if (err.name === "AbortError" || turnGen !== sessionGeneration) return;
         console.warn("Text turn fallback notice:", err);
@@ -2830,6 +3262,7 @@
     // Transition between views
     function switchToView(viewName) {
       currentView = viewName;
+      syncPersistentResultsAction();
       const intakeView = document.getElementById("intake-view");
       const loadingView = document.getElementById("loading-view");
       const resultsView = document.getElementById("results-view");
@@ -2850,9 +3283,9 @@
         if (headerChatBtn) headerChatBtn.classList.add("hidden");
       } else if (viewName === "results") {
         if (resultsView) resultsView.classList.remove("hidden");
-        if (bottomBar) bottomBar.classList.remove("hidden");
-        if (headerChatBtn) headerChatBtn.classList.remove("hidden");
-        
+        if (bottomBar) bottomBar.classList.add("hidden");
+        if (headerChatBtn) headerChatBtn.classList.add("hidden");
+
         // Scroll to top of results
         const scrollContainer = document.getElementById("main-scroll-container");
         if (scrollContainer) scrollContainer.scrollTo({ top: 0, behavior: "smooth" });
@@ -2877,6 +3310,8 @@
     function hasSufficientContext() {
       const hasCountry = Boolean(chatState.country_confirmed && (chatState.country === "UK" || chatState.country === "US"));
       const hasAccess = Boolean((chatState.service_access && chatState.service_access.length > 0) || chatState.allow_rent_buy);
+      const lastAssistant = [...(chatState.conversation_history || [])].reverse().find(m => m.role === "assistant");
+      const offeredSearch = /\b(?:(?:tap|click|press)\s+["“]?find\s+what\s+fits|(?:i['’]ll|i\s+will)\s+find\s+what\s+fits)\b/i.test(lastAssistant?.content || "");
       const hasExplicitPacing = Boolean(chatState.pacing_explicitly_set && chatState.pacing);
       const hasExplicitDemandingness = Boolean(chatState.demandingness_explicitly_set && chatState.demandingness);
       const hasExplicitTonightSignal = Boolean(
@@ -2888,6 +3323,7 @@
         })
       );
       const hasTaste = Boolean(
+        (chatState.preferred_genres && chatState.preferred_genres.length > 0) ||
         (chatState.freeform_mood && chatState.freeform_mood.trim().length > 0) ||
         hasExplicitTonightSignal ||
         (chatState.exclude_genres && chatState.exclude_genres.length > 0) ||
@@ -2895,23 +3331,15 @@
         hasExplicitPacing ||
         hasExplicitDemandingness
       );
-      return hasCountry && hasAccess && hasTaste;
+      return hasCountry && hasAccess && (hasTaste || offeredSearch);
     }
 
     function getSearchPayloadKey() {
-      return JSON.stringify({
-        pacing: chatState.pacing,
-        tone: chatState.tone,
-        demandingness: chatState.demandingness,
-        runtime: chatState.max_runtime,
-        services: [...(chatState.service_access || [])].sort(),
-        country: chatState.country,
-        exclude: [...(chatState.exclude_genres || [])].sort(),
-        freeform: chatState.freeform_mood
-      });
+      return JSON.stringify(buildVoiceTurnPayload('', chatState.dialogue_mode || 'text').current_context);
     }
 
     function executeVoiceSearchHandoff(sourceIntent = "cta_click") {
+      if(isGenerating) return Promise.resolve();
       if (!voiceActive) {
         return triggerPipelineExecution();
       }
@@ -2945,9 +3373,9 @@
       switchToView("loading");
       triggerApertureMicroStep();
 
-      // Check if mic audio was actively pending
+      // Check if mic audio was actively pending or context extraction is in-flight
       const now = Date.now();
-      const hasPendingSpeech = isMicAudioInFlight || (now - lastMicAudioSentTime < 1500) || Boolean(currentVoiceUserBubble);
+      const hasPendingSpeech = isMicAudioInFlight || (now - lastMicAudioSentTime < 1500) || Boolean(currentVoiceUserBubble) || (completedDialogueTurnId < latestDialogueTurnId);
 
       const handoffReqId = "hnd_" + Math.random().toString(36).substring(2, 9);
       const startingSessionGen = sessionGeneration;
@@ -2963,8 +3391,8 @@
         activeHandoffBarrier = {
           requestId: handoffReqId,
           targetSocketTurnId: null,
-          targetConvTurnId: hasPendingSpeech ? null : completedDialogueTurnId,
-          targetTurnId: hasPendingSpeech ? null : completedDialogueTurnId,
+          targetConvTurnId: hasPendingSpeech ? (latestDialogueTurnId || null) : completedDialogueTurnId,
+          targetTurnId: hasPendingSpeech ? (latestDialogueTurnId || null) : completedDialogueTurnId,
           acknowledged: !hasPendingSpeech,
           hasPendingSpeech: hasPendingSpeech,
           timeoutId: handoffTimeout,
@@ -2992,8 +3420,8 @@
           }
         }
 
-        // If no pending speech was in-flight, resolve barrier immediately
-        if (!hasPendingSpeech) {
+        // If no pending speech was in-flight and all turns have completed, resolve barrier immediately
+        if (!hasPendingSpeech && completedDialogueTurnId >= latestDialogueTurnId) {
           activeHandoffBarrier.resolve();
         }
       })
@@ -3009,6 +3437,7 @@
         // Clean teardown of voice session now that context is committed
         teardownVoiceSession();
 
+        if (requestMissingSearchAccess()) return;
         // Launch single authoritative recommendation search
         return triggerPipelineExecution();
       })
@@ -3025,7 +3454,11 @@
         // Settle handoff in a visible, recoverable state
         switchToView("intake");
         isGenerating = false;
-        teardownVoiceSession(null, "Earlier confirmed preferences have been retained, but your last response may need repeating. You can speak again or click 'Find what fits' to search with your current preferences.");
+        const recovery = hasConfirmedSearchAccess()
+          ? "Your confirmed preferences are saved, but I couldn't finish your last response. You can speak again or confirm your saved choices below."
+          : "I couldn't finish your last response. Your confirmed preferences are saved. Choose your country and services below, or speak again.";
+        teardownVoiceSession(null, recovery);
+        syncReadinessUI();
       });
 
       return inFlightHandoffPromise;
@@ -3053,6 +3486,8 @@
         recommendationRenderTimer = null;
       }
 
+      isGenerating = true;
+      syncPersistentResultsAction();
       // Await pending dialogue turns in turnQueue so chatState reflects submitted refinements
       if (turnQueue) {
         try {
@@ -3082,39 +3517,14 @@
       switchToView("loading");
       triggerApertureMicroStep();
 
-      const tonight_signals = [
-        { name: "pacing", value: chatState.pacing, signal_type: "soft_session_preference" }
-      ];
+      const requestPreferences=capturePreferences();
+      const context=buildVoiceTurnPayload('', chatState.dialogue_mode || 'text').current_context;
 
-      if (chatState.tone) {
-        tonight_signals.push({ name: "tone", value: chatState.tone, signal_type: "soft_session_preference" });
-      }
-
-      if (chatState.demandingness) {
-        tonight_signals.push({ name: "demandingness", value: chatState.demandingness, signal_type: "soft_session_preference" });
-      }
-
-      const excludeArr = getEffectiveExcludedGenres();
-      if (excludeArr.length > 0) {
-        tonight_signals.push({ name: "exclude-genre", value: excludeArr, signal_type: "hard_constraint" });
-      }
-
-      if (chatState.max_runtime) {
-        tonight_signals.push({ name: "max-runtime", value: parseInt(chatState.max_runtime, 10), signal_type: "hard_constraint" });
-      }
-
-      if (chatState.freeform_mood) {
-        tonight_signals.push({ name: "freeform_mood", value: chatState.freeform_mood, signal_type: "soft_session_preference" });
-      }
-
-      const context = {
-        country: chatState.country,
-        service_access: chatState.service_access.length ? chatState.service_access : ["Netflix"],
-        allow_rent_buy: chatState.allow_rent_buy,
-        intake_depth: chatState.intake_depth || "a_couple_of_questions",
-        tonight_signals: tonight_signals,
-        persistent_taste: []
-      };
+      const clientTimeoutId = setTimeout(() => {
+        if (activeRecommendationAbortController) {
+          activeRecommendationAbortController.abort();
+        }
+      }, 30000);
 
       try {
         const queryParams = new URLSearchParams(window.location.search);
@@ -3141,7 +3551,11 @@
         // Guard after JSON parsing
         if (reqSessionGen !== sessionGeneration || reqId !== recommendationRequestId) return;
 
+        if (clientTimeoutId) clearTimeout(clientTimeoutId);
+        pendingRefinementState = null;
         chatState.lastResults = data;
+        lastSuccessfulPreferences=requestPreferences;
+        refinementDraft={};
 
         // Schedule delayed render for smooth aperture animation transition
         recommendationRenderTimer = setTimeout(() => {
@@ -3153,45 +3567,98 @@
         }, 400);
 
       } catch (err) {
+        if (clientTimeoutId) clearTimeout(clientTimeoutId);
         // If aborted or superseded, exit cleanly without touching UI or clearing isGenerating for newer requests
         if (err.name === "AbortError" || reqSessionGen !== sessionGeneration || reqId !== recommendationRequestId) {
+          if (err.name === "AbortError" && reqSessionGen === sessionGeneration && reqId === recommendationRequestId) {
+            restoreSearchView();
+            showBrandModal("Search Timed Out", "Finding recommendations took longer than expected. You can try adjusting your channels or filters and searching again.");
+            isGenerating = false;
+          }
           return;
         }
-        switchToView("intake");
-        showBrandModal("Notice", "Something went wrong while I was finding your films. Try again, or adjust your choices.");
+        restoreSearchView();
+        showBrandModal("Notice", err.message || "Something went wrong while I was finding your films. Try again, or adjust your choices.");
         isGenerating = false;
       }
     }
 
     // Render Dedicated "What fits?" Results Page
+    function restoreSearchView() {
+      refinementDraft={};
+      if (pendingRefinementState) {
+        Object.assign(chatState, pendingRefinementState);
+        pendingRefinementState = null;
+      }
+      if (chatState.lastResults) renderDedicatedResultsPage(chatState.lastResults);
+      else switchToView("intake");
+    }
+
     function renderDedicatedResultsPage(data) {
-      switchToView("results");
+      try {
+        switchToView("results");
 
-      const recs = data.recommendations || [];
+        if(lastSuccessfulPreferences && data===chatState.lastResults) Object.assign(chatState,JSON.parse(JSON.stringify(lastSuccessfulPreferences)));
+        const recs = data.recommendations || [];
 
-      // Results badge truthfulness: only "Availability checked" if availability actually checked
-      const resultsBadge = document.getElementById("results-badge");
-      const allAvailable = recs.length > 0 && recs.every(r => r.availability && (r.availability.status === "available" || (r.availability.matched_services && r.availability.matched_services.length > 0)));
-      if (resultsBadge) {
-        if (allAvailable) {
-          resultsBadge.innerText = "Availability checked";
-          resultsBadge.className = "text-[11px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-lime text-ink";
-        } else {
-          resultsBadge.innerText = "Shortlist";
-          resultsBadge.className = "text-[11px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-bone border border-ink/20 text-ink-muted";
+        // Results badge truthfulness: only "Availability checked" if availability actually checked
+        const resultsBadge = document.getElementById("results-badge");
+        const allAvailable = recs.length > 0 && recs.every(r => r.availability && (r.availability.status === "available" || (r.availability.matched_services && r.availability.matched_services.length > 0)));
+        if (resultsBadge) {
+          if (allAvailable) {
+            resultsBadge.innerText = "Availability checked";
+            resultsBadge.className = "text-[11px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-lime text-ink";
+          } else {
+            resultsBadge.innerText = "Shortlist";
+            resultsBadge.className = "text-[11px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-bone border border-ink/20 text-ink-muted";
+          }
         }
-      }
 
-      const regionTag = document.getElementById("results-region-tag");
-      if (regionTag) {
-        const channelsStr = chatState.service_access.length ? chatState.service_access.slice(0, 3).join(', ') : (chatState.allow_rent_buy ? "Rentals & purchases" : "All channels");
-        regionTag.innerText = `Country: ${chatState.country} • ${channelsStr}`;
-      }
+        const regionTag = document.getElementById("results-region-tag");
+        if (regionTag) {
+          const channelsStr = chatState.service_access.length ? chatState.service_access.slice(0, 3).join(', ') : (chatState.allow_rent_buy ? "Rentals & purchases" : "No channels selected");
+          regionTag.innerText = `Country: ${chatState.country} • ${channelsStr}`;
+        }
 
-      const watchcardsContainer = document.getElementById("watchcards-container");
-      const additionalContainer = document.getElementById("additional-candidates-container");
-      if (watchcardsContainer) watchcardsContainer.innerHTML = "";
-      if (additionalContainer) additionalContainer.innerHTML = "";
+        const refineBar = document.getElementById("results-quick-refine-bar");
+        if (refineBar) {
+          refineBar.innerHTML = `
+            <div class="flex flex-wrap items-center gap-2 p-3 bg-white/80 rounded-[6px] border border-ink/15 shadow-2xs">
+              <span class="text-xs font-bold text-ink-muted uppercase font-sans">Quick refine:</span>
+              <button type="button" onclick="quickRefine('shorter')" class="px-3 py-1 rounded-full text-xs font-semibold bg-bone hover:border-lime border border-ink/20 text-ink transition">
+                ⏱️ Shorter (≤ ${nextShorterCap()} min)
+              </button>
+              <button type="button" onclick="quickRefine('lighter')" class="px-3 py-1 rounded-full text-xs font-semibold bg-bone hover:border-lime border border-ink/20 text-ink transition">
+                🌿 ${isHorrorRefinement() ? 'Less intense' : 'Lighter mood'}
+              </button>
+              <select aria-label="Different tone" onchange="stageRefinement('tone', this.value)" class="px-3 py-1 rounded-full text-xs bg-bone border border-ink/20">
+                <option value="">No tone preference</option>
+                ${chatState.tone && !['intense','tense','eerie','warm','funny','mind-bending'].includes(chatState.tone) ? `<option value="${escapeHtml(chatState.tone)}" selected>${escapeHtml(chatState.tone)}</option>` : ''}
+                ${['intense','tense','eerie','warm','funny','mind-bending'].map(t => `<option value="${t}" ${chatState.tone === t ? 'selected' : ''}>${t}</option>`).join('')}
+              </select>
+              <select aria-label="Release year" onchange="stageRefinement('year', this.value)" class="px-3 py-1 rounded-full text-xs bg-bone border border-ink/20">
+                <option value="${RECENT_RELEASE_YEAR}" ${chatState.min_release_year === RECENT_RELEASE_YEAR ? 'selected' : ''}>Recent (${RECENT_RELEASE_YEAR} onwards)</option>
+                <option value="" ${!chatState.min_release_year ? 'selected' : ''}>Any year</option>
+                <option value="2015" ${chatState.min_release_year === 2015 ? 'selected' : ''}>2015 onwards</option>
+                <option value="2020" ${chatState.min_release_year === 2020 ? 'selected' : ''}>2020 onwards</option>
+              </select>
+              <button type="button" onclick="quickRefine('runtime')" class="px-3 py-1 rounded-full text-xs border border-ink/20">Any length</button>
+              <button type="button" id="apply-refinements-btn" onclick="applyRefinements()" disabled class="px-3 py-1 rounded-full text-xs bg-ink text-bone disabled:opacity-50">Update results</button>
+              ${getEffectiveExcludedGenres().map(g=>`<button type="button" data-clear-exclusion="${escapeHtml(g)}" class="px-3 py-1 rounded-full text-xs border border-ink/20">Exclude ${escapeHtml(g)} ×</button>`).join('')}
+              ${chatState.reference_films.length ? `<button type="button" onclick="quickRefine('clear-reference')" class="px-3 py-1 rounded-full text-xs border border-ink/20">Clear film reference ×</button>` : ''}
+              ${recs.length ? `<select aria-label="More like a result" onchange="stageRefinement('reference', this.value)" class="px-3 py-1 rounded-full text-xs bg-bone border border-ink/20">
+                <option value="">More like…</option>
+                ${recs.slice(0,3).map(r => `<option value="${escapeHtml(r.metadata.title)}">${escapeHtml(r.metadata.title)}</option>`).join('')}
+              </select>` : ''}
+
+            </div>
+          `;
+        }
+
+        const watchcardsContainer = document.getElementById("watchcards-container");
+        const additionalContainer = document.getElementById("additional-candidates-container");
+        if (watchcardsContainer) watchcardsContainer.innerHTML = "";
+        if (additionalContainer) additionalContainer.innerHTML = "";
 
       if (!recs.length) {
         if (watchcardsContainer) {
@@ -3199,11 +3666,9 @@
             <div class="p-8 text-center rounded-[6px] border border-ink/20 bg-white/70 space-y-4">
               <h3 class="font-serif text-2xl font-bold text-ink">Nothing matched your current choices</h3>
               <p class="text-xs sm:text-sm text-ink-muted max-w-md mx-auto font-serif">
-                None of the films in our pool match all your selected channels and boundaries in ${chatState.country}. Try including digital rentals, selecting additional channels, or clearing genre exclusions.
+                No verified matches were found for these choices in ${chatState.country}. Try Any year or another tone above, or start fresh to change your services and other preferences.
               </p>
-              <button type="button" onclick="returnToChat()" class="px-5 py-2.5 rounded-full bg-ink text-bone text-xs font-semibold hover:text-lime transition">
-                ← Adjust in chat
-              </button>
+
             </div>
           `;
         }
@@ -3250,6 +3715,8 @@
           : "Available to rent or buy";
 
         const sources = rec.evidence_sources || [];
+        const hasReviewProfile=sources.length>0 && !/baseline|fallback|unavailable/i.test(rec.consensus_rationale || rec.concise_reason || '');
+        const dimensionScore=value=>hasReviewProfile ? formatDimensionScore(value) : 'Not assessed';
         const sourcesHtml = sources.length 
           ? `
             <div class="mt-4 pt-3 border-t border-ink/10">
@@ -3284,7 +3751,7 @@
                 ${roleBadge}
                 <!-- Watch Trailer Button or Unavailable Fallback -->
                 ${hasTrailerAvailable(rec) ? `
-                <button type="button" 
+                <button type="button"
                         class="watch-trailer-btn inline-flex items-center gap-1.5 px-3 py-1 rounded-[3px] text-xs font-semibold bg-white text-ink border border-ink/20 hover:border-lime hover:bg-lime/15 transition shadow-2xs"
                         data-trailer-title="${escapeHtml(rec.metadata.title)}"
                         data-trailer-year="${escapeHtml(rec.metadata.year)}"
@@ -3297,6 +3764,7 @@
                   Trailer unavailable
                 </span>
                 `}
+
               </div>
               <span class="text-xs font-semibold text-ink bg-bone px-3 py-1 rounded-[3px] border border-ink/15">
                 ${escapeHtml(services)}
@@ -3342,11 +3810,11 @@
                   <span class="font-semibold text-ink">${escapeHtml(formatEvidenceState(rec.evidence_state))}</span>
                 </div>
                 <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] p-2.5 rounded-[4px] bg-bone/70 border border-ink/15">
-                  <div><span class="text-ink-subtle block">Story &amp; Writing</span><span class="font-bold text-ink">${formatDimensionScore(rec.profile.story_and_writing)}</span></div>
-                  <div><span class="text-ink-subtle block">Pacing &amp; Structure</span><span class="font-bold text-ink">${formatDimensionScore(rec.profile.pacing_and_structure)}</span></div>
-                  <div><span class="text-ink-subtle block">Performances</span><span class="font-bold text-ink">${formatDimensionScore(rec.profile.performances)}</span></div>
-                  <div><span class="text-ink-subtle block">Craft &amp; Execution</span><span class="font-bold text-ink">${formatDimensionScore(rec.profile.craft_and_execution)}</span></div>
-                  <div><span class="text-ink-subtle block">Demandingness</span><span class="font-bold text-ink">${formatDimensionScore(rec.profile.accessibility_and_demandingness)}</span></div>
+                  <div><span class="text-ink-subtle block">Story &amp; Writing</span><span class="font-bold text-ink">${dimensionScore(rec.profile.story_and_writing)}</span></div>
+                  <div><span class="text-ink-subtle block">Pacing &amp; Structure</span><span class="font-bold text-ink">${dimensionScore(rec.profile.pacing_and_structure)}</span></div>
+                  <div><span class="text-ink-subtle block">Performances</span><span class="font-bold text-ink">${dimensionScore(rec.profile.performances)}</span></div>
+                  <div><span class="text-ink-subtle block">Craft &amp; Execution</span><span class="font-bold text-ink">${dimensionScore(rec.profile.craft_and_execution)}</span></div>
+                  <div><span class="text-ink-subtle block">Demandingness</span><span class="font-bold text-ink">${dimensionScore(rec.profile.accessibility_and_demandingness)}</span></div>
                   <div><span class="text-ink-subtle block">Tone Adjectives</span><span class="font-medium text-ink truncate block">${escapeHtml(rec.profile.tone_and_emotional_character.join(', '))}</span></div>
                 </div>
               </div>
@@ -3405,10 +3873,95 @@
           additionalContainer.appendChild(details);
         });
       }
+    } catch (err) {
+      console.error("Results page rendering error:", err);
+      switchToView("results");
+      showBrandModal("Notice", "We couldn't display these recommendations. Try a quick refinement or start fresh.");
     }
+  }
+
+  function isHorrorRefinement() {
+    return (chatState.preferred_genres || []).some(g => g.toLowerCase() === 'horror');
+  }
+
+  function nextShorterCap() {
+    const cap = Number(chatState.max_runtime);
+    return cap > 0 ? Math.min(cap, Math.max(30, Math.min(cap - 15, 90))) : 90;
+  }
+
+  function stageRefinement(field,value) {
+    if(isGenerating) return;
+    if(!['tone','year','reference'].includes(field)) return;
+    refinementDraft[field]=value;
+    const button=document.getElementById('apply-refinements-btn');
+    if(button) button.disabled=false;
+  }
+  function applyRefinementDraft() {
+    if('tone' in refinementDraft) chatState.tone=refinementDraft.tone;
+    if('year' in refinementDraft) chatState.min_release_year=refinementDraft.year ? Number(refinementDraft.year) : null;
+    if('reference' in refinementDraft) chatState.reference_films=refinementDraft.reference ? [refinementDraft.reference] : [];
+    refinementDraft={};
+  }
+  function applyRefinements() {
+    if(isGenerating || !Object.keys(refinementDraft).length) return Promise.resolve();
+    rememberRefinementState(); applyRefinementDraft();
+    return triggerPipelineExecution();
+  }
+  document.addEventListener('click',event=>{
+    const button=event.target.closest('[data-clear-exclusion]');
+    if(button) quickRefine('exclude',button.dataset.clearExclusion);
+  });
+
+  function quickRefine(action, value = '') {
+    if (isGenerating) return Promise.resolve();
+    if (!['shorter','lighter','tone','year','runtime','clear-reference','exclude'].includes(action)) return Promise.resolve();
+    if (action === 'tone' && !['','intense','tense','eerie','warm','funny','mind-bending'].includes(value)) return Promise.resolve();
+    if (action === 'year' && !['', '2015', '2020', String(RECENT_RELEASE_YEAR)].includes(value)) return Promise.resolve();
+    rememberRefinementState();
+    applyRefinementDraft();
+    if(action==='runtime') chatState.max_runtime=null;
+    if(action==='clear-reference') chatState.reference_films=[];
+    if(action==='exclude') setExcludeGenre(getEffectiveExcludedGenres().filter(g=>g!==value));
+    if (action === 'shorter') {
+      const currentCap = chatState.max_runtime ? parseInt(chatState.max_runtime, 10) : null;
+      if (currentCap === null || isNaN(currentCap)) {
+        chatState.max_runtime = 90;
+      } else {
+        const tightened = Math.min(currentCap - 15, 90);
+        chatState.max_runtime = Math.min(currentCap, Math.max(30, tightened));
+      }
+    } else if (action === 'lighter') {
+      chatState.tone = isHorrorRefinement() ? 'eerie' : 'warm';
+      chatState.demandingness = 2.0;
+      chatState.demandingness_explicitly_set = true;
+    } else if (action === 'tone') {
+      if (!['','intense','tense','eerie','warm','funny','mind-bending'].includes(value)) return Promise.resolve();
+      chatState.tone = value;
+    } else if (action === 'year') {
+      if (!['', '2015', '2020', String(RECENT_RELEASE_YEAR)].includes(value)) return Promise.resolve();
+      chatState.min_release_year = value ? Number(value) : null;
+    }
+    return triggerPipelineExecution();
+  }
+
+  function refineMoreLike(title) {
+    if (isGenerating || !title) return Promise.resolve();
+    rememberRefinementState();
+    chatState.reference_films = [title];
+    return triggerPipelineExecution();
+  }
+
+  function rememberRefinementState() {
+    if (!chatState.lastResults) return;
+    pendingRefinementState = JSON.parse(JSON.stringify(lastSuccessfulPreferences || capturePreferences()));
+
+  }
 
     // Restart Conversation
     function restartConversation() {
+      voiceUserRecords.clear(); committedVoiceTurns.clear();
+      dialoguePreferenceSnapshots.clear(); editEpoch=0; localFieldEdits={};
+      pendingIntakePanel=''; confirmedChoicesKey=''; refinementDraft={}; lastSuccessfulPreferences=null;
       sessionGeneration++;
       recommendationRequestId++;
       latestDialogueTurnId = 0;
@@ -3418,6 +3971,9 @@
       voiceTurnInterrupted = false;
       voiceTurnAssistantStarted = false;
       voiceTurnUserText = "";
+      turnTranscripts.clear();
+      turnReleasedAudio.clear();
+      clearTurnAudioBuffer();
       if (activeTurnAbortController) {
         try { activeTurnAbortController.abort(); } catch(e) {}
         activeTurnAbortController = null;
@@ -3483,10 +4039,13 @@
       setExcludeGenre("");
       dropdownExclusionUserModified = false;
       chatState.max_runtime = null;
+      chatState.min_release_year = RECENT_RELEASE_YEAR;
+      chatState.preferred_genres=[]; chatState.reference_films=[]; chatState.tonight_signals=[];
       chatState.freeform_mood = "";
       chatState.dialogue_mode = "text";
       chatState.conversation_history = [];
       chatState.lastResults = null;
+      pendingRefinementState = null;
 
       currentVoiceUserBubble = null;
       currentVoiceUserText = "";
@@ -3537,6 +4096,8 @@
       restartConversation();
       appendUserMessage(`Load persona: ${name}`);
       chatState.country = ctx.country;
+      chatState.country_confirmed=true;
+      syncContextToState(ctx);
       chatState.service_access = [...ctx.service_access];
       chatState.allow_rent_buy = ctx.allow_rent_buy;
       chatState.intake_depth = ctx.intake_depth;
@@ -3557,7 +4118,9 @@
         setExcludeGenre("");
       }
 
+      const personaGeneration=sessionGeneration;
       setTimeout(() => {
+        if(personaGeneration!==sessionGeneration) return;
         appendToniMessage(`Loaded persona <strong>${escapeHtml(name)}</strong> (${escapeHtml(ctx.country)}, ${escapeHtml(ctx.service_access.join(', '))}). Ready to find what fits!`, null, true);
         renderReadyTurn();
       }, 300);
@@ -3567,6 +4130,10 @@
     window.chatState = chatState;
     window.setExcludeGenre = setExcludeGenre;
     window.getEffectiveExcludedGenres = getEffectiveExcludedGenres;
+    window.toggleExcludedGenre = toggleExcludedGenre;
+    window.renderActiveExclusionChips = renderActiveExclusionChips;
+    window.quickRefine = quickRefine;
+    window.refineMoreLike = refineMoreLike;
     window.buildVoiceTurnPayload = buildVoiceTurnPayload;
     window.syncContextToState = syncContextToState;
     window.applyPersona = applyPersona;

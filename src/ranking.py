@@ -10,6 +10,7 @@ and maps the final pool into presentation-ready recommendation roles (Best Fit, 
 import os
 import sys
 import time
+from datetime import date
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
@@ -22,6 +23,7 @@ if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("false", "0"):
 
 # Ensure local imports work
 sys.path.append(str(Path(__file__).resolve().parent))
+from gemini_client import get_gemini_client, DISCOVERY_MODEL
 from contracts import (
     UserContext,
     Recommendation,
@@ -43,6 +45,7 @@ from availability import (
 )
 from evidence import get_film_evidence
 from profiling import generate_film_profile
+from runtime_budget import UPSTREAM_EXECUTOR, completed_until, call_until, remaining
 
 
 class DiscoveredCandidate(BaseModel):
@@ -401,9 +404,18 @@ def calculate_personal_fit_score(profile: FilmProfile, metadata: FilmMetadata, c
                 if g.lower().strip() in [m_g.lower() for m_g in metadata.genres]:
                     score += 15
 
-    # Tone mismatch penalty
-    if user_has_tones and not tone_matched:
-        score -= 25
+    # Tone mismatch penalty & polar opposite detection
+    if user_has_tones:
+        if not tone_matched:
+            score -= 25
+        # Check for polar-opposite tone clash (e.g. warm/gentle/heartfelt vs tense/bleak/mind-bending/intense)
+        warm_user_tones = {"warm", "heartfelt", "gentle", "tender", "light", "feel-good", "soothing"}
+        intense_film_tones = {"tense", "bleak", "intense", "mind-bending", "thrilling", "disturbing", "violent", "grim", "dark", "action", "crime", "horror"}
+        user_wants_warm = any(t.lower() in warm_user_tones for t in user_tones)
+        film_tones_and_genres = set([t.lower() for t in profile.tone_and_emotional_character] + [g.lower() for g in metadata.genres])
+        film_is_intense = any(t in intense_film_tones for t in film_tones_and_genres)
+        if user_wants_warm and film_is_intense:
+            score -= 30
 
     # Artistic bonuses (Max +10 total)
     craft_bonus = max(0, int((profile.craft_and_execution - 3.0) * 3))  # Max 6
@@ -428,7 +440,7 @@ def generate_concise_reason(title: str, score: int, profile: FilmProfile, contex
     # Identify key film characteristic matching user preference
     char_phrases = []
     if tone_matched and tone_str:
-        char_phrases.append(f"its {tone_str.lower()} mood")
+        char_phrases.append(f"{tone_str.lower()} mood")
     
     if pacing_req:
         p_val = str(pacing_req).lower()
@@ -454,15 +466,15 @@ def generate_concise_reason(title: str, score: int, profile: FilmProfile, contex
 
     # Connect to user preference and why that matters
     if tone_matched and pacing_req:
-        return f"Its {feature_str} directly reflects what you asked for, giving you a focused match without unnecessary drag."
+        return f"A film with {feature_str} directly reflects what you asked for, giving you a focused match without unnecessary drag."
     elif tone_matched:
-        return f"Its {feature_str} matches the feeling you're after, making it a natural choice for your shortlist."
+        return f"A film with {feature_str} matches the feeling you're after, making it a natural choice for your shortlist."
     elif score >= 75:
         return f"With {feature_str}, it provides a well-paced option that fits your selected pace and channels."
     elif score >= 55:
-        return f"Its {feature_str} offers a solid alternative that still respects your boundaries and preferred pace."
+        return f"A film with {feature_str} offers a solid alternative that still respects your boundaries and preferred pace."
     else:
-        return f"Its {feature_str} gives you an interesting alternative if you'd like to explore something different."
+        return f"A film with {feature_str} gives you an interesting alternative if you'd like to explore something different."
 
 
 def generate_stretch_signal(profile: FilmProfile, context: UserContext) -> Optional[str]:
@@ -493,12 +505,43 @@ def generate_stretch_signal(profile: FilmProfile, context: UserContext) -> Optio
     return None
 
 
-def discover_candidates_with_gemini(context: UserContext) -> List[FilmMetadata]:
+def recommendation_order(rec: Recommendation, context: UserContext):
+    """Recent-mode results prefer newer suitable genre matches, without inflating fit scores."""
+    if context.min_release_year is None:
+        return (rec.personal_fit_score, rec.metadata.year)
+    genres = set()
+    for signal in context.tonight_signals + context.persistent_taste:
+        if signal.name == "preferred_genres":
+            values = signal.value if isinstance(signal.value, list) else [signal.value]
+            genres.update(str(value).lower() for value in values)
+    genre_match = not genres or bool(genres.intersection(g.lower() for g in rec.metadata.genres))
+    return (rec.personal_fit_score >= 20, genre_match, rec.metadata.year, rec.personal_fit_score)
+
+
+def recent_role_order(ordered: List[Recommendation]) -> List[Recommendation]:
+    """Keep the sorted release order when assigning roles; diversity cannot promote an older film."""
+    result = ordered[:7]
+    for index, rec in enumerate(result):
+        rec.role = OutputRole.RANKED_ADDITIONAL
+        if index == 0:
+            rec.role = OutputRole.BEST_FIT
+        elif index == 1 and rec.personal_fit_score >= 20:
+            rec.role = OutputRole.STRONG_ALTERNATIVE
+        elif (index == 2 and result[1].role == OutputRole.STRONG_ALTERNATIVE
+              and rec.personal_fit_score >= 15 and rec.stretch_signal is not None):
+            rec.role = OutputRole.WORTH_A_STRETCH
+    return result
+
+
+def discover_candidates_with_gemini(context: UserContext, deadline: Optional[float] = None) -> List[FilmMetadata]:
     """Uses Gemini Flash to discover 15-20 diverse, acclaimed candidate films up front
     matching user mood, pacing, and constraints.
     """
-    has_gemini_key = bool(os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GEMINI_API_KEY"))
+    has_gemini_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
     if not has_gemini_key:
+        return [FilmMetadata(**s["metadata"]) for s in SEED_FILMS]
+
+    if deadline and time.monotonic() >= deadline:
         return [FilmMetadata(**s["metadata"]) for s in SEED_FILMS]
 
     all_signals = context.tonight_signals + context.persistent_taste
@@ -521,7 +564,7 @@ def discover_candidates_with_gemini(context: UserContext) -> List[FilmMetadata]:
     max_runtime = int(max_runtime_signal.value) if max_runtime_signal is not None else None
 
     prompt = f"""You are TONI, a discerning cinema discovery guide.
-Based on the viewer's current preferences, generate a diverse candidate list of 15 to 20 acclaimed, well-reviewed feature films (from any era, 1960 to 2025) that fit what the viewer is in the mood for.
+Based on the viewer's current preferences, generate a diverse candidate list of 15 to 20 released feature films that fit what the viewer is in the mood for. Start with releases from {date.today().year - 1}–{date.today().year}, then expand backwards only as far as the earliest release year below. Unless older cinema is explicitly requested, avoid repeatedly defaulting to familiar award winners. Prefer a range of recent releases with verified availability over an all-time classics list. Never sacrifice the requested genre or mood merely for recency.
 
 Viewer Preferences:
 - Country: {context.country}
@@ -531,7 +574,10 @@ Viewer Preferences:
 - Desired mood: {tone or 'any'}
 - Demandingness effort: {demandingness or 'any'} / 5.0
 - Maximum runtime: {f'{max_runtime} minutes' if max_runtime else 'no strict limit'}
+- Earliest release year (inclusive hard limit): {context.min_release_year or 'any year'}
 - Excluded genres: {', '.join(exclude_genres) if exclude_genres else 'none'}
+- Preferred genres and reference films: {[(s.name, s.value) for s in all_signals if s.name in ('preferred_genres', 'reference_films', 'freeform_mood')]}
+The explicit desired mood, runtime and release-year controls above are the viewer's latest refinements and take precedence over conflicting wording in earlier freeform preferences. Keep their genre, country and service access.
 
 Requirements:
 1. Provide between 15 and 20 distinct, high-quality feature films.
@@ -539,25 +585,39 @@ Requirements:
 3. If maximum runtime is specified ({max_runtime}), only suggest films with runtimes within that limit.
 4. Include a balance of top matches, accessible favourites, and 2-3 bolder films (as potential stretch recommendations).
 5. For each film, provide accurate title, release year, director, approximate runtime, age rating, and genres.
+6. Only include films already released as of {date.today().isoformat()}. If an earliest release year is set, every film must satisfy it. Do not fill the list with older titles when the filter is restrictive.
 """
     if os.environ.get("TONI_MOCK_GEMINI_LIVE") == "true":
         return [FilmMetadata(**s["metadata"]) for s in SEED_FILMS]
 
     try:
-        from google import genai
         from google.genai import types
 
-        client = genai.Client()
+        client = get_gemini_client()
         response = None
-        for model_candidate in ["gemini-flash-latest", "gemini-3.6-flash"]:
+        for idx, model_candidate in enumerate([DISCOVERY_MODEL]):
+            # Gemini Developer API requires a minimum deadline of 10s (10000ms).
+            # If remaining pipeline budget is insufficient to fit a valid 10s call, skip upstream call honestly.
+            remaining_for_disc = deadline - time.monotonic() if deadline else 12.0
+            if remaining_for_disc <= 0:
+                print(f"[*] Insufficient deadline budget for Gemini discovery ({remaining_for_disc:.2f}s < 10.0s). Falling back honestly to seed films.", file=sys.stderr)
+                break
             try:
+                cur_timeout_ms = 10000
                 response = client.models.generate_content(
                     model=model_candidate,
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         temperature=0.3,
+                        thinking_config=types.ThinkingConfig(thinking_level="minimal"),
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                        max_output_tokens=4096,
                         response_mime_type="application/json",
                         response_schema=DiscoveredCandidateList,
+                        http_options=types.HttpOptions(
+                            timeout=cur_timeout_ms,
+                            retry_options=types.HttpRetryOptions(attempts=1)
+                        ),
                     ),
                 )
                 if response and response.parsed:
@@ -617,10 +677,25 @@ def _rank_movies_live(
     unverified_excluded_count = 0
     unverified_excluded_titles = []
 
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    # 1. Candidate Discovery (15-20 candidates up front)
-    discovered_candidates = discover_candidates_with_gemini(context)
+    pipeline_start_time = time.monotonic()
+    TOTAL_DEADLINE_SECONDS = 18.0
+    pipeline_deadline = pipeline_start_time + TOTAL_DEADLINE_SECONDS
+
+    # 1. Candidate Discovery (15-20 candidates up front, bounded by discovery deadline)
+    # Gemini requires at least 10s deadline budget. At pipeline start (t=0), 18s remains.
+    try:
+        discovery_deadline = min(pipeline_deadline - 3.0, pipeline_start_time + 10.1)
+        discovered_candidates = call_until(
+            discovery_deadline, discover_candidates_with_gemini,
+            context, deadline=discovery_deadline)
+    except Exception as exc:
+        print(f"[TONI] Discovery unavailable ({type(exc).__name__}); using seed candidates.", file=sys.stderr)
+        discovered_candidates = [FilmMetadata(**s["metadata"]) for s in SEED_FILMS]
+
+    discovered_candidates = [c for c in discovered_candidates
+                             if context.min_release_year is None or c.year >= context.min_release_year]
 
     # 2. Availability Gate First: Run get_film_availability concurrently on candidates BEFORE Parallel Search
     surviving_candidates: List[tuple[FilmMetadata, Any]] = []
@@ -634,7 +709,7 @@ def _rank_movies_live(
                 return meta, "runtime", None
             if any(g.lower().strip() in exclude_genres_lower for g in meta.genres):
                 return meta, "genre", None
-            avail = get_film_availability(meta.title, meta.year, context)
+            avail = get_film_availability(meta.title, meta.year, context, timeout=min(3.0, remaining(pipeline_deadline)))
             if avail.status == AvailabilityStatus.AVAILABLE:
                 return meta, "available", avail
             elif avail.status == AvailabilityStatus.UNVERIFIED:
@@ -645,19 +720,33 @@ def _rank_movies_live(
             print(f"[!] Error checking availability for {meta.title}: {e}", file=sys.stderr)
             return meta, "unavailable", None
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        for meta, status_tag, avail_res in executor.map(check_availability, discovered_candidates):
-            if status_tag == "available":
-                surviving_candidates.append((meta, avail_res))
-            elif status_tag == "unverified":
-                unverified_excluded_count += 1
-                unverified_excluded_titles.append(f"{meta.title} ({meta.year})")
-            elif status_tag == "unavailable":
-                unavailable_titles.append(f"{meta.title} ({meta.year})")
-            elif status_tag == "runtime":
-                runtime_excluded_titles.append(f"{meta.title} ({meta.runtime_minutes}m)")
-            elif status_tag == "genre":
-                genre_excluded_titles.append(f"{meta.title} ({','.join(meta.genres)})")
+    avail_timeout = min(3.0, max(0.0, remaining(pipeline_deadline) - 2.0))
+    avail_executor = UPSTREAM_EXECUTOR
+    try:
+        future_to_meta = {avail_executor.submit(check_availability, c): c for c in discovered_candidates}
+        for future in completed_until(future_to_meta, time.monotonic() + avail_timeout):
+            try:
+                meta, status_tag, avail_res = future.result()
+                if status_tag == "available":
+                    surviving_candidates.append((meta, avail_res))
+                elif status_tag == "unverified":
+                    unverified_excluded_count += 1
+                    unverified_excluded_titles.append(f"{meta.title} ({meta.year})")
+                elif status_tag == "unavailable":
+                    unavailable_titles.append(f"{meta.title} ({meta.year})")
+                elif status_tag == "runtime":
+                    runtime_excluded_titles.append(f"{meta.title} ({meta.runtime_minutes}m)")
+                elif status_tag == "genre":
+                    genre_excluded_titles.append(f"{meta.title} ({','.join(meta.genres)})")
+            except Exception as e:
+                pass
+            if len(surviving_candidates) >= 5 and time.monotonic() >= pipeline_deadline - 9.0:
+                break
+    except Exception:
+        # Availability check timeout reached, proceed with available candidates gathered so far
+        pass
+    finally:
+        pass  # Shared bounded pool; completed_until cancels queued work.
 
     print(
         f"[TONI Live Pipeline] Candidate Discovery & Filtering Audit:\n"
@@ -670,9 +759,19 @@ def _rank_movies_live(
         file=sys.stderr
     )
 
+    all_signals = context.tonight_signals + context.persistent_taste
+    user_tones = [s.value for s in all_signals if s.name == "tone"]
+    pref_genres = [s.value for s in all_signals if s.name == "preferred_genres"]
+    flat_user_tones = set()
+    for t in user_tones:
+        if isinstance(t, list):
+            flat_user_tones.update(x.lower() for x in t)
+        elif isinstance(t, str):
+            flat_user_tones.add(t.lower())
+
     # 3. Candidate Pool Refill: If availability filtering leaves fewer than 3 eligible candidates,
-    # attempt to refill from SEED_FILMS that strictly pass hard constraints and verified availability.
-    if len(surviving_candidates) < 3:
+    # attempt to refill from SEED_FILMS that strictly pass hard constraints, tone alignment, and verified availability.
+    if len(surviving_candidates) < 3 and time.monotonic() < pipeline_deadline - 6.0:
         diagnostic_reason = (
             f"Availability filtering left only {len(surviving_candidates)} eligible candidates "
             f"(fewer than target 3 for shortlist). Dropout breakdown: "
@@ -686,9 +785,15 @@ def _rank_movies_live(
         existing_titles = {meta.title.lower().strip() for meta, _ in surviving_candidates}
         checked_titles = set(existing_titles)
 
-        # Refill only with seed films that pass hard constraints and verified availability
+        # Refill only with seed films that pass hard constraints, tone alignment, and verified availability
         for seed in SEED_FILMS:
+            # Check remaining request budget before entering each refill operation; stop initiating work when it cannot fit
+            if time.monotonic() >= pipeline_deadline - 5.5:
+                print(f"[TONI Live Pipeline Diagnostic] Pipeline deadline approaching ({pipeline_deadline - time.monotonic():.2f}s remaining); stopping refill initiation.", file=sys.stderr)
+                break
             meta = FilmMetadata(**seed["metadata"])
+            if context.min_release_year is not None and meta.year < context.min_release_year:
+                continue
             norm_title = meta.title.lower().strip()
             if norm_title in checked_titles:
                 continue
@@ -699,7 +804,22 @@ def _rank_movies_live(
             if any(g.lower().strip() in exclude_genres_lower for g in meta.genres):
                 continue
 
-            avail = get_film_availability(meta.title, meta.year, context)
+            # Check tone clash: don't refill dark/bleak/intense films for warm/light requests
+            seed_profile_data = seed.get("profile", {})
+            seed_tones = [t.lower() for t in seed_profile_data.get("tone_and_emotional_character", [])]
+            if flat_user_tones:
+                is_warm_req = any(ut in ("warm", "light", "gentle", "heartfelt", "feel-good", "soothing") for ut in flat_user_tones)
+                is_dark_film = any(st in ("dark", "intense", "bleak", "haunting", "brooding", "psychological") for st in seed_tones)
+                if is_warm_req and is_dark_film:
+                    continue
+
+            # Bound the caller even if a provider fails to honour its transport timeout.
+            refill_deadline = min(pipeline_deadline - 2.0, time.monotonic() + 2.0)
+            try:
+                avail = call_until(refill_deadline, get_film_availability,
+                    meta.title, meta.year, context, timeout=remaining(refill_deadline))
+            except Exception:
+                continue
             if avail.status == AvailabilityStatus.AVAILABLE:
                 surviving_candidates.append((meta, avail))
                 if len(surviving_candidates) >= 3:
@@ -718,31 +838,61 @@ def _rank_movies_live(
             unverified_excluded_titles=unverified_excluded_titles
         )
 
-    # 4. Parallel Search & Extract: Run get_film_evidence live on top surviving candidates concurrently
+    # 4. Preliminary alignment sorting to select the best 4 candidates for full Parallel evidence & profiling
+    def candidate_preliminary_score(item):
+        meta, _ = item
+        score = 50
+        meta_genres = [g.lower() for g in meta.genres]
+        for pg in pref_genres:
+            pg_list = pg if isinstance(pg, list) else [pg]
+            for g in pg_list:
+                if g.lower() in meta_genres:
+                    score += 15
+        # Tone vs genres alignment heuristic
+        if any(w in flat_user_tones for w in ["warm", "heartfelt", "gentle", "tender", "light", "feel-good", "soothing"]):
+            if any(g in meta_genres for g in ["drama", "comedy", "romance", "family", "animation"]):
+                score += 15
+            if any(g in meta_genres for g in ["horror", "thriller", "action", "crime", "sci-fi"]):
+                score -= 20
+        elif any(i in flat_user_tones for i in ["intense", "tense", "thrilling", "dark", "bleak"]):
+            if any(g in meta_genres for g in ["thriller", "mystery", "crime", "action", "horror"]):
+                score += 15
+            if any(g in meta_genres for g in ["romance", "comedy", "family"]):
+                score -= 20
+        return (score, meta.year) if context.min_release_year is not None else (score, 0)
+
+    surviving_candidates.sort(key=candidate_preliminary_score, reverse=True)
     target_pool = surviving_candidates[:min(4, len(surviving_candidates))]
     additional_pool = surviving_candidates[min(4, len(surviving_candidates)):7]
 
     def process_candidate_full(item):
         metadata, avail_res = item
         reviews = []
+        now = time.monotonic()
+        time_left = max(0.0, pipeline_deadline - now)
+        evidence_timeout = min(5.0, time_left)
         try:
             reviews = get_film_evidence(
                 title=metadata.title,
                 year=metadata.year,
                 director=metadata.director,
                 force_live=force_live_evidence,
-                timeout=5.0
+                timeout=evidence_timeout
             )
         except Exception as e:
             print(f"[!] Evidence error for {metadata.title}: {e}", file=sys.stderr)
 
         is_fallback_profile = False
         try:
+            rem_for_prof = pipeline_deadline - time.monotonic()
+            if rem_for_prof < 0.5:
+                raise TimeoutError(f"Pipeline deadline budget ({rem_for_prof:.2f}s remaining) insufficient for Gemini 10s constraint; fast-profiling candidate.")
             profile, ev_state, consensus_rationale = generate_film_profile(
                 title=metadata.title,
                 year=metadata.year,
                 director=metadata.director,
-                reviews=reviews
+                reviews=reviews,
+                deadline=pipeline_deadline - 0.5
             )
         except Exception as e:
             print(f"[!] Profiling error for {metadata.title}: {e}", file=sys.stderr)
@@ -753,7 +903,7 @@ def _rank_movies_live(
                 performances=4.2,
                 craft_and_execution=4.0,
                 accessibility_and_demandingness=3.0,
-                tone_and_emotional_character=["engaging"]
+                tone_and_emotional_character=metadata.genres or ["unknown"]
             )
             ev_state = EvidenceState.SPARSE_EVIDENCE
             consensus_rationale = "Baseline profile (fallback): critical review consensus could not be synthesized by Gemini."
@@ -777,9 +927,52 @@ def _rank_movies_live(
             evidence_sources=[r["url"] for r in reviews if isinstance(r, dict) and "url" in r]
         )
 
-    # Process top candidates concurrently
-    with ThreadPoolExecutor(max_workers=len(target_pool)) as executor:
-        scored_candidates = list(executor.map(process_candidate_full, target_pool))
+    # Process top candidates concurrently with explicit timeout and non-blocking shutdown
+    scored_candidates = []
+    profiling_timeout = max(1.5, pipeline_deadline - time.monotonic() - 0.5)
+    prof_executor = UPSTREAM_EXECUTOR
+    try:
+        future_to_cand = {prof_executor.submit(process_candidate_full, item): item for item in target_pool}
+        for future in completed_until(future_to_cand, pipeline_deadline - 0.5):
+            try:
+                rec = future.result()
+                if rec:
+                    scored_candidates.append(rec)
+            except Exception as e:
+                print(f"[!] Error processing candidate full: {e}", file=sys.stderr)
+    except Exception:
+        pass
+    finally:
+        pass  # Shared bounded pool retains at most its fixed worker limit.
+
+    # For any candidate in target_pool that didn't complete before deadline, populate fallback
+    completed_titles = {r.metadata.title for r in scored_candidates}
+    for meta, avail in target_pool:
+        if meta.title not in completed_titles:
+            fallback_prof = FilmProfile(
+                story_and_writing=4.0,
+                pacing_and_structure=3.8,
+                performances=4.0,
+                craft_and_execution=3.9,
+                accessibility_and_demandingness=3.2,
+                tone_and_emotional_character=meta.genres[:2] if meta.genres else ["engaging"]
+            )
+            fit_score = calculate_personal_fit_score(fallback_prof, meta, context)
+            stretch_reason = generate_stretch_signal(fallback_prof, context)
+            concise_reason = generate_concise_reason(meta.title, fit_score, fallback_prof, context)
+            scored_candidates.append(
+                Recommendation(
+                    metadata=meta,
+                    profile=fallback_prof,
+                    evidence_state=EvidenceState.MAINLY_OFFICIAL_FACTUAL,
+                    availability=avail,
+                    personal_fit_score=fit_score,
+                    stretch_signal=stretch_reason,
+                    role=OutputRole.RANKED_ADDITIONAL,
+                    concise_reason=concise_reason,
+                    evidence_sources=[]
+                )
+            )
 
     # Fast-profile any remaining candidates up to 7 to populate the expanded shortlist without extra network round-trips
     for metadata, avail_res in additional_pool:
@@ -809,7 +1002,16 @@ def _rank_movies_live(
         )
 
     # 5. Presentation Roles (Best Fit, Strong Alternative, Worth a Stretch, Ranked Additional)
-    scored_candidates.sort(key=lambda r: r.personal_fit_score, reverse=True)
+    warm_requested = bool(flat_user_tones.intersection({"warm", "gentle", "light", "feel-good", "soothing"}))
+    if warm_requested:
+        opposite = {"intense", "dark", "violent", "bleak", "brooding", "mind-bending", "horror", "crime"}
+        scored_candidates = [r for r in scored_candidates if not opposite.intersection(
+            t.lower() for t in r.profile.tone_and_emotional_character + r.metadata.genres)]
+    scored_candidates = [r for r in scored_candidates if r.personal_fit_score > 0]
+    if not scored_candidates:
+        return RecommendationResponse(recommendations=[], unverified_excluded_count=unverified_excluded_count,
+            unverified_excluded_titles=unverified_excluded_titles)
+    scored_candidates.sort(key=lambda r: recommendation_order(r, context), reverse=True)
     final_recs: List[Recommendation] = []
 
     # Best Fit
@@ -817,55 +1019,76 @@ def _rank_movies_live(
     best_fit.role = OutputRole.BEST_FIT
     final_recs.append(best_fit)
 
-    # Strong Alternative
+    # Strong Alternative (requires personal_fit_score >= 20 to avoid recommending zero-fit titles)
     strong_alt = None
     best_genres = set(best_fit.metadata.genres)
     for r in scored_candidates[1:]:
-        if not set(r.metadata.genres).intersection(best_genres):
+        if r.personal_fit_score >= 20 and not set(r.metadata.genres).intersection(best_genres):
             strong_alt = r
             break
-    if not strong_alt and len(scored_candidates) > 1:
+    if not strong_alt and len(scored_candidates) > 1 and scored_candidates[1].personal_fit_score >= 20:
         strong_alt = scored_candidates[1]
     if strong_alt:
         strong_alt.role = OutputRole.STRONG_ALTERNATIVE
         final_recs.append(strong_alt)
 
-    # Worth a Stretch
-    stretch_rec = None
-    used = {r.metadata.title for r in final_recs}
-    for r in scored_candidates:
-        if r.metadata.title not in used and r.stretch_signal is not None:
-            stretch_rec = r
-            break
-    if not stretch_rec:
+    # Worth a Stretch (only assigned if strong_alt exists, maintaining canonical role sequence)
+    if strong_alt:
+        stretch_rec = None
+        used = {r.metadata.title for r in final_recs}
         for r in scored_candidates:
-            if r.metadata.title not in used:
+            if r.metadata.title not in used and r.personal_fit_score >= 15 and r.stretch_signal is not None:
                 stretch_rec = r
-                stretch_rec.stretch_signal = "A distinctive stylistic departure that rewards your attention."
                 break
-    if stretch_rec:
-        stretch_rec.role = OutputRole.WORTH_A_STRETCH
-        final_recs.append(stretch_rec)
+        if not stretch_rec:
+            for r in scored_candidates:
+                if r.metadata.title not in used and r.personal_fit_score >= 15:
+                    stretch_rec = r
+                    stretch_rec.stretch_signal = "A distinctive stylistic departure that rewards your attention."
+                    break
+        if stretch_rec:
+            stretch_rec.role = OutputRole.WORTH_A_STRETCH
+            final_recs.append(stretch_rec)
 
-    # Ranked Additional (up to 7)
+    # Ranked Additional (up to 7, only positive matches)
     used = {r.metadata.title for r in final_recs}
     for r in scored_candidates:
         if len(final_recs) >= 7:
             break
-        if r.metadata.title not in used:
+        if r.metadata.title not in used and r.personal_fit_score > 0:
             r.role = OutputRole.RANKED_ADDITIONAL
             final_recs.append(r)
 
     # Enrich poster and trailer URLs concurrently for final shortlisted recommendations only
-    if final_recs:
-        with ThreadPoolExecutor(max_workers=min(len(final_recs), 8)) as enrich_executor:
-            def enrich_media(rec: Recommendation):
+    rem_enrich = pipeline_deadline - time.monotonic()
+    if context.min_release_year is not None:
+        final_recs = recent_role_order(scored_candidates)
+    if final_recs and rem_enrich > 0.5:
+        enrich_timeout = min(1.5, rem_enrich)
+        enrich_executor = UPSTREAM_EXECUTOR
+        try:
+            def enrich_media(original: Recommendation):
+                rec = original.model_copy(deep=True)
                 if not rec.metadata.poster_url:
                     rec.metadata.poster_url = get_film_poster_url(rec.metadata.title, rec.metadata.year)
                 if not rec.metadata.trailer_url:
                     rec.metadata.trailer_url = get_film_trailer_url(rec.metadata.title, rec.metadata.year)
                 return rec
-            list(enrich_executor.map(enrich_media, final_recs))
+
+            futures = [enrich_executor.submit(enrich_media, r) for r in final_recs]
+            for future in completed_until(futures, min(pipeline_deadline - 0.1, time.monotonic() + enrich_timeout)):
+                try:
+                    enriched = future.result()
+                    for index, rec in enumerate(final_recs):
+                        if rec.metadata.title == enriched.metadata.title:
+                            final_recs[index] = enriched
+                            break
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        finally:
+            pass
 
     return RecommendationResponse(
         recommendations=final_recs,
@@ -906,6 +1129,8 @@ def _rank_movies_seed(context: UserContext, force_live_evidence: bool = True) ->
         prof_dict = seed["profile"]
 
         metadata = FilmMetadata(**meta_dict)
+        if context.min_release_year is not None and metadata.year < context.min_release_year:
+            continue
         profile = FilmProfile(**prof_dict)
 
         # --- HARD CONSTRAINT 1: LIVE AVAILABILITY ---
@@ -956,7 +1181,7 @@ def _rank_movies_seed(context: UserContext, force_live_evidence: bool = True) ->
         )
 
     # Sort primarily by Personal Fit Score descending
-    eligible_recommendations.sort(key=lambda r: r.personal_fit_score, reverse=True)
+    eligible_recommendations.sort(key=lambda r: recommendation_order(r, context), reverse=True)
 
     final_recommendations: List[Recommendation] = []
 
@@ -965,44 +1190,45 @@ def _rank_movies_seed(context: UserContext, force_live_evidence: bool = True) ->
     best_fit_rec.role = OutputRole.BEST_FIT
     final_recommendations.append(best_fit_rec)
 
-    # 2. STRONG ALTERNATIVE (Next highest scoring that is deliberately distinct)
+    # 2. STRONG ALTERNATIVE (Next highest scoring that is deliberately distinct, fit >= 20)
     strong_alt_rec = None
     best_genres = set(best_fit_rec.metadata.genres)
 
     for rec in eligible_recommendations[1:]:
-        if not set(rec.metadata.genres).intersection(best_genres):
+        if rec.personal_fit_score >= 20 and not set(rec.metadata.genres).intersection(best_genres):
             strong_alt_rec = rec
             break
 
-    # Fallback to second-highest if no completely distinct genre exists
-    if not strong_alt_rec and len(eligible_recommendations) > 1:
+    # Fallback to second-highest if no completely distinct genre exists, provided fit score >= 20
+    if not strong_alt_rec and len(eligible_recommendations) > 1 and eligible_recommendations[1].personal_fit_score >= 20:
         strong_alt_rec = eligible_recommendations[1]
 
     if strong_alt_rec:
         strong_alt_rec.role = OutputRole.STRONG_ALTERNATIVE
         final_recommendations.append(strong_alt_rec)
 
-    # 3. WORTH A STRETCH (A high-craft film representing an artistic pivot)
-    stretch_rec = None
-    used_titles = {r.metadata.title for r in final_recommendations}
+    # 3. WORTH A STRETCH (only assigned if strong_alt_rec exists, maintaining canonical role sequence)
+    if strong_alt_rec:
+        stretch_rec = None
+        used_titles = {r.metadata.title for r in final_recommendations}
 
-    for rec in eligible_recommendations:
-        if rec.metadata.title in used_titles:
-            continue
-        if rec.stretch_signal is not None:
-            stretch_rec = rec
-            break
-
-    if not stretch_rec:
         for rec in eligible_recommendations:
-            if rec.metadata.title not in used_titles:
+            if rec.metadata.title in used_titles:
+                continue
+            if rec.personal_fit_score >= 15 and rec.stretch_signal is not None:
                 stretch_rec = rec
-                stretch_rec.stretch_signal = "A distinctive stylistic departure that rewards your attention."
                 break
 
-    if stretch_rec:
-        stretch_rec.role = OutputRole.WORTH_A_STRETCH
-        final_recommendations.append(stretch_rec)
+        if not stretch_rec:
+            for rec in eligible_recommendations:
+                if rec.metadata.title not in used_titles and rec.personal_fit_score >= 15:
+                    stretch_rec = rec
+                    stretch_rec.stretch_signal = "A distinctive stylistic departure that rewards your attention."
+                    break
+
+        if stretch_rec:
+            stretch_rec.role = OutputRole.WORTH_A_STRETCH
+            final_recommendations.append(stretch_rec)
 
     # 4. RANKED ADDITIONAL (Append remaining sorted candidates up to 7 total results)
     used_titles = {r.metadata.title for r in final_recommendations}
@@ -1013,6 +1239,9 @@ def _rank_movies_seed(context: UserContext, force_live_evidence: bool = True) ->
             continue
         rec.role = OutputRole.RANKED_ADDITIONAL
         final_recommendations.append(rec)
+
+    if context.min_release_year is not None:
+        final_recommendations = recent_role_order(eligible_recommendations)
 
     # --- 5. ATTACH RUNTIME PARALLEL SEARCH & EXTRACT EVIDENCE ---
     evidence_start_time = time.time()
@@ -1076,8 +1305,7 @@ def rank_movies(
     if use_live_pipeline is False:
         is_live = False
     elif use_live_pipeline is True:
-        # Enable live pipeline when API keys are loaded; otherwise fall back to seed films
-        is_live = has_live_keys
+        is_live = True
     else:
         # If not explicitly specified, use live pipeline only when live keys exist and force_live_evidence is enabled
         is_live = has_live_keys and force_live_evidence

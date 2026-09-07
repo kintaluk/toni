@@ -253,13 +253,22 @@ def get_film_evidence(
             return cached
 
     # 2. Check for PARALLEL_API_KEY
-    if not _parallel_api_key():
+    api_key = _parallel_api_key()
+    if not api_key:
         print("[!] PARALLEL_API_KEY missing. Returning empty evidence.")
         return []
 
-    # Initialize client with timeout if provided; max_retries=0 prevents compounding retry delays
-    client_timeout = timeout if timeout is not None else 10.0
-    client = Parallel(timeout=client_timeout, max_retries=0)
+    def _is_transient_error(err: Exception) -> bool:
+        status = getattr(err, "status_code", getattr(err, "http_status_code", None))
+        if status in (429, 500, 502, 503, 504):
+            return True
+        err_str = str(err).lower()
+        return any(w in err_str for w in ["timeout", "timed out", "connection", "rate limit", "502", "503", "504", "429"])
+
+    # Enforce strict shared deadline across search, retry, and extract
+    overall_budget = timeout if timeout is not None else 6.0
+    deadline = time.monotonic() + overall_budget
+    client = Parallel(api_key=api_key, timeout=overall_budget, max_retries=0)
     evidence_results = []
     errors_list = []
     search_id = None
@@ -268,12 +277,27 @@ def get_film_evidence(
     t0 = time.time()
 
     try:
-        # 3. Parallel Search
-        response = client.search(
-            objective=build_objective(title, year, director),
-            search_queries=build_queries(title, year, director),
-            timeout=client_timeout
-        )
+        # 3. Parallel Search (with at most 1 bounded retry on transient error if budget permits)
+        search_attempts = 0
+        response = None
+        while search_attempts < 2:
+            remaining_for_search = deadline - time.monotonic()
+            if remaining_for_search <= 0.5:
+                raise TimeoutError(f"Evidence search deadline exceeded ({time.time() - t0:.2f}s elapsed)")
+            try:
+                response = client.search(
+                    objective=build_objective(title, year, director),
+                    search_queries=build_queries(title, year, director),
+                    timeout=min(remaining_for_search, 3.5)
+                )
+                break
+            except Exception as se:
+                search_attempts += 1
+                rem_after_err = deadline - time.monotonic()
+                if search_attempts >= 2 or rem_after_err < 1.5 or not _is_transient_error(se):
+                    raise se
+                time.sleep(min(0.5, rem_after_err - 1.0))
+
         search_id = response.search_id
         session_id = response.session_id
 
@@ -285,24 +309,40 @@ def get_film_evidence(
             log_trace(title, year, search_id, None, time.time() - t0, 0, 0, ["No valid URLs survived filtering."])
             return []
 
-        # 5. Parallel Extract
+        # 5. Parallel Extract consuming remaining budget
+        remaining_for_extract = deadline - time.monotonic()
+        if remaining_for_extract <= 0.5:
+            errors_list.append(f"Evidence extraction skipped: budget exhausted ({time.time() - t0:.2f}s elapsed)")
+            log_trace(title, year, search_id, None, time.time() - t0, len(target_urls), 0, errors_list)
+            return []
+
         extract_response = client.extract(
             urls=target_urls,
             session_id=session_id,
             advanced_settings={"full_content": True},
-            timeout=client_timeout
+            timeout=remaining_for_extract
         )
         extract_id = extract_response.extract_id
 
         # Compile successful extractions
         for r in extract_response.results:
             content = r.full_content or ""
+            retrieval_kind = "full_content"
+            # Extract can return substantive excerpts even when full-page fetching
+            # is unavailable. Keep their provenance; never invent missing text.
+            if len(content) < MIN_CONTENT_CHARS:
+                excerpts = getattr(r, "excerpts", [])
+                excerpt_text = "\n\n".join(x for x in excerpts if isinstance(x, str)) if isinstance(excerpts, list) else ""
+                if len(excerpt_text) >= MIN_CONTENT_CHARS:
+                    content = excerpt_text
+                    retrieval_kind = "extract_excerpts"
             # Filter out thin page-chrome successes
             if len(content) >= MIN_CONTENT_CHARS:
                 evidence_results.append({
                     "url": r.url,
                     "title": r.title or "Movie Review",
-                    "content": content
+                    "content": content,
+                    "retrieval_kind": retrieval_kind
                 })
             else:
                 errors_list.append(f"Excluded thin content from URL: {r.url} ({len(content)} chars)")

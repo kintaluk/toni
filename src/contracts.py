@@ -17,6 +17,7 @@ SIGNAL_TONE = "tone"
 SIGNAL_PACING = "pacing"
 SIGNAL_DEMANDINGNESS = "demandingness"
 SIGNAL_PREFERRED_GENRES = "preferred_genres"
+SIGNAL_REFERENCE_FILMS = "reference_films"
 
 # --- STATE & CATEGORIZATION ENUMS ---
 
@@ -234,6 +235,7 @@ class UserContext(BaseModel):
     country: str = Field(description="Confirmed user country ('UK' or 'US').")
     service_access: List[str] = Field(description="User's confirmed included-access streaming services.")
     allow_rent_buy: bool = Field(default=False, description="Whether extra-cost rental/purchase is allowed.")
+    min_release_year: Optional[int] = Field(default=None, ge=1888, le=2100, description="Inclusive earliest release year; None allows any era.")
     intake_depth: IntakeDepth = Field(description="Selected onboarding effort level.")
     dialogue_mode: Optional[str] = Field(default="text", description="Active interface mode: 'text' or 'voice'.")
     voice_name: Optional[str] = Field(default="Charon", description="Voice persona for audio responses.")

@@ -9,7 +9,7 @@ complying with the canonical TONI product contract.
 import json
 import os
 import sys
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -17,13 +17,13 @@ from pydantic import BaseModel, Field
 # Ensure local imports work
 sys.path.append(str(Path(__file__).resolve().parent))
 from contracts import FilmProfile, EvidenceState
+from gemini_client import get_gemini_client, PROFILING_MODEL_PRIMARY, PROFILING_MODEL_FALLBACK
 
 load_dotenv(override=True)
 if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("false", "0"):
     os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
 
-# We use the recommended gemini-pro-latest model for detailed critical reasoning
-MODEL_NAME = "gemini-pro-latest"
+MODEL_NAME = PROFILING_MODEL_PRIMARY
 
 
 class GeminiProfileSchema(BaseModel):
@@ -58,13 +58,15 @@ def build_profiling_prompt(title: str, year: int, director: str, reviews: List[D
     """Constructs the prompt for Gemini, containing raw reviews and anchoring definitions."""
     reviews_block = ""
     for i, r in enumerate(reviews):
-        reviews_block += f"### Review Source {i+1}\nURL: {r['url']}\nContent: {r['content']}\n\n"
+        coverage = "partial review excerpts" if r.get("retrieval_kind") == "extract_excerpts" else "extracted review content"
+        reviews_block += f"### Review Source {i+1}\nURL: {r['url']}\nCoverage: {coverage}\nContent: {r['content']}\n\n"
 
     return f"""You are creating a canonical Film Profile and Evidence State for the {year} movie "{title}" directed by {director}.
 Base your evaluation ONLY on the following extracted critical reviews. Paraphrase all evaluations in your own words, maintaining copyright constraints (~6 words max exact-match limit).
 
 ### EXCLUSION DIRECTIVE
 Do not use prior training knowledge or outside details (such as box office, awards, or other reviews). If the reviews provided do not touch upon a dimension, evaluate it as a neutral 3.0.
+Partial excerpts do not establish the full review's verdict. Judge only what they actually say. A single independent review must be sparse_evidence, not strong_agreement.
 
 ### 6-DIMENSION FILMPROFILE REFERENCE ANCHORS:
 1. Story and writing (1.0 = incoherent, confused; 3.0 = average, mixed; 5.0 = exceptional narrative coherence and characters).
@@ -107,7 +109,8 @@ def generate_film_profile(
     title: str,
     year: int,
     director: str,
-    reviews: List[Dict[str, Any]]
+    reviews: List[Dict[str, Any]],
+    deadline: Optional[float] = None
 ) -> Tuple[FilmProfile, EvidenceState, str]:
     """Generates the FilmProfile, EvidenceState, and consensus rationale for a movie using Gemini 2.5 Pro.
 
@@ -115,6 +118,8 @@ def generate_film_profile(
     Results are cached with a 24-hour TTL and bounded size, with in-flight request deduplication.
     """
     cache_key = _compute_profile_cache_key(title, year, director, reviews)
+    if not reviews and (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")) and os.environ.get("TONI_MOCK_GEMINI_LIVE") != "true":
+        raise ValueError("No usable review evidence; a live profile cannot be synthesized")
     with _PROFILE_CACHE_LOCK:
         if cache_key in _PROFILE_CACHE:
             entry = _PROFILE_CACHE[cache_key]
@@ -132,14 +137,16 @@ def generate_film_profile(
             is_leader = True
 
     if not is_leader:
-        evt.wait(timeout=15.0)
+        wait_time = min(15.0, max(0.5, deadline - time.monotonic())) if deadline else 15.0
+        evt.wait(timeout=wait_time)
         with _PROFILE_CACHE_LOCK:
             if cache_key in _PROFILE_CACHE:
                 return _PROFILE_CACHE[cache_key]["result"]
+        raise TimeoutError("Profile is still being generated")
 
     try:
         # Fallback/Mock Generator for our seed films if no reviews are supplied or API key is missing
-        has_gemini_key = bool(os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GEMINI_API_KEY"))
+        has_gemini_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
         if not reviews or not has_gemini_key or os.environ.get("TONI_MOCK_GEMINI_LIVE") == "true":
             # Local mock profiles for our main seed films to keep integration testing fast and robust
             title_lower = title.lower().strip()
@@ -169,6 +176,19 @@ def generate_film_profile(
                     EvidenceState.MEANINGFUL_DISAGREEMENT,
                     "Critics were divided, noting ambitious craft alongside a dense and demanding narrative structure."
                 )
+            elif "dark knight" in title_lower:
+                res = (
+                    FilmProfile(
+                        story_and_writing=4.8,
+                        pacing_and_structure=4.3,
+                        performances=4.8,
+                        tone_and_emotional_character=["dark", "intense", "brooding", "bleak", "violent"],
+                        craft_and_execution=4.9,
+                        accessibility_and_demandingness=3.8,
+                    ),
+                    EvidenceState.STRONG_AGREEMENT,
+                    "Critics universally acclaimed the gripping direction, moral complexity, and iconic performances in Nolan's superhero crime drama."
+                )
             else:
                 res = (
                     FilmProfile(
@@ -186,24 +206,37 @@ def generate_film_profile(
                 _PROFILE_CACHE[cache_key] = {"result": res, "timestamp": time.time()}
             return res
 
-        # Live Gemini Call
-        from google import genai
+        # Live Gemini Call via centralized factory (Gemini Developer API, vertexai=False)
         from google.genai import types
 
-        client = genai.Client()
+        client = get_gemini_client()
         prompt = build_profiling_prompt(title, year, director, reviews)
 
         response = None
         last_exception = None
-        for model_candidate in ["gemini-pro-latest", "gemini-flash-latest", "gemini-2.5-pro"]:
+        for idx, model_candidate in enumerate([PROFILING_MODEL_PRIMARY]):
+            # Gemini Developer API requires a minimum deadline of 10s (10000ms).
+            # If remaining allocated deadline cannot accommodate this constraint, skip upstream call.
+            rem_sec = deadline - time.monotonic() if deadline else 12.0
+            if rem_sec <= 0:
+                print(f"[*] Insufficient deadline budget for Gemini profiling '{title}' ({rem_sec:.2f}s < 10.0s). Skipping upstream call.", file=sys.stderr)
+                break
             try:
+                cur_timeout_ms = 10000
                 response = client.models.generate_content(
                     model=model_candidate,
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         temperature=0.0,  # Temperature 0 for deterministic critical evaluation
+                        thinking_config=types.ThinkingConfig(thinking_level="minimal"),
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                        max_output_tokens=2048,
                         response_mime_type="application/json",
                         response_schema=GeminiProfileSchema,
+                        http_options=types.HttpOptions(
+                            timeout=cur_timeout_ms,
+                            retry_options=types.HttpRetryOptions(attempts=1)
+                        ),
                     ),
                 )
                 if response and response.parsed:

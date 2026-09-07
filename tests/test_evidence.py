@@ -159,13 +159,12 @@ def test_get_film_evidence_flow(mock_parallel_class, monkeypatch, tmp_path):
 
     # Verify search and extract were called sequentially
     mock_client.search.assert_called_once()
-    # Ensure blocked Wikipedia URL was filtered out and only the 2 valid URLs were extracted
-    mock_client.extract.assert_called_once_with(
-        urls=["https://www.theguardian.com/film/review/babylon", "https://www.avclub.com/babylon-review"],
-        session_id="session_test_id",
-        advanced_settings={"full_content": True},
-        timeout=10.0
-    )
+    assert mock_client.extract.call_count == 1
+    call_kwargs = mock_client.extract.call_args.kwargs
+    assert call_kwargs["urls"] == ["https://www.theguardian.com/film/review/babylon", "https://www.avclub.com/babylon-review"]
+    assert call_kwargs["session_id"] == "session_test_id"
+    assert call_kwargs["advanced_settings"] == {"full_content": True}
+    assert 0.0 < call_kwargs["timeout"] <= 6.0
 
     # Verify return list has exactly 1 valid item (excluding the thin 100-character one)
     assert len(evidence) == 1

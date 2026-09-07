@@ -500,6 +500,9 @@ def test_voice_journey_intake_to_search_to_visible_recommendations():
     5. Returned recommendation cards are rendered and visible in results view.
     """
     js = """
+    // Prior access choices are confirmed before testing this handoff.
+    chatState.country_confirmed = true;
+    chatState.service_access = ['Netflix'];
     // 1. Start voice session
     await window.toggleSingleBrainVoice();
     const socket = mockSockets[mockSockets.length - 1];
@@ -532,7 +535,7 @@ def test_voice_journey_intake_to_search_to_visible_recommendations():
     const loadingHiddenBeforeHandoff = document.getElementById('loading-view').classList.contains('hidden');
 
     // 2. User clicks "Find what fits" CTA button
-    const handoffPromise = window.handleReadyCTAClick();
+    const handoffPromise = window.executeVoiceSearchHandoff('cta_button_click');
 
     const loadingVisibleImmediately = !document.getElementById('loading-view').classList.contains('hidden');
     const handoffStateDuring = window.getHandoffState();
@@ -776,6 +779,9 @@ def test_button_click_before_final_transcript_barrier_waits_for_commit():
     creates a barrier that awaits target turn context commit before launching search.
     """
     js = """
+    // Prior access choices are confirmed before testing this handoff.
+    chatState.country_confirmed = true;
+    chatState.service_access = ['Netflix'];
     await window.toggleSingleBrainVoice();
     const socket = mockSockets[mockSockets.length - 1];
     socket.simulateOpen();
@@ -788,7 +794,7 @@ def test_button_click_before_final_transcript_barrier_waits_for_commit():
 
     // User clicks CTA button BEFORE turn_complete arrives
     let handoffSettled = false;
-    const handoffPromise = window.handleReadyCTAClick().then(() => { handoffSettled = true; });
+    const handoffPromise = window.executeVoiceSearchHandoff('cta_button_click').then(() => { handoffSettled = true; });
 
     // Verify finalize_turn was sent upstream with has_pending_audio
     const finalizeMsg = socket.sentMessages.find(m => m.type === 'finalize_turn');
@@ -844,6 +850,9 @@ def test_no_pending_speech_finalisation_immediate():
     When no speech is pending, barrier resolves immediately without delay.
     """
     js = """
+    // Prior access choices are confirmed before testing this handoff.
+    chatState.country_confirmed = true;
+    chatState.service_access = ['Netflix'];
     await window.toggleSingleBrainVoice();
     const socket = mockSockets[mockSockets.length - 1];
     socket.simulateOpen();
@@ -861,7 +870,7 @@ def test_no_pending_speech_finalisation_immediate():
     });
 
     // Button click with no speech currently in-flight
-    await window.handleReadyCTAClick();
+    await window.executeVoiceSearchHandoff('cta_button_click');
 
     const fetchCalls = mockFetchCalls.length;
 
@@ -879,6 +888,9 @@ def test_older_turn_completion_does_not_prematurely_resolve_target_barrier():
     does not prematurely resolve the barrier.
     """
     js = """
+    // Prior access choices are confirmed before testing this handoff.
+    chatState.country_confirmed = true;
+    chatState.service_access = ['Netflix'];
     await window.toggleSingleBrainVoice();
     const socket = mockSockets[mockSockets.length - 1];
     socket.simulateOpen();
@@ -887,7 +899,7 @@ def test_older_turn_completion_does_not_prematurely_resolve_target_barrier():
     socket.simulateMessage({ type: 'transcript', role: 'user', turn_id: 3, text: 'Keep it fast-paced' });
 
     let handoffSettled = false;
-    const handoffPromise = window.handleReadyCTAClick().then(() => { handoffSettled = true; });
+    const handoffPromise = window.executeVoiceSearchHandoff('cta_button_click').then(() => { handoffSettled = true; });
 
     const finalizeMsg = socket.sentMessages.find(m => m.type === 'finalize_turn');
     socket.simulateMessage({
@@ -938,6 +950,9 @@ def test_multiple_final_constraints_preserved_in_recommendation_payload():
     are all committed and dispatched in the recommendation request.
     """
     js = """
+    // Prior access choices are confirmed before testing this handoff.
+    chatState.country_confirmed = true;
+    chatState.service_access = ['Netflix'];
     await window.toggleSingleBrainVoice();
     const socket = mockSockets[mockSockets.length - 1];
     socket.simulateOpen();
@@ -957,7 +972,7 @@ def test_multiple_final_constraints_preserved_in_recommendation_payload():
       }
     });
 
-    await window.handleReadyCTAClick();
+    await window.executeVoiceSearchHandoff('cta_button_click');
     const payload = mockFetchCalls[0].body;
 
     const maxRuntimeSig = (payload.tonight_signals || []).find(s => s.name === 'max-runtime');
@@ -981,6 +996,9 @@ def test_double_click_during_handoff_deduplication():
     and fire exactly 1 recommendation request.
     """
     js = """
+    // Prior access choices are confirmed before testing this handoff.
+    chatState.country_confirmed = true;
+    chatState.service_access = ['Netflix'];
     await window.toggleSingleBrainVoice();
     const socket = mockSockets[mockSockets.length - 1];
     socket.simulateOpen();
@@ -997,8 +1015,8 @@ def test_double_click_during_handoff_deduplication():
     });
 
     // Rapid double click
-    const p1 = window.handleReadyCTAClick();
-    const p2 = window.handleReadyCTAClick();
+    const p1 = window.executeVoiceSearchHandoff('cta_button_click');
+    const p2 = window.executeVoiceSearchHandoff('cta_button_click');
 
     const isSamePromise = (p1 === p2);
     await Promise.all([p1, p2]);
@@ -1019,6 +1037,9 @@ def test_deduplication_after_barrier_clears_and_refinement():
     are ignored, but a genuinely newer refinement triggers a new search.
     """
     js = """
+    // Prior access choices are confirmed before testing this handoff.
+    chatState.country_confirmed = true;
+    chatState.service_access = ['Netflix'];
     await window.toggleSingleBrainVoice();
     const socket = mockSockets[mockSockets.length - 1];
     socket.simulateOpen();
@@ -1043,11 +1064,11 @@ def test_deduplication_after_barrier_clears_and_refinement():
       });
     };
 
-    const handoffP1 = window.handleReadyCTAClick();
+    const handoffP1 = window.executeVoiceSearchHandoff('cta_button_click');
     await new Promise(r => setTimeout(r, 20));
 
     // Duplicate click with identical payload while isGenerating
-    const handoffP2 = window.handleReadyCTAClick();
+    const handoffP2 = window.executeVoiceSearchHandoff('cta_button_click');
     await handoffP2;
 
     const fetchCountAfterDuplicate = mockFetchCalls.length;
@@ -1085,7 +1106,7 @@ def test_socket_failure_during_handoff_recovers_to_intake():
 
     socket.simulateMessage({ type: 'transcript', role: 'user', turn_id: 1, text: 'something funny' });
 
-    const handoffPromise = window.handleReadyCTAClick();
+    const handoffPromise = window.executeVoiceSearchHandoff('cta_button_click');
 
     // Socket fails
     socket.simulateError(new Error('Connection lost'));
@@ -1099,7 +1120,7 @@ def test_socket_failure_during_handoff_recovers_to_intake():
     console.log(JSON.stringify({
       intakeHidden,
       statusText,
-      hasRecoveryNotice: threadHtml.includes('Earlier confirmed preferences have been retained')
+      hasRecoveryNotice: threadHtml.includes('Your confirmed preferences are saved')
     }));
     """
     result = _run_voice_journey_js(js)
@@ -1142,7 +1163,7 @@ def test_restart_during_handoff_cancels_barrier():
     assert result["barrierTargetTurnId"] is None
 
 
-def test_auto_recommendation_requires_explicit_intent():
+def test_voice_search_requires_button_even_with_explicit_transcript_intent():
     """
     Verifies that ready_to_recommend does not trigger recommendation search
     when the user speaks negative intent ("don't recommend yet") or bare confirmation.
@@ -1187,7 +1208,7 @@ def test_auto_recommendation_requires_explicit_intent():
     """
     result = _run_voice_journey_js(js)
     assert result["fetchCallsAfterNegative"] == 0
-    assert result["fetchCallsAfterExplicit"] == 1
+    assert result["fetchCallsAfterExplicit"] == 0
 
 
 def test_voice_start_authorizes_audio_and_schedules_normal_intake():
@@ -1291,7 +1312,7 @@ def test_readiness_strictly_requires_confirmed_context():
     });
 
     const thread = document.getElementById('toni-chat-thread');
-    const ctaAfterTurn1 = thread.children.some(c => c.id === 'inline-ready-cta-container');
+    const ctaAfterTurn1 = thread.children.some(c => c.id === 'msg-step-ready');
     const hasContextTurn1 = window.hasSufficientContext();
 
     // Turn 2: User says "I want comedy" -> taste signal added, but services access still empty
@@ -1305,22 +1326,22 @@ def test_readiness_strictly_requires_confirmed_context():
       }
     });
 
-    const ctaAfterTurn2 = thread.children.some(c => c.id === 'inline-ready-cta-container');
+    const ctaAfterTurn2 = thread.children.some(c => c.id === 'msg-step-ready');
     const hasContextTurn2 = window.hasSufficientContext();
 
     // User confirms streaming access, but country is still unconfirmed UK default
     window.toggleService("Netflix");
-    const ctaAfterServiceOnly = thread.children.some(c => c.id === 'inline-ready-cta-container');
+    const ctaAfterServiceOnly = thread.children.some(c => c.id === 'msg-step-ready');
     const hasContextServiceOnly = window.hasSufficientContext();
 
     // User explicitly confirms country (UK) -> all 3 confirmed -> CTA appears!
     window.selectMarket("UK");
-    const ctaAfterCountryConfirmed = thread.children.some(c => c.id === 'inline-ready-cta-container');
+    const ctaAfterCountryConfirmed = thread.children.some(c => c.id === 'msg-step-ready');
     const hasContextCountryConfirmed = window.hasSufficientContext();
 
     // User clears services -> context becomes insufficient -> CTA removed
     window.clearAllServicesInChat();
-    const ctaAfterServiceCleared = thread.children.some(c => c.id === 'inline-ready-cta-container');
+    const ctaAfterServiceCleared = thread.children.some(c => c.id === 'msg-step-ready');
     const hasContextServiceCleared = window.hasSufficientContext();
 
     console.log(JSON.stringify({
@@ -1366,7 +1387,7 @@ def test_finalize_ack_send_failed_rejects_barrier_recoverably():
     // User clicks CTA
     let handoffSettled = false;
     let handoffError = null;
-    const handoffPromise = window.handleReadyCTAClick()
+    const handoffPromise = window.executeVoiceSearchHandoff('cta_button_click')
       .then(() => { handoffSettled = true; })
       .catch((err) => { handoffError = err.message; });
 
@@ -1385,7 +1406,7 @@ def test_finalize_ack_send_failed_rejects_barrier_recoverably():
 
     console.log(JSON.stringify({
       handoffSettled,
-      hasRecoverableMessage: threadHtml.includes('Earlier confirmed preferences have been retained') || threadHtml.includes('preferences')
+      hasRecoverableMessage: threadHtml.includes('Your confirmed preferences are saved') || threadHtml.includes('preferences')
     }));
     """
     result = _run_voice_journey_js(js)
@@ -1491,7 +1512,7 @@ def test_country_and_pacing_defaults_do_not_satisfy_readiness_until_explicitly_s
 
     // 5. Verify CTA is now active
     const thread = document.getElementById('toni-chat-thread');
-    const ctaActive = thread.children.some(c => c.id === 'inline-ready-cta-container');
+    const ctaActive = thread.children.some(c => c.id === 'msg-step-ready');
 
     // 6. Test restart resets flags
     window.restartConversation();
@@ -1562,7 +1583,7 @@ def test_voice_turn_defaults_round_trip_does_not_enable_readiness():
     const demandingnessExplicitAfterEcho = window.chatState.demandingness_explicitly_set;
     const readyAfterEcho = window.hasSufficientContext();
     const thread = document.getElementById("toni-chat-thread");
-    const ctaAfterEcho = thread ? thread.children.some(c => c.id === "inline-ready-cta-container") : false;
+    const ctaAfterEcho = thread ? thread.children.some(c => c.id === "msg-step-ready") : false;
 
     // 4. Now user provides explicit taste in turn 2 ("I want brisk pacing")
     const briskContext = {
@@ -1576,7 +1597,7 @@ def test_voice_turn_defaults_round_trip_does_not_enable_readiness():
 
     const pacingExplicitAfterTaste = window.chatState.pacing_explicitly_set;
     const readyAfterTaste = window.hasSufficientContext();
-    const ctaAfterTaste = thread ? thread.children.some(c => c.id === "inline-ready-cta-container") : false;
+    const ctaAfterTaste = thread ? thread.children.some(c => c.id === "msg-step-ready") : false;
 
     console.log(JSON.stringify({
       readyBeforeUtterance,
@@ -1618,12 +1639,12 @@ def test_process_dialogue_turn_full_flow_does_not_enable_readiness_on_hi_tony():
     await window.enqueueTextDialogueTurn("Hi Tony");
     const readyAfterHiTony = window.hasSufficientContext();
     const thread = document.getElementById("toni-chat-thread");
-    const ctaAfterHiTony = thread ? thread.children.some(c => c.id === "inline-ready-cta-container") : false;
+    const ctaAfterHiTony = thread ? thread.children.some(c => c.id === "msg-step-ready") : false;
 
     // Turn 2: "I want brisk pacing"
     await window.enqueueTextDialogueTurn("I want brisk pacing");
     const readyAfterBrisk = window.hasSufficientContext();
-    const ctaAfterBrisk = thread ? thread.children.some(c => c.id === "inline-ready-cta-container") : false;
+    const ctaAfterBrisk = thread ? thread.children.some(c => c.id === "msg-step-ready") : false;
 
     console.log(JSON.stringify({
       readyAfterHiTony,
