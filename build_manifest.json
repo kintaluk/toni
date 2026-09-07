@@ -1,5 +1,5 @@
 {
-  "source_fingerprint": "sha256:ef8728731f13ce5f908cacdd090a5a8b728d4e76a7c6b174a8e237369cbf2517",
+  "source_fingerprint": "sha256:9069ad1bb7036362a2bc8c366fa6568ee33e15841fb9e7ead27d3932299cccab",
   "files": {
     "Dockerfile": "e997718eb879203bd3f44955d650145893c75760dc0443717bdfeee175f8636e",
     "licenses/Newsreader-OFL.txt": "dca5a91eaf1d4a431e74801dfa745db53856bb92ec1f982506f837a00a5a94a7",
@@ -53,9 +53,9 @@
     "static/assets/TONI_Mark_Aperture_Notch_Primary.svg": "19589a3168c6996e7bca17358c80409dc1b2d425bd1ab05018f87641c0a94d79",
     "static/assets/TONI_Mark_Aperture_Notch_Transparent.svg": "19589a3168c6996e7bca17358c80409dc1b2d425bd1ab05018f87641c0a94d79",
     "static/assets/TONI_Mark_Aperture_Notch_Warm_Bone.png": "ca27584fa756f222656129b35448486813b385d85dbbafe1537f68f2f4a3bbae",
-    "static/index.html": "e4cb797c1032124bac532450aa32da0f1b60afeee296929a5ece9856c9e5d1db",
+    "static/index.html": "87594951bf9f64431e91c453ecfdf9539d5597a638830fb205973a17591a400c",
     "static/licenses/Newsreader-OFL.txt": "dca5a91eaf1d4a431e74801dfa745db53856bb92ec1f982506f837a00a5a94a7"
   },
-  "base_git_sha": "e1b14c748273bf309b1790571ecf768cd96c3103",
+  "base_git_sha": "36ac08a64cf2edeaaec42e479359aa06dfdba06d",
   "is_dirty": true
 }

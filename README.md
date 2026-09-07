@@ -185,4 +185,17 @@ TONI utilizes third-party APIs to deliver live metadata, search indexes, and str
 
 TONI has passed an initial naming scan without an obvious film or television category conflict. It has not been formally legally cleared.
 
-© 2026 KINTAL Ltd. All rights reserved.
+© 2026 KINTAL Ltd.
+
+TONI's original project code is licensed under the **GNU Affero General Public
+License, version 3 only** (`AGPL-3.0-only`). See [LICENSE](LICENSE) for the full
+terms. You may redistribute and modify it under those terms. It is provided
+without warranty, including the implied warranties of merchantability and
+fitness for a particular purpose.
+
+Third-party dependencies, fonts and other third-party materials retain their
+own licences and notices. In particular, Newsreader retains its SIL Open Font
+License in `licenses/Newsreader-OFL.txt` and `static/licenses/Newsreader-OFL.txt`.
+
+The project licence changed from MIT to AGPL-3.0-only on 7 September 2026.
+Earlier development notes describing MIT refer to the earlier repository state.
