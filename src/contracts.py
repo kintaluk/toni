@@ -191,6 +191,7 @@ class RecommendationResponse(BaseModel):
         default_factory=list,
         description="The list of seed pool films (as 'Title (Year)') excluded during ranking as unverified."
     )
+    search_diagnostics: Dict[str, Any] = Field(default_factory=dict, description="Discovery and filtering outcomes, distinct from verified no matches.")
 
     @model_validator(mode="after")
     def validate_roles_sequence(self) -> "RecommendationResponse":

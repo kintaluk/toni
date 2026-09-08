@@ -533,16 +533,27 @@ def recent_role_order(ordered: List[Recommendation]) -> List[Recommendation]:
     return result
 
 
+class DiscoveryCandidates(list):
+    """List-compatible result carrying fallback provenance per request."""
+    def __init__(self, candidates, fallback=False):
+        super().__init__(candidates)
+        self.fallback = fallback
+
+
+def _fallback_candidates():
+    return DiscoveryCandidates([FilmMetadata(**s["metadata"]) for s in SEED_FILMS], fallback=True)
+
+
 def discover_candidates_with_gemini(context: UserContext, deadline: Optional[float] = None) -> List[FilmMetadata]:
     """Uses Gemini Flash to discover 15-20 diverse, acclaimed candidate films up front
     matching user mood, pacing, and constraints.
     """
     has_gemini_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
     if not has_gemini_key:
-        return [FilmMetadata(**s["metadata"]) for s in SEED_FILMS]
+        return _fallback_candidates()
 
     if deadline and time.monotonic() >= deadline:
-        return [FilmMetadata(**s["metadata"]) for s in SEED_FILMS]
+        return _fallback_candidates()
 
     all_signals = context.tonight_signals + context.persistent_taste
     pacing = next((s.value for s in all_signals if s.name == "pacing"), None)
@@ -564,7 +575,7 @@ def discover_candidates_with_gemini(context: UserContext, deadline: Optional[flo
     max_runtime = int(max_runtime_signal.value) if max_runtime_signal is not None else None
 
     prompt = f"""You are TONI, a discerning cinema discovery guide.
-Based on the viewer's current preferences, generate a diverse candidate list of 15 to 20 released feature films that fit what the viewer is in the mood for. Start with releases from {date.today().year - 1}–{date.today().year}, then expand backwards only as far as the earliest release year below. Unless older cinema is explicitly requested, avoid repeatedly defaulting to familiar award winners. Prefer a range of recent releases with verified availability over an all-time classics list. Never sacrifice the requested genre or mood merely for recency.
+Based on the viewer's current preferences, generate a diverse candidate list of 15 to 20 released feature films that fit what the viewer is in the mood for. When the earliest year is 'any year', consider all eras equally and prioritize mood and likely included streaming access. Apply a year restriction only when explicitly set below. TV references describe tone, humour and character dynamics for feature-film recommendations; never return a TV series as a candidate. Never sacrifice the requested genre or mood merely for recency. Availability will be independently verified by the application.
 
 Viewer Preferences:
 - Country: {context.country}
@@ -639,12 +650,12 @@ Requirements:
                 )
                 for c in response.parsed.candidates
             ]
-            if len(candidates) >= 5:
+            if candidates:
                 return candidates
     except Exception as e:
         print(f"[!] Live candidate discovery failed: {e}. Falling back to seed films.", file=sys.stderr)
 
-    return [FilmMetadata(**s["metadata"]) for s in SEED_FILMS]
+    return _fallback_candidates()
 
 
 def _rank_movies_live(
@@ -693,8 +704,12 @@ def _rank_movies_live(
             context, deadline=discovery_deadline)
     except Exception as exc:
         print(f"[TONI] Discovery unavailable ({type(exc).__name__}); using seed candidates.", file=sys.stderr)
-        discovered_candidates = [FilmMetadata(**s["metadata"]) for s in SEED_FILMS]
+        discovered_candidates = _fallback_candidates()
 
+    diagnostics = {"discovery_fallback": bool(getattr(discovered_candidates, "fallback", False)),
+                   "discovered": len(discovered_candidates), "year_excluded": 0}
+    diagnostics["year_excluded"] = sum(1 for c in discovered_candidates
+        if context.min_release_year is not None and c.year < context.min_release_year)
     discovered_candidates = [c for c in discovered_candidates
                              if context.min_release_year is None or c.year >= context.min_release_year]
 
@@ -719,15 +734,17 @@ def _rank_movies_live(
                 return meta, "unavailable", avail
         except Exception as e:
             print(f"[!] Error checking availability for {meta.title}: {e}", file=sys.stderr)
-            return meta, "unavailable", None
+            return meta, "unverified", None
 
     avail_timeout = min(3.0, max(0.0, remaining(pipeline_deadline) - 2.0))
     avail_executor = UPSTREAM_EXECUTOR
+    completed_titles = set()
     try:
         future_to_meta = {avail_executor.submit(check_availability, c): c for c in discovered_candidates}
         for future in completed_until(future_to_meta, time.monotonic() + avail_timeout):
             try:
                 meta, status_tag, avail_res = future.result()
+                completed_titles.add((meta.title, meta.year))
                 if status_tag == "available":
                     surviving_candidates.append((meta, avail_res))
                 elif status_tag == "unverified":
@@ -748,6 +765,11 @@ def _rank_movies_live(
         pass
     finally:
         pass  # Shared bounded pool; completed_until cancels queued work.
+
+    for meta in discovered_candidates:
+        if (meta.title, meta.year) not in completed_titles:
+            unverified_excluded_count += 1
+            unverified_excluded_titles.append(f"{meta.title} ({meta.year})")
 
     print(
         f"[TONI Live Pipeline] Candidate Discovery & Filtering Audit:\n"
@@ -784,7 +806,7 @@ def _rank_movies_live(
         print(f"[TONI Live Pipeline Diagnostic] {diagnostic_reason}", file=sys.stderr)
 
         existing_titles = {meta.title.lower().strip() for meta, _ in surviving_candidates}
-        checked_titles = set(existing_titles)
+        checked_titles = {meta.title.lower().strip() for meta in discovered_candidates} | existing_titles
 
         # Refill only with seed films that pass hard constraints, tone alignment, and verified availability
         for seed in SEED_FILMS:
@@ -820,6 +842,8 @@ def _rank_movies_live(
                 avail = call_until(refill_deadline, get_film_availability,
                     meta.title, meta.year, context, timeout=remaining(refill_deadline))
             except Exception:
+                unverified_excluded_count += 1
+                unverified_excluded_titles.append(f"{meta.title} ({meta.year})")
                 continue
             if avail.status == AvailabilityStatus.AVAILABLE:
                 surviving_candidates.append((meta, avail))
@@ -828,15 +852,20 @@ def _rank_movies_live(
             elif avail.status == AvailabilityStatus.UNVERIFIED:
                 unverified_excluded_count += 1
                 unverified_excluded_titles.append(f"{meta.title} ({meta.year})")
+            else:
+                unavailable_titles.append(f"{meta.title} ({meta.year})")
 
         print(f"[TONI Live Pipeline] Candidate pool after verified refill has {len(surviving_candidates)} eligible candidates.", file=sys.stderr)
 
+    diagnostics.update(unavailable=len(unavailable_titles), unverified=unverified_excluded_count,
+                       runtime_excluded=len(runtime_excluded_titles), genre_excluded=len(genre_excluded_titles))
     if not surviving_candidates:
         print(f"[TONI Live Pipeline Diagnostic] 0 candidates survived after all filtering and refill attempts.", file=sys.stderr)
         return RecommendationResponse(
             recommendations=[],
             unverified_excluded_count=unverified_excluded_count,
-            unverified_excluded_titles=unverified_excluded_titles
+            unverified_excluded_titles=unverified_excluded_titles,
+            search_diagnostics=diagnostics
         )
 
     # 4. Preliminary alignment sorting to select the best 4 candidates for full Parallel evidence & profiling
@@ -850,7 +879,9 @@ def _rank_movies_live(
                 if g.lower() in meta_genres:
                     score += 15
         # Tone vs genres alignment heuristic
-        if any(w in flat_user_tones for w in ["warm", "heartfelt", "gentle", "tender", "light", "feel-good", "soothing"]):
+        if any(w in flat_user_tones for w in ["funny", "comedy", "hilarious"]):
+            score += 25 if "comedy" in meta_genres else -15
+        elif any(w in flat_user_tones for w in ["warm", "heartfelt", "gentle", "tender", "light", "feel-good", "soothing"]):
             if any(g in meta_genres for g in ["drama", "comedy", "romance", "family", "animation"]):
                 score += 15
             if any(g in meta_genres for g in ["horror", "thriller", "action", "crime", "sci-fi"]):
@@ -1032,7 +1063,7 @@ def _rank_movies_live(
     scored_candidates = [r for r in scored_candidates if r.personal_fit_score > 0]
     if not scored_candidates:
         return RecommendationResponse(recommendations=[], unverified_excluded_count=unverified_excluded_count,
-            unverified_excluded_titles=unverified_excluded_titles)
+            unverified_excluded_titles=unverified_excluded_titles, search_diagnostics=diagnostics)
     scored_candidates.sort(key=lambda r: recommendation_order(r, context), reverse=True)
     final_recs: List[Recommendation] = []
 
@@ -1115,7 +1146,8 @@ def _rank_movies_live(
     return RecommendationResponse(
         recommendations=final_recs,
         unverified_excluded_count=unverified_excluded_count,
-        unverified_excluded_titles=unverified_excluded_titles
+        unverified_excluded_titles=unverified_excluded_titles,
+        search_diagnostics=diagnostics
     )
 
 

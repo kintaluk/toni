@@ -154,6 +154,13 @@ reply only for the current saved choices. It then stops microphone capture and
 playback and moves to visual search. The persistent button remains available as
 “Review choices” or “Find my results”; recommendations are never narrated.
 
+New chats use any release year. Search offers disclose included access only
+(no extra-cost rentals) unless the viewer explicitly allows rentals/purchases.
+Voice and text confirmation use the same saved choices. Failed discovery or
+availability checks are distinguished from checked non-matches, with retry or
+single-constraint adjustments that retain other preferences. See the
+[unrestricted voice acceptance notes](docs/UNRESTRICTED_VOICE_20260908.md).
+
 The preset test-persona UI and `/api/personas` endpoint have been removed. Test
 fixtures remain under `tests/`; they are excluded from deployment. See
 [review flow and cleanup notes](docs/REVIEW_FLOW_20260908.md) for the API protocol,

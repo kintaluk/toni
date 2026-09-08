@@ -386,7 +386,7 @@ class VoiceTurnLLMOutput(BaseModel):
     clear_exclusions: bool = Field(default=False, description="True if user explicitly cleared genre exclusions")
     remove_exclusions: Optional[List[str]] = Field(default=None, description="specific genres to remove from exclusions")
     preferred_genres: Optional[List[str]] = Field(default=None, description="genres the user positively desires")
-    reference_films: Optional[List[str]] = Field(default=None, description="specific film titles mentioned as positive reference favourites")
+    reference_films: Optional[List[str]] = Field(default=None, description="film or TV titles mentioned as positive taste references for feature-film recommendations")
     country: Optional[str] = Field(default=None, description="UK or US if mentioned")
     services: Optional[List[str]] = Field(default=None, description="streaming services mentioned")
     replace_services: Optional[List[str]] = Field(default=None, description="streaming services if user specifies exclusive list e.g. 'Netflix only'")
@@ -405,12 +405,46 @@ class ContextExtractionLLMOutput(BaseModel):
     clear_exclusions: bool = Field(default=False, description="True if user explicitly cleared genre exclusions")
     remove_exclusions: Optional[List[str]] = Field(default=None, description="specific genres to remove from exclusions")
     preferred_genres: Optional[List[str]] = Field(default=None, description="genres the user positively desires")
-    reference_films: Optional[List[str]] = Field(default=None, description="specific film titles mentioned as positive reference favourites")
+    reference_films: Optional[List[str]] = Field(default=None, description="film or TV titles mentioned as positive taste references for feature-film recommendations")
     country: Optional[str] = Field(default=None, description="UK or US if mentioned")
     services: Optional[List[str]] = Field(default=None, description="streaming services mentioned")
     replace_services: Optional[List[str]] = Field(default=None, description="streaming services if user specifies exclusive list e.g. 'Netflix only'")
     remove_services: Optional[List[str]] = Field(default=None, description="streaming services to remove e.g. 'remove Disney+'")
     ready_to_recommend: bool = Field(default=False, description="True if user explicitly requests recommendations or confirms they are ready")
+
+
+def _is_affirmative_reply(text: str) -> bool:
+    reply = re.sub(r"[,.;!]+", " ", text or "")
+    reply = re.sub(r"\s+", " ", reply).strip()
+    return bool(re.fullmatch(r"(?:(?:yes|yeah|yep|sure|okay|ok|go ahead|please do)(?: please)?(?: |$))+", reply, re.I))
+
+
+def _search_offer(ctx: UserContext) -> str:
+    policy = "Rentals and purchases included" if ctx.allow_rent_buy else "Included access only, no extra-cost rentals"
+    year = f"{ctx.min_release_year} onwards" if ctx.min_release_year else "any year"
+    return f"{policy}, {year}. Shall I search with these choices?"
+
+
+def _apply_explicit_constraints(ctx: UserContext, text: str) -> UserContext:
+    """Apply explicit controls equally to model extraction and local fallback.
+
+    General 'no restrictions' clears content limits, not permission to spend.
+    Rental policy is always disclosed in the search offer.
+    """
+    text = (text or "").lower().replace("’", "'")
+    unrestricted = bool(re.search(r"\b(?:no|without any|without) restrictions\b", text))
+    if unrestricted:
+        ctx.tonight_signals = [s for s in ctx.tonight_signals if s.name not in (SIGNAL_MAX_RUNTIME, SIGNAL_EXCLUDE_GENRE)]
+    if unrestricted or re.search(r"\b(?:any year|any era|no year (?:limit|restriction)s?|no release.year (?:limit|restriction)s?)\b", text):
+        ctx.min_release_year = None
+    year = re.search(r"\b(?:from|since|after)\s+((?:19|20)\d{2})\b|\b((?:19|20)\d{2})\s+(?:onwards|onward|or later|and later)\b", text)
+    if year:
+        ctx.min_release_year = int(year.group(1) or year.group(2)) + (1 if year.group(0).startswith("after ") else 0)
+    if re.search(r"\b(?:included only|included access only|no (?:extra.cost )?rentals?|don't (?:include|want|allow) (?:rentals?|purchases)|without (?:rentals?|purchases))\b", text):
+        ctx.allow_rent_buy = False
+    elif re.search(r"\b(?:(?:include|allow|happy to pay for|okay with|ok with) (?:rentals?|purchases)|(?:rentals?|purchases) (?:are )?(?:fine|okay|ok|allowed))\b", text):
+        ctx.allow_rent_buy = True
+    return ctx
 
 
 def _apply_explicit_service_access(ctx: UserContext, user_input: str) -> UserContext:
@@ -428,7 +462,7 @@ def _apply_explicit_service_access(ctx: UserContext, user_input: str) -> UserCon
     access = re.search(r"\b(?:have|got|access\s+to|subscribe\s+to|use)\b", text)
     if all_platforms and access and not negated:
         ctx.service_access = [p['name'] for p in PROVIDER_PRESETS.get(ctx.country, [])]
-    return ctx
+    return _apply_explicit_constraints(ctx, user_input)
 
 
 def _merge_signals_into_context(ctx: UserContext, data: Any) -> UserContext:
@@ -599,6 +633,8 @@ GENRE_CANONICAL = {
 def _extract_voice_context_fallback(user_text: str, current_ctx: UserContext) -> Tuple[UserContext, bool]:
     """Local deterministic fallback for extracting signals from user text with robust negation, runtime clearing, and service replacement."""
     ctx = current_ctx.model_copy(deep=True)
+    if _is_affirmative_reply(user_text):
+        return ctx, False  # Consent is handled by the current search offer, never extraction.
     raw_lower = (user_text or "").lower()
     extracted_signals = []
 
@@ -769,8 +805,16 @@ def _extract_voice_context_fallback(user_text: str, current_ctx: UserContext) ->
     updated_tonight = [s for s in ctx.tonight_signals if s.name not in existing_names]
     updated_tonight.extend(extracted_signals)
     ctx.tonight_signals = updated_tonight
-
-    return ctx, ready
+    # Preserve named TV references too: discovery uses their tone for feature films.
+    reference = re.search(r"\b(?:like|similar to|loved|enjoyed)\s+([A-Z][\w'’:+-]*(?:\s+[A-Z][\w'’:+-]*)*)", user_text)
+    if reference:
+        refs = next((s.value for s in ctx.tonight_signals if s.name == SIGNAL_REFERENCE_FILMS), [])
+        refs = list(refs) if isinstance(refs, list) else [refs]
+        if reference.group(1) not in refs:
+            refs.append(reference.group(1))
+        ctx.tonight_signals = [s for s in ctx.tonight_signals if s.name != SIGNAL_REFERENCE_FILMS]
+        ctx.tonight_signals.append(TasteSignal(name=SIGNAL_REFERENCE_FILMS, value=refs, signal_type=SignalType.SOFT_SESSION_PREFERENCE))
+    return _apply_explicit_constraints(ctx, user_text), ready
 
 
 
@@ -803,8 +847,8 @@ def _process_voice_turn_fallback(turn_req: VoiceTurnRequest) -> VoiceTurnRespons
         else:
             reply = "Tell me what you're in the mood for. A pace, genre, feeling or even a film you liked is enough to start."
 
-        if turn_req.mode == "voice" and ctx.service_access and ctx.tonight_signals:
-            reply = "Shall I search with these choices?"
+        if ctx.service_access and ctx.tonight_signals:
+            reply = _search_offer(ctx)
         clean_reply = enforce_toni_brand_name(reply)
         return VoiceTurnResponse(
             assistant_reply=clean_reply,
@@ -831,7 +875,7 @@ def extract_voice_context(
     return_mode: bool = False
 ) -> Union[Tuple[UserContext, bool], Tuple[UserContext, bool, str]]:
     """Extracts structured signals and shortlist readiness from spoken input without generating a redundant conversational reply."""
-    if not user_input or not user_input.strip():
+    if not user_input or not user_input.strip() or _is_affirmative_reply(user_input):
         if return_mode:
             return current_context, False, "noop"
         return current_context, False
@@ -864,7 +908,7 @@ Rules:
 4. Extract max_runtime in minutes if viewer states a time limit (e.g. "under 2 hours" -> 120). If viewer clears or removes time limits (e.g. "any length is fine", "no limit"), set clear_max_runtime=True.
 5. Extract exclude_genres as a list of strings if viewer wants to rule out specific genres. If viewer clears or unblocks genre exclusions (e.g. "horror is fine now", "remove that exclusion"), set clear_exclusions=True or populate remove_exclusions.
 6. Extract preferred_genres (e.g. ['Comedy']) if viewer explicitly asks for or desires certain genres.
-7. Extract reference_films if viewer mentions specific films they like or want films similar to.
+7. Extract reference_films for named films OR TV shows used as positive taste references. A TV reference describes taste for feature-film recommendations. Extract only new preferences from the latest input, never replay preferences from history.
 8. Extract country ('UK' or 'US') and services. If viewer specifies exclusive services (e.g. 'Netflix only', 'I only have Netflix'), populate replace_services. If viewer asks to remove services (e.g. 'remove Disney+'), populate remove_services.
 9. Set ready_to_recommend to True ONLY if the user explicitly asks to see films / recommendations or confirms they are ready."""
 
@@ -912,7 +956,7 @@ async def extract_voice_context_async(
     return_mode: bool = False
 ) -> Union[Tuple[UserContext, bool], Tuple[UserContext, bool, str]]:
     """Extracts structured signals and shortlist readiness asynchronously with enforced request deadline."""
-    if not user_input or not user_input.strip():
+    if not user_input or not user_input.strip() or _is_affirmative_reply(user_input):
         if return_mode:
             return current_context, False, "noop"
         return current_context, False
@@ -946,7 +990,7 @@ Rules:
 4. Extract max_runtime in minutes if viewer states a time limit (e.g. "under 2 hours" -> 120). If viewer clears or removes time limits (e.g. "any length is fine", "no limit"), set clear_max_runtime=True.
 5. Extract exclude_genres as a list of strings if viewer wants to rule out specific genres. If viewer clears or unblocks genre exclusions (e.g. "horror is fine now", "remove that exclusion"), set clear_exclusions=True or populate remove_exclusions.
 6. Extract preferred_genres (e.g. ['Comedy']) if viewer explicitly asks for or desires certain genres.
-7. Extract reference_films if viewer mentions specific films they like or want films similar to.
+7. Extract reference_films for named films OR TV shows used as positive taste references. A TV reference describes taste for feature-film recommendations. Extract only new preferences from the latest input, never replay preferences from history.
 8. Extract country ('UK' or 'US') and services. If viewer specifies exclusive services (e.g. 'Netflix only', 'I only have Netflix'), populate replace_services. If viewer asks to remove services (e.g. 'remove Disney+'), populate remove_services.
 9. Set ready_to_recommend to True ONLY if the user explicitly asks to see films / recommendations or confirms they are ready."""
 
@@ -1233,6 +1277,8 @@ class LiveExtractionPipeline:
 
 def process_voice_turn(turn_req: VoiceTurnRequest) -> VoiceTurnResponse:
     """Processes a dialogue turn using Gemini Flash if available, with structured fallback."""
+    if _is_affirmative_reply(turn_req.user_input):
+        return _process_voice_turn_fallback(turn_req)
     has_gemini_key = bool(os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
     if not has_gemini_key or os.environ.get("TONI_MOCK_GEMINI_LIVE") == "true":
         return _process_voice_turn_fallback(turn_req)
@@ -1344,8 +1390,8 @@ MANDATORY: You must NEVER recommend, pitch, name, or list specific film titles o
             raw_reply = str(data.assistant_reply).strip() if data.assistant_reply else "I've noted what you're in the mood for."
             clean_reply = enforce_toni_brand_name(raw_reply)
 
-        if turn_req.mode == "voice" and ctx.service_access and ctx.tonight_signals:
-            clean_reply = "Shall I search with these choices?"
+        if ctx.service_access and ctx.tonight_signals:
+            clean_reply = _search_offer(ctx)
         return VoiceTurnResponse(
             assistant_reply=clean_reply,
             updated_context=ctx,
@@ -1597,7 +1643,7 @@ Gather the minimum missing information naturally. Do not force a fixed question 
 MANDATORY RULES:
 1. You must NEVER recommend, pitch, name, or invent film titles or shortlists to watch tonight. The application performs live search and displays recommendation cards visually on screen.
 2. You may acknowledge films the viewer mentions as reference taste signals (e.g., 'Alien has great atmosphere; are you looking for sci-fi suspense, or something lighter?'), but never propose films for tonight.
-3. When enough preferences and access details are known, ask exactly "Shall I search with these choices?" The application displays the choices for review. Only the viewer's affirmative reply to this question authorizes the application to search. Never treat yes to another question as search permission.
+3. When preferences and access are known, state the current rental policy and year before asking exactly "Shall I search with these choices?" Default to "Included access only, no extra-cost rentals, any year. Shall I search with these choices?" If the viewer explicitly chose rentals or a year limit, state that instead. "No restrictions" clears content and year limits but does not opt into extra charges. TV references such as Ted Lasso describe taste for film recommendations. Only an affirmative reply to the search question authorizes search. Never treat yes to another question as permission.
 4. Always wait for the viewer to confirm they are ready before concluding intake. If the viewer provides multiple details up front, adapt smoothly without repeating answered questions.
 5. If the viewer confirms the search, stop intake. The application switches to visual search and displays the shortlist. Never speak the results, review analysis, or another intake question after confirmation. If the viewer changes a preference, accept the change and ask "Shall I search with these choices?" again. If country or services are missing, ask for those first.""")]
                 ),

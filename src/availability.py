@@ -620,7 +620,7 @@ def get_film_availability(title: str, year: int, context: UserContext, timeout: 
                         matched_services.append(p_name)
 
                 # free / ads
-                ads_list = market_providers.get("ads", [])
+                ads_list = market_providers.get("ads", []) + market_providers.get("free", [])
                 for p in ads_list:
                     p_name = p.get("provider_name", "")
                     norm_s = normalize_service_name(p_name)

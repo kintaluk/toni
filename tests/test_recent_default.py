@@ -1,4 +1,4 @@
-"""New sessions must not silently return to old-film defaults."""
+"""New sessions must not silently impose a release-year restriction."""
 from datetime import date
 from types import SimpleNamespace
 from contracts import UserContext, TasteSignal, SignalType, OutputRole
@@ -6,7 +6,7 @@ from ranking import recommendation_order, recent_role_order
 from test_voice_search_journey import _run_voice_journey_js
 
 
-def test_new_session_and_restart_search_recent_without_touching_filter():
+def test_new_session_and_restart_search_any_year_without_touching_filter():
     result = _run_voice_journey_js(r'''
       chatState.country_confirmed = true; chatState.service_access = ['Sky Go'];
       const initial = chatState.min_release_year;
@@ -14,14 +14,13 @@ def test_new_session_and_restart_search_recent_without_touching_filter():
       renderReadyTurn(); confirmChoices();
       await handleReadyCTAClick(); await new Promise(r=>setTimeout(r,450));
       const first = mockFetchCalls.find(c=>c.url.includes('/api/recommend')).body;
-      const selected = document.getElementById('results-quick-refine-bar').innerHTML.includes('Recent ('+initial+' onwards)');
+      const selected = document.getElementById('results-quick-refine-bar').innerHTML.includes('value="" selected>Any year');
       await quickRefine('year',''); await new Promise(r=>setTimeout(r,450));
       const cleared = chatState.min_release_year;
       restartConversation();
       console.log(JSON.stringify({initial,voiceYear,requestYear:first.min_release_year,selected,cleared,restarted:chatState.min_release_year}));
     ''')
-    cutoff = date.today().year - 3
-    assert result == dict(initial=cutoff,voiceYear=cutoff,requestYear=cutoff,selected=True,cleared=None,restarted=cutoff)
+    assert result == dict(initial=None,voiceYear=None,requestYear=None,selected=True,cleared=None,restarted=None)
 
 
 def candidate(title, year, score, genre='Comedy', stretch=None):

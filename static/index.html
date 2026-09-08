@@ -637,7 +637,7 @@
       country: "UK",
       country_confirmed: false,
       allow_rent_buy: false,
-      min_release_year: RECENT_RELEASE_YEAR,
+      min_release_year: null,
       intake_depth: "",
       service_access: [],
       pacing: "measured",
@@ -1999,7 +1999,11 @@
               const record = ensurePendingVoiceReply(speechTurnId);
               record.text = msg.assistant_reply;
             }
-            releaseTurnAudioBuffer(speechTurnId, msg.assistant_reply || currentVoiceAssistantText);
+            // Wait for context commit on consent; an upstream intake reply must
+            // not be played while the application is about to start the search.
+            if (!isCurrentSearchConfirmation(voiceTurnUserText || currentVoiceUserText, speechTurnId)) {
+              releaseTurnAudioBuffer(speechTurnId, msg.assistant_reply || currentVoiceAssistantText);
+            }
             if (currentVoiceAssistantBubble && (!currentVoiceTurnId || currentVoiceTurnId === speechTurnId)) {
               finalizeVoiceAssistantMessage();
             }
@@ -2187,7 +2191,9 @@
 
     async function toggleSingleBrainVoice() {
       if (voiceActive) {
+        const offer = completedDialogueTurnId >= latestDialogueTurnId ? pendingVoiceSearchOffer : null;
         teardownVoiceSession();
+        pendingVoiceSearchOffer = offer;
         return;
       }
 
@@ -2306,6 +2312,9 @@
 
     function syncContextToState(ctx, turnId = 0, userText = "") {
       if (!ctx || currentView === "results") return;
+      // An affirmative answer contains no new preferences. Keep the exact
+      // reviewed snapshot even if model extraction returns different defaults.
+      if (isCurrentSearchConfirmation(userText, turnId)) return;
       confirmedChoicesKey="";
       const snapshot=dialoguePreferenceSnapshots.get(turnId);
       const preserved={};
@@ -2335,6 +2344,10 @@
       if (typeof ctx.allow_rent_buy === "boolean" && (turnId === 0 || turnId >= (fieldVersions.allow_rent_buy || 0))) {
         chatState.allow_rent_buy = ctx.allow_rent_buy;
         if (turnId > 0) fieldVersions.allow_rent_buy = turnId;
+      }
+      if ('min_release_year' in ctx && (turnId === 0 || turnId >= (fieldVersions.min_release_year || 0))) {
+        chatState.min_release_year = ctx.min_release_year;
+        if (turnId > 0) fieldVersions.min_release_year = turnId;
       }
       if (ctx.tonight_signals) {
         chatState.tonight_signals = ctx.tonight_signals;
@@ -2439,19 +2452,23 @@
     let confirmedChoicesKey = '';
     let pendingVoiceSearchOffer = null;
 
-    function handleVoiceSearchConfirmation(userText, assistantText, turnId) {
+    function isCurrentSearchConfirmation(userText, turnId) {
       const offer = pendingVoiceSearchOffer;
-      pendingVoiceSearchOffer = null;
       // Accept only a complete affirmative reply to this session's specific offer.
       // Mixed replies ("yes, but...") are preference edits and need a fresh offer.
       // Speech transcription adds punctuation and may repeat a confirmation.
       // Every word must still belong to an affirmative phrase.
       const reply = (userText || '').replace(/[,.;!]+/g, ' ').replace(/\s+/g, ' ').trim();
       const affirmative = /^(?:(?:yes|yeah|yep|sure|okay|ok|go ahead|please do)(?: please)?(?: |$))+$/i.test(reply);
-      if (voiceActive && offer && offer.generation === voiceSessionGeneration &&
+      return Boolean(offer && offer.generation === sessionGeneration &&
           turnId > offer.turnId && affirmative && hasConfirmedSearchAccess() &&
-          completedDialogueTurnId >= latestDialogueTurnId &&
-          offer.key === getSearchPayloadKey()) {
+          offer.key === getSearchPayloadKey());
+    }
+    function handleVoiceSearchConfirmation(userText, assistantText, turnId) {
+      if (turnId < completedDialogueTurnId) return false;
+      const confirmed = isCurrentSearchConfirmation(userText, turnId);
+      pendingVoiceSearchOffer = null;
+      if (confirmed && completedDialogueTurnId >= latestDialogueTurnId) {
         retireIntakePanels();
         confirmedChoicesKey = getSearchPayloadKey();
         // Context is committed already. Stop all capture/playback before search.
@@ -2462,9 +2479,9 @@
       // Match the final permission question, allowing a short acknowledgement
       // before it and natural descriptions of the search after the verb.
       const searchQuestion = /(?:^|[.!]\s+)((?:(?:shall|should|can|may) I|would you like me to|do you want me to) (?:search\b|(?:start|run|begin) (?:the |a )?search\b)[^.!?]*\?)\s*$/i.exec((assistantText || '').trim());
-      if (voiceActive && hasConfirmedSearchAccess() &&
+      if (hasConfirmedSearchAccess() &&
           searchQuestion && !/\b(?:or|but|instead|not|don't)\b/i.test(searchQuestion[1])) {
-        pendingVoiceSearchOffer = {turnId, generation:voiceSessionGeneration, key:getSearchPayloadKey()};
+        pendingVoiceSearchOffer = {turnId, generation:sessionGeneration, key:getSearchPayloadKey()};
       }
       return false;
     }
@@ -3209,6 +3226,7 @@
         syncContextToState(data.updated_context, turnId, userText);
         syncLiveContext();
         completedDialogueTurnId = Math.max(completedDialogueTurnId, turnId);
+        if (handleVoiceSearchConfirmation(userText, data.assistant_reply, turnId)) return;
         appendToniMessage(data.assistant_reply);
 
         syncReadinessUI();
@@ -3299,7 +3317,10 @@
     }
 
     function getSearchPayloadKey() {
-      return JSON.stringify(buildVoiceTurnPayload('', chatState.dialogue_mode || 'text').current_context);
+      const context = buildVoiceTurnPayload('', 'text').current_context;
+      delete context.voice_name;
+      context.service_access = [...context.service_access].sort();
+      return JSON.stringify(context);
     }
 
     function executeVoiceSearchHandoff(sourceIntent = "cta_click") {
@@ -3724,14 +3745,30 @@
         if (additionalContainer) additionalContainer.innerHTML = "";
 
       if (!recs.length) {
+        const diag = data.search_diagnostics || {};
+        const incomplete = diag.discovery_fallback || diag.unverified > 0 || data.unverified_excluded_count > 0;
+        const title = incomplete ? "Search checks could not be completed" : "No verified matches in the films checked";
+        const actions = [];
+        const adjustment = (label, action, value='') => `<button type="button" onclick="quickRefine('${action}', '${value}')" class="px-4 py-2 rounded-full border border-ink/20 text-sm">${escapeHtml(label)}</button>`;
+        if (!incomplete) {
+          if (diag.year_excluded > 0 && chatState.min_release_year) actions.push(adjustment('Try any year; keep other choices', 'year'));
+          if (diag.runtime_excluded > 0 && chatState.max_runtime) actions.push(adjustment('Remove runtime limit; keep other choices', 'runtime'));
+          if (diag.genre_excluded > 0) getEffectiveExcludedGenres().forEach(g => {
+            if (/^[A-Za-z -]+$/.test(g)) actions.push(adjustment(`Allow ${g}; keep other choices`, 'exclude', g));
+          });
+          if (diag.unavailable > 0 && !chatState.allow_rent_buy) actions.push(adjustment('Try including extra-cost rentals and purchases', 'rentals'));
+        }
+        const explanation = incomplete
+          ? 'Discovery or availability services did not finish reliably. This does not mean there are no matches. Retry with your saved choices.'
+          : `The films checked did not pass availability and your limits in ${chatState.country}. ${actions.length ? 'Try one adjustment below; your other preferences stay saved.' : 'Retry discovery with your saved choices.'}`;
         if (watchcardsContainer) {
           watchcardsContainer.innerHTML = `
             <div class="p-8 text-center rounded-[6px] border border-ink/20 bg-white/70 space-y-4">
-              <h3 class="font-serif text-2xl font-bold text-ink">Nothing matched your current choices</h3>
+              <h3 class="font-serif text-2xl font-bold text-ink">${title}</h3>
               <p class="text-xs sm:text-sm text-ink-muted max-w-md mx-auto font-serif">
-                No verified matches were found for these choices in ${chatState.country}. Try Any year or another tone above, or start fresh to change your services and other preferences.
+                ${explanation}
               </p>
-
+              <div class="flex flex-wrap justify-center gap-2">${actions.join('')}<button type="button" onclick="triggerPipelineExecution()" class="px-4 py-2 rounded-full bg-ink text-bone text-sm">Retry saved choices</button></div>
             </div>
           `;
         }
@@ -3945,12 +3982,13 @@
 
   function quickRefine(action, value = '') {
     if (isGenerating) return Promise.resolve();
-    if (!['shorter','lighter','tone','year','runtime','clear-reference','exclude'].includes(action)) return Promise.resolve();
+    if (!['shorter','lighter','tone','year','runtime','clear-reference','exclude','rentals'].includes(action)) return Promise.resolve();
     if (action === 'tone' && !['','intense','tense','eerie','warm','funny','mind-bending'].includes(value)) return Promise.resolve();
     if (action === 'year' && !['', '2015', '2020', String(RECENT_RELEASE_YEAR)].includes(value)) return Promise.resolve();
     rememberRefinementState();
     applyRefinementDraft();
     if(action==='runtime') chatState.max_runtime=null;
+    if(action==='rentals') chatState.allow_rent_buy=true;
     if(action==='clear-reference') chatState.reference_films=[];
     if(action==='exclude') setExcludeGenre(getEffectiveExcludedGenres().filter(g=>g!==value));
     if (action === 'shorter') {
@@ -4070,7 +4108,8 @@
       chatState.demandingness_explicitly_set = false;
       setExcludeGenre("");
       chatState.max_runtime = null;
-      chatState.min_release_year = RECENT_RELEASE_YEAR;
+      chatState.min_release_year = null;
+      preferenceFields.forEach(field => { fieldVersions[field] = 0; });
       chatState.preferred_genres=[]; chatState.reference_films=[]; chatState.tonight_signals=[];
       chatState.freeform_mood = "";
       chatState.dialogue_mode = "text";
