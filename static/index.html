@@ -2456,8 +2456,9 @@
         triggerPipelineExecution();
         return true;
       }
+      const searchQuestion = /^(?:(?:shall|should|can) I|would you like me to) (?:search|start (?:the )?search)(?: (?:with|using) (?:these|those|your) (?:choices|preferences))?(?: (?:now|then|for you))?\s*\?$/i;
       if (voiceActive && hasConfirmedSearchAccess() &&
-          /\bshall I search with these choices\s*\?/i.test(assistantText || '')) {
+          searchQuestion.test((assistantText || '').trim())) {
         pendingVoiceSearchOffer = {turnId, generation:voiceSessionGeneration, key:getSearchPayloadKey()};
       }
       return false;

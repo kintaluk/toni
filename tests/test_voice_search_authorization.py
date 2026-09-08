@@ -80,14 +80,15 @@ def test_http_voice_fallback_readiness_cannot_start_search():
 
 
 @pytest.mark.parametrize('reply,expected', [('Yes please',1),('Not yet',0),('Yes, but no horror',0),('Shall I search with these choices?',0)])
-def test_only_complete_confirmation_of_current_offer_starts_one_visual_search(reply, expected):
+@pytest.mark.parametrize('offer', ['Shall I search with these choices?', 'Shall I search with these choices then?', 'Would you like me to search now?'])
+def test_only_complete_confirmation_of_current_offer_starts_one_visual_search(reply, expected, offer):
     import json
-    result = _run_voice_journey_js(SETUP + 'const answer=' + json.dumps(reply) + ';' + r'''
+    result = _run_voice_journey_js(SETUP + 'const answer=' + json.dumps(reply) + '; const offer=' + json.dumps(offer) + ';' + r'''
       chatState.country_confirmed=true;
       const ctx={country:'UK',country_confirmed:true,service_access:['Netflix'],tonight_signals:[]};
       socket.simulateMessage({type:'transcript',role:'user',turn_id:1,text:'UK and Netflix'});
       socket.simulateMessage({type:'turn_complete',turn_id:1,user_text:'UK and Netflix',
-        assistant_reply:'Shall I search with these choices?',updated_context:ctx});
+        assistant_reply:offer,updated_context:ctx});
       socket.simulateMessage({type:'transcript',role:'user',turn_id:2,text:answer});
       const event={type:'turn_complete',turn_id:2,user_text:answer,assistant_reply:'Searching.',updated_context:ctx};
       socket.simulateMessage(event); socket.simulateMessage(event);

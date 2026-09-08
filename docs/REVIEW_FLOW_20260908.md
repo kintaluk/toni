@@ -30,7 +30,9 @@ Voice confirmation belongs to the current question and saved preferences. A
 complete affirmative reply starts a single visual search only after context
 commit. Preference edits invalidate the offer. Negative, mixed, unrelated or
 echoed question transcripts cannot authorize search. The transition tears down
-capture and playback. Turn detection now allows 1.2 seconds of silence with low
+capture and playback. Natural search-question variants, including “Shall I search
+with these choices then?”, are covered by the confirmation tests. Turn detection
+now allows 1.2 seconds of silence with low
 end-of-speech sensitivity; explicitly unfinished transcripts get a short grace
 period. Interruption events also process any input text they contain.
 
