@@ -44,14 +44,14 @@ TONI asks a short, useful set of questions about factors such as:
 Recommendations are dynamically filtered using live, country-specific (UK/US) streaming availability data (powered by Watchmode and TMDB) against the user's explicit service list and extra-cost rent/buy preferences.
 
 ### 3. Live Evidence Gathering (Parallel Search & Extract)
-TONI calls the Parallel Search and Extract APIs dynamically at runtime during the user session to gather and cite professional critical film reviews, providing live critical sources and external evidence for our recommended films.
+The web app shows available films and factual details first, then streams review analysis into the existing cards. It checks cached evidence before searching professional review outlets, including RogerEbert.com, Empire, The Guardian, BFI, Variety and The Hollywood Reporter. When coverage is insufficient, it announces a broader search and tries other sources. Failed analysis retains usable source links and leaves unassessed dimensions clearly labelled.
 
 ### 4. Personal Matching & Scoring
-Our scoring engine combines the stable, evidence-led 6-dimension Film Profile with the user's tonight context and persistent taste memory to calculate a normalized, internal `Personal Fit Score` (0-100) and assign specific recommendation roles.
+The initial web shortlist is matched using preferences, metadata and verified availability. Review enrichment adds the six-dimension critical profile without changing the displayed order. The synchronous API also supports evidence-led ranking. Internal fit scores are not displayed to viewers.
 
 ### 5. Focused Output
 TONI returns a clean, focused ranked shortlist:
-- **Top 3 for Tonight:** Structured with specific presentation roles (`Best fit`, `Strong alternative`, and `Worth a stretch`).
+- **Top 3 for Tonight:** `Best fit`, `Strong alternative`, and another eligible option. An evidence-led `Worth a stretch` role is reserved for the synchronous ranking path.
 - **Expanded Watchlist:** Up to 7 total eligible recommendations upon tapping *Show my full recommendations*.
 
 ---
@@ -145,9 +145,19 @@ Run the environment verification tool and tests:
 # Verify imports and keys
 .venv\Scripts\python.exe src/verify_env.py
 
-# Run the test suite (37 unit & integration tests)
+# Run the regression suite (external integrations are isolated by default)
 .venv\Scripts\python.exe -m pytest
 ```
+
+Voice asks “Shall I search with these choices?” and accepts a complete affirmative
+reply only for the current saved choices. It then stops microphone capture and
+playback and moves to visual search. The persistent button remains available as
+“Review choices” or “Find my results”; recommendations are never narrated.
+
+The preset test-persona UI and `/api/personas` endpoint have been removed. Test
+fixtures remain under `tests/`; they are excluded from deployment. See
+[review flow and cleanup notes](docs/REVIEW_FLOW_20260908.md) for the API protocol,
+validation and remaining manual checks.
 
 ### Running TONI
 

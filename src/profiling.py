@@ -17,14 +17,11 @@ from pydantic import BaseModel, Field
 # Ensure local imports work
 sys.path.append(str(Path(__file__).resolve().parent))
 from contracts import FilmProfile, EvidenceState
-from gemini_client import get_gemini_client, PROFILING_MODEL_PRIMARY, PROFILING_MODEL_FALLBACK
+from gemini_client import get_gemini_client, PROFILING_MODEL_PRIMARY
 
 load_dotenv(override=True)
 if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("false", "0"):
     os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
-
-MODEL_NAME = PROFILING_MODEL_PRIMARY
-
 
 class GeminiProfileSchema(BaseModel):
     """Temporary structured output schema for Gemini's profile generation."""
@@ -110,16 +107,20 @@ def generate_film_profile(
     year: int,
     director: str,
     reviews: List[Dict[str, Any]],
-    deadline: Optional[float] = None
+    deadline: Optional[float] = None,
+    client: Any = None,
 ) -> Tuple[FilmProfile, EvidenceState, str]:
     """Generates the FilmProfile, EvidenceState, and consensus rationale for a movie using Gemini 2.5 Pro.
 
-    Falls back to a robust mock generator if reviews list is empty or API keys are missing.
+    Synthetic fixtures are enabled only by the explicit offline test flag.
     Results are cached with a 24-hour TTL and bounded size, with in-flight request deduplication.
     """
     cache_key = _compute_profile_cache_key(title, year, director, reviews)
-    if not reviews and (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")) and os.environ.get("TONI_MOCK_GEMINI_LIVE") != "true":
-        raise ValueError("No usable review evidence; a live profile cannot be synthesized")
+    if os.environ.get("TONI_MOCK_GEMINI_LIVE") != "true":
+        if not reviews:
+            raise ValueError("No usable review evidence; a live profile cannot be synthesized")
+        if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
+            raise ValueError("Review synthesis is not configured")
     with _PROFILE_CACHE_LOCK:
         if cache_key in _PROFILE_CACHE:
             entry = _PROFILE_CACHE[cache_key]
@@ -145,7 +146,7 @@ def generate_film_profile(
         raise TimeoutError("Profile is still being generated")
 
     try:
-        # Fallback/Mock Generator for our seed films if no reviews are supplied or API key is missing
+        # Explicit offline test fixtures; unavailable production integrations fail above.
         has_gemini_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
         if not reviews or not has_gemini_key or os.environ.get("TONI_MOCK_GEMINI_LIVE") == "true":
             # Local mock profiles for our main seed films to keep integration testing fast and robust
@@ -209,7 +210,7 @@ def generate_film_profile(
         # Live Gemini Call via centralized factory (Gemini Developer API, vertexai=False)
         from google.genai import types
 
-        client = get_gemini_client()
+        client = client or get_gemini_client()
         prompt = build_profiling_prompt(title, year, director, reviews)
 
         response = None
@@ -218,7 +219,7 @@ def generate_film_profile(
             # Gemini Developer API requires a minimum deadline of 10s (10000ms).
             # If remaining allocated deadline cannot accommodate this constraint, skip upstream call.
             rem_sec = deadline - time.monotonic() if deadline else 12.0
-            if rem_sec <= 0:
+            if rem_sec < 10.0:
                 print(f"[*] Insufficient deadline budget for Gemini profiling '{title}' ({rem_sec:.2f}s < 10.0s). Skipping upstream call.", file=sys.stderr)
                 break
             try:

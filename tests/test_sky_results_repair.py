@@ -73,7 +73,7 @@ def test_persistent_action_does_not_depend_on_model_offer_and_resets():
       restartConversation(); const restarted = visible();
       console.log(JSON.stringify({initial,broad,results,returned,cleared,restarted}));
     ''')
-    assert result == dict(initial=False,broad=False,results=False,returned=False,cleared=False,restarted=False)
+    assert result == dict(initial=False,broad=True,results=False,returned=True,cleared=False,restarted=False)
 
 
 def test_sky_and_now_parse_and_match_upstream_names_without_store():

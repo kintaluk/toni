@@ -314,7 +314,7 @@ def test_extract_voice_context_deadline_config(monkeypatch):
     assert "http_options" in captured_config
     http_opts = captured_config["http_options"]
     assert http_opts is not None
-    assert http_opts.timeout == 2500  # 2.5s -> 2500ms
+    assert http_opts.timeout == 10000  # Provider minimum applies to test keys too.
     assert http_opts.retry_options is not None
     assert http_opts.retry_options.attempts == 1
 

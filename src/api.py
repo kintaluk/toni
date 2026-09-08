@@ -3,7 +3,7 @@ TONI - Tonight's Options, Narrowed Intelligently
 FastAPI HTTP Backend Service Wrapper
 
 Exposes production-ready REST API endpoints to serve recommendation requests,
-streaming availability lookups, and demo personas to Tina's frontend or external callers.
+streaming availability lookups, and progressive review analysis.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("false", "0"):
 
 from fastapi import FastAPI, Query, Header, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
@@ -61,6 +61,7 @@ from gemini_client import get_gemini_client, EXTRACTION_MODEL, VOICE_MODEL
 from fastapi.openapi.utils import get_openapi
 from ranking import rank_movies
 from availability import SERVICE_NAME_MAP
+from review_updates import ReviewRequest, stream_review_updates
 
 load_dotenv()
 
@@ -164,60 +165,6 @@ PROVIDER_PRESETS = {
     ]
 }
 
-# Preconfigured Demo Personas for testing & judge evaluation
-DEMO_PERSONAS = [
-    {
-        "id": "persona_a",
-        "name": "Persona A: The Comedy & Fun Seeker",
-        "description": "Fast and energetic pace, light effort (2.0/5), seeking a funny mood in the UK with Netflix access and rentals included.",
-        "context": {
-            "country": "UK",
-            "service_access": ["Netflix"],
-            "allow_rent_buy": True,
-            "intake_depth": "just_give_me_something",
-            "tonight_signals": [
-                {"name": "pacing", "value": "brisk", "signal_type": "soft_session_preference"},
-                {"name": "demandingness", "value": 2.0, "signal_type": "soft_session_preference"},
-                {"name": "tone", "value": "funny", "signal_type": "soft_session_preference"}
-            ],
-            "persistent_taste": []
-        }
-    },
-    {
-        "id": "persona_b",
-        "name": "Persona B: The Classic Drama & Crime Lover",
-        "description": "Steady, absorbing pace with higher attention effort (4.0/5), intense mood in the US with Paramount+ and Pluto TV (included only).",
-        "context": {
-            "country": "US",
-            "service_access": ["Paramount+", "Pluto TV"],
-            "allow_rent_buy": False,
-            "intake_depth": "a_couple_of_questions",
-            "tonight_signals": [
-                {"name": "demandingness", "value": 4.0, "signal_type": "soft_session_preference"},
-                {"name": "tone", "value": "intense", "signal_type": "soft_session_preference"}
-            ],
-            "persistent_taste": []
-        }
-    },
-    {
-        "id": "persona_c",
-        "name": "Persona C: The Fantasy Adventurer",
-        "description": "Magical mood in the US, ruling out sci-fi and crime, with Netflix access.",
-        "context": {
-            "country": "US",
-            "service_access": ["Netflix"],
-            "allow_rent_buy": True,
-            "intake_depth": "get_to_know_me",
-            "tonight_signals": [
-                {"name": "exclude-genre", "value": ["Sci-Fi", "Crime"], "signal_type": "hard_constraint"},
-                {"name": "tone", "value": "magical", "signal_type": "soft_session_preference"}
-            ],
-            "persistent_taste": []
-        }
-    }
-]
-
-
 CONVERSATIONS_LOG_PATH = Path("logs") / "conversations.jsonl"
 
 
@@ -283,12 +230,6 @@ def get_providers(country: str = Query("UK", description="Target market: 'UK' or
         "country": c_upper,
         "providers": PROVIDER_PRESETS[c_upper]
     }
-
-
-@app.get("/api/personas", summary="Get Preconfigured Demo Personas")
-def get_personas() -> Dict[str, Any]:
-    """Return preconfigured demo personas for fast evaluation and testing."""
-    return {"personas": DEMO_PERSONAS}
 
 
 @app.get("/api/export-logs", summary="Export Conversation Transcript Logs")
@@ -862,6 +803,8 @@ def _process_voice_turn_fallback(turn_req: VoiceTurnRequest) -> VoiceTurnRespons
         else:
             reply = "Tell me what you're in the mood for. A pace, genre, feeling or even a film you liked is enough to start."
 
+        if turn_req.mode == "voice" and ctx.service_access and ctx.tonight_signals:
+            reply = "Shall I search with these choices?"
         clean_reply = enforce_toni_brand_name(reply)
         return VoiceTurnResponse(
             assistant_reply=clean_reply,
@@ -925,9 +868,7 @@ Rules:
 8. Extract country ('UK' or 'US') and services. If viewer specifies exclusive services (e.g. 'Netflix only', 'I only have Netflix'), populate replace_services. If viewer asks to remove services (e.g. 'remove Disney+'), populate remove_services.
 9. Set ready_to_recommend to True ONLY if the user explicitly asks to see films / recommendations or confirms they are ready."""
 
-            timeout_ms = int(timeout * 1000) if timeout else 10000
-            if not str(os.environ.get("GEMINI_API_KEY", "")).startswith("mock"):
-                timeout_ms = max(timeout_ms, 10000)
+            timeout_ms = max(int(timeout * 1000), 10000) if timeout else 10000
             http_opts = types.HttpOptions(
                 timeout=timeout_ms,
                 retry_options=types.HttpRetryOptions(attempts=1)
@@ -1009,9 +950,7 @@ Rules:
 8. Extract country ('UK' or 'US') and services. If viewer specifies exclusive services (e.g. 'Netflix only', 'I only have Netflix'), populate replace_services. If viewer asks to remove services (e.g. 'remove Disney+'), populate remove_services.
 9. Set ready_to_recommend to True ONLY if the user explicitly asks to see films / recommendations or confirms they are ready."""
 
-            timeout_ms = int(timeout * 1000) if timeout else 10000
-            if not str(os.environ.get("GEMINI_API_KEY", "")).startswith("mock"):
-                timeout_ms = max(timeout_ms, 10000)
+            timeout_ms = max(int(timeout * 1000), 10000) if timeout else 10000
             http_opts = types.HttpOptions(
                 timeout=timeout_ms,
                 retry_options=types.HttpRetryOptions(attempts=1)
@@ -1405,6 +1344,8 @@ MANDATORY: You must NEVER recommend, pitch, name, or list specific film titles o
             raw_reply = str(data.assistant_reply).strip() if data.assistant_reply else "I've noted what you're in the mood for."
             clean_reply = enforce_toni_brand_name(raw_reply)
 
+        if turn_req.mode == "voice" and ctx.service_access and ctx.tonight_signals:
+            clean_reply = "Shall I search with these choices?"
         return VoiceTurnResponse(
             assistant_reply=clean_reply,
             updated_context=ctx,
@@ -1520,9 +1461,28 @@ async def websocket_voice_live(websocket: WebSocket):
     turn_active = False
 
     extraction_pipeline: Optional[LiveExtractionPipeline] = None
+    transcript_commit_task = None
+    input_transcription_finished = True
+
+    async def commit_streamed_turn(delay=0):
+        nonlocal turn_active
+        # Transcription can trail turn_complete. Keep late words on this turn.
+        if delay:
+            await asyncio.sleep(delay)
+        completed_turn_id = turn_counter
+        turn_active = False
+        full_user = join_transcript_chunks(user_transcript_buf)
+        full_bot = enforce_toni_brand_name(join_transcript_chunks(assistant_transcript_buf))
+        user_transcript_buf.clear()
+        assistant_transcript_buf.clear()
+        await websocket.send_json({"type": "speech_complete", "assistant_reply": full_bot,
+                                   "turn_id": completed_turn_id})
+        if extraction_pipeline:
+            extraction_pipeline.enqueue_turn(turn_id=completed_turn_id, user_text=full_user,
+                                             bot_text=full_bot, history_snapshot=list(conversation_history))
 
     async def forward_gemini_responses(session):
-        nonlocal session_ctx, conversation_history, user_transcript_buf, assistant_transcript_buf, turn_counter, turn_active, extraction_pipeline
+        nonlocal session_ctx, conversation_history, user_transcript_buf, assistant_transcript_buf, turn_counter, turn_active, extraction_pipeline, transcript_commit_task, input_transcription_finished
         try:
             while True:
                 async for response in session.receive():
@@ -1532,8 +1492,9 @@ async def websocket_voice_live(websocket: WebSocket):
                     if content.interrupted:
                         await websocket.send_json({"type": "interrupted"})
                         assistant_transcript_buf.clear()
-                        continue
+                        # Interrupted responses may also carry input transcription.
                     if content.input_transcription and content.input_transcription.text:
+                        input_transcription_finished = getattr(content.input_transcription, "finished", None) is not False
                         if not turn_active:
                             turn_counter += 1
                             turn_active = True
@@ -1572,29 +1533,16 @@ async def websocket_voice_live(websocket: WebSocket):
                             "turn_id": turn_counter
                         })
                     if content.turn_complete:
-                        completed_turn_id = turn_counter
-                        turn_active = False
-                        full_user = join_transcript_chunks(user_transcript_buf)
-                        full_bot = enforce_toni_brand_name(join_transcript_chunks(assistant_transcript_buf))
-                        user_transcript_buf.clear()
-                        assistant_transcript_buf.clear()
-
-                        # 1. Distinguish end of streamed speech from completion of context extraction
-                        await websocket.send_json({
-                            "type": "speech_complete",
-                            "assistant_reply": full_bot,
-                            "turn_id": completed_turn_id
-                        })
-
-                        # 2. Snapshot history and enqueue for background extraction without blocking receive loop
-                        if extraction_pipeline:
-                            history_snapshot = list(conversation_history)
-                            extraction_pipeline.enqueue_turn(
-                                turn_id=completed_turn_id,
-                                user_text=full_user,
-                                bot_text=full_bot,
-                                history_snapshot=history_snapshot
-                            )
+                        if transcript_commit_task and not transcript_commit_task.done():
+                            transcript_commit_task.cancel()
+                        if input_transcription_finished:
+                            await commit_streamed_turn()
+                        else:
+                            transcript_commit_task = asyncio.create_task(commit_streamed_turn(0.45))
+                    elif (content.input_transcription and input_transcription_finished and
+                          transcript_commit_task and not transcript_commit_task.done()):
+                        transcript_commit_task.cancel()
+                        await commit_streamed_turn()
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -1649,16 +1597,17 @@ Gather the minimum missing information naturally. Do not force a fixed question 
 MANDATORY RULES:
 1. You must NEVER recommend, pitch, name, or invent film titles or shortlists to watch tonight. The application performs live search and displays recommendation cards visually on screen.
 2. You may acknowledge films the viewer mentions as reference taste signals (e.g., 'Alien has great atmosphere; are you looking for sci-fi suspense, or something lighter?'), but never propose films for tonight.
-3. Voice never starts a search automatically. When the viewer asks to search, say "Tap Find my results when you're ready." Do not claim you have started searching. The viewer must press the on-screen button.
+3. When enough preferences and access details are known, ask exactly "Shall I search with these choices?" The application displays the choices for review. Only the viewer's affirmative reply to this question authorizes the application to search. Never treat yes to another question as search permission.
 4. Always wait for the viewer to confirm they are ready before concluding intake. If the viewer provides multiple details up front, adapt smoothly without repeating answered questions.
-5. If enough preferences are known, say "Tap Find my results whenever you're ready." If country or services are missing, ask for the missing information without adding a readiness question. The button can collect any missing access choices before searching.""")]
+5. If the viewer confirms the search, stop intake. The application switches to visual search and displays the shortlist. Never speak the results, review analysis, or another intake question after confirmation. If the viewer changes a preference, accept the change and ask "Shall I search with these choices?" again. If country or services are missing, ask for those first.""")]
                 ),
                 input_audio_transcription=types.AudioTranscriptionConfig(),
                 output_audio_transcription=types.AudioTranscriptionConfig(),
                 realtime_input_config=types.RealtimeInputConfig(
                     automatic_activity_detection=types.AutomaticActivityDetection(
                         disabled=False,
-                        silence_duration_ms=700,
+                        silence_duration_ms=1200,
+                        end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,
                     )
                 )
             )
@@ -1863,6 +1812,10 @@ MANDATORY RULES:
             except (asyncio.CancelledError, Exception):
                 pass
 
+        if transcript_commit_task:
+            transcript_commit_task.cancel()
+            await asyncio.gather(transcript_commit_task, return_exceptions=True)
+
         # 2. Shutdown extraction pipeline (cancels in-flight extraction & worker task and awaits them)
         if extraction_pipeline:
             try:
@@ -1892,7 +1845,8 @@ MANDATORY RULES:
 def recommend_movies(
     context: UserContext,
     request: Request,
-    force_live_evidence: bool = Query(True, description="Whether to bypass local cache and force live Parallel Search calls"),
+    force_live_evidence: bool = Query(False, description="Whether to bypass cached review evidence"),
+    defer_reviews: bool = Query(False, description="Return films first; enrich using /api/reviews"),
     live: Optional[bool] = Query(True, description="Enable live runtime candidate discovery and Gemini profiling"),
     _rate_limit: None = Depends(check_rate_limit)
 ) -> RecommendationResponse:
@@ -1902,10 +1856,12 @@ def recommend_movies(
     and dynamic fit scoring using canonical Film Profiles.
     """
     try:
+        options = {"defer_reviews": True} if defer_reviews else {}
         response = rank_movies(
             context,
             force_live_evidence=force_live_evidence,
-            use_live_pipeline=live
+            use_live_pipeline=live,
+            **options,
         )
         return response
     except Exception as e:
@@ -1914,6 +1870,15 @@ def recommend_movies(
             status_code=500,
             detail="An internal error occurred. Something went wrong while I was finding your films. Try again, or adjust your choices."
         )
+
+
+@app.post("/api/reviews", summary="Stream review updates for an existing shortlist")
+async def review_updates(payload: ReviewRequest, _rate_limit: None = Depends(check_rate_limit)):
+    async def lines():
+        async for update in stream_review_updates(payload.films):
+            yield json.dumps(update, ensure_ascii=False) + "\n"
+    return StreamingResponse(lines(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
 class VersionedStaticFiles(StaticFiles):

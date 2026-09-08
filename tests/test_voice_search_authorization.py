@@ -1,4 +1,4 @@
-"""Voice echo/readiness cannot authorize search, and recovery always has an exit."""
+"""Only confirmation of the current search offer can authorize spoken search."""
 import pytest
 from test_voice_search_journey import _run_voice_journey_js
 
@@ -35,7 +35,7 @@ def test_failed_handoff_has_visible_action_and_correct_next_step(confirmed):
       await handoff;
       const button = !document.getElementById('persistent-results-action').classList.contains('hidden');
       const notice = document.getElementById('toni-chat-thread').innerHTML;
-      if(button) throw new Error('Search must wait for confirmation');
+      // A visible Review choices button provides recovery without authorizing search.
       if(chatState.country_confirmed) {renderReadyTurn();confirmChoices();}
       await handleReadyCTAClick();
       await new Promise(resolve=>setTimeout(resolve,450));
@@ -43,7 +43,7 @@ def test_failed_handoff_has_visible_action_and_correct_next_step(confirmed):
         requests:mockFetchCalls.filter(c=>c.url.includes('/api/recommend')).length,
         services:chatState.service_access}));
     ''')
-    assert result['button'] is False
+    assert result['button'] is confirmed
     assert 'saved' in result['notice']
     assert result['services'] == ['Sky Go']
     assert result['requests'] == (1 if confirmed else 0)
@@ -77,3 +77,40 @@ def test_http_voice_fallback_readiness_cannot_start_search():
         view:currentView,timer:autoRecommendationTimer}));
     ''')
     assert result == dict(requests=0,view='intake',timer=None)
+
+
+@pytest.mark.parametrize('reply,expected', [('Yes please',1),('Not yet',0),('Yes, but no horror',0),('Shall I search with these choices?',0)])
+def test_only_complete_confirmation_of_current_offer_starts_one_visual_search(reply, expected):
+    import json
+    result = _run_voice_journey_js(SETUP + 'const answer=' + json.dumps(reply) + ';' + r'''
+      chatState.country_confirmed=true;
+      const ctx={country:'UK',country_confirmed:true,service_access:['Netflix'],tonight_signals:[]};
+      socket.simulateMessage({type:'transcript',role:'user',turn_id:1,text:'UK and Netflix'});
+      socket.simulateMessage({type:'turn_complete',turn_id:1,user_text:'UK and Netflix',
+        assistant_reply:'Shall I search with these choices?',updated_context:ctx});
+      socket.simulateMessage({type:'transcript',role:'user',turn_id:2,text:answer});
+      const event={type:'turn_complete',turn_id:2,user_text:answer,assistant_reply:'Searching.',updated_context:ctx};
+      socket.simulateMessage(event); socket.simulateMessage(event);
+      await new Promise(resolve=>setTimeout(resolve,450));
+      console.log(JSON.stringify({requests:mockFetchCalls.filter(c=>c.url.includes('/api/recommend')).length,
+        voice:voiceActive,view:currentView}));
+    ''')
+    assert result['requests'] == expected
+    assert result['voice'] is (expected == 0)
+    assert result['view'] == ('results' if expected else 'intake')
+
+
+def test_yes_to_an_unrelated_question_or_after_preference_edit_does_not_search():
+    result = _run_voice_journey_js(SETUP + r'''
+      chatState.country_confirmed=true; chatState.service_access=['Netflix'];
+      completedDialogueTurnId=latestDialogueTurnId=1;
+      handleVoiceSearchConfirmation('Comedy','Do you like comedy?',1);
+      completedDialogueTurnId=latestDialogueTurnId=2;
+      const unrelated=handleVoiceSearchConfirmation('Yes','Okay.',2);
+      handleVoiceSearchConfirmation('Comedy','Shall I search with these choices?',2);
+      toggleExcludedGenre('Horror');
+      completedDialogueTurnId=latestDialogueTurnId=3;
+      const changed=handleVoiceSearchConfirmation('Yes','Okay.',3);
+      console.log(JSON.stringify({unrelated,changed,requests:mockFetchCalls.filter(c=>c.url.includes('/api/recommend')).length}));
+    ''')
+    assert result == dict(unrelated=False, changed=False, requests=0)

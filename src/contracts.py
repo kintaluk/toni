@@ -7,7 +7,7 @@ These types serve as the single source of truth for both the backend agent runti
 """
 
 from enum import Enum
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 # --- TASTE SIGNAL NAME CONSTANTS ---
@@ -172,6 +172,9 @@ class Recommendation(BaseModel):
         default_factory=list,
         description="Source URLs retrieved dynamically from Parallel."
     )
+    review_status: Literal["pending", "searching_more", "complete", "unavailable"] = "complete"
+    review_failure: Optional[Literal["retrieval", "synthesis"]] = Field(default=None, description="Processing failure, separate from review coverage.")
+    consensus_rationale: Optional[str] = None
 
 
 class RecommendationResponse(BaseModel):

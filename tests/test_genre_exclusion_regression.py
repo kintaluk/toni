@@ -2,9 +2,9 @@
 Behavioral regression tests verifying TONI genre exclusions in the frontend.
 
 Ensures that:
-1. Dropdown choices in the UI survive into both voice/text context payloads and recommendation requests.
-2. Multiple exclusions (e.g. from conversational context or personas) are preserved without truncation.
-3. Intentionally clearing exclusions (e.g. selecting "Nothing to rule out") removes the exclusion from requests.
+1. Button choices in the UI survive into both voice/text context payloads and recommendation requests.
+2. Multiple exclusions (e.g. from conversational context) are preserved without truncation.
+3. Toggling off the selected exclusions removes them from requests.
 4. An empty array in exclude_genres never shadows exclude_genre.
 
 These tests execute the actual JavaScript from static/index.html using Node.js and inspect the resulting payloads.
@@ -142,19 +142,17 @@ global.fetch = (url, options) => {{
         pytest.fail(f"Could not parse JSON output from Node test:\nOutput was:\n{res.stdout}\nError: {exc}")
 
 
-def test_dropdown_selection_populates_voice_and_recommendation_payloads():
+def test_button_selection_populates_voice_and_recommendation_payloads():
     """
-    Simulates user selecting 'Horror' from the dropdown and verifying
+    Simulates user selecting 'Horror' from the exclusion control and verifying
     both voice turn payload and recommendation pipeline request receive ['Horror'].
     """
     js = """
     window.chatState.intake_depth = 'get_to_know_me';
     window.renderStep4();
 
-    // User explicitly selects Horror in dropdown
-    const selectEl = document.getElementById('chat-exclude-genre');
-    selectEl.value = 'Horror';
-    selectEl.onchange();
+    // User explicitly selects Horror in exclusion control
+    window.toggleExcludedGenre('Horror');
     window.confirmStep4();
 
     const voicePayload = window.buildVoiceTurnPayload('find me a movie', 'text');
@@ -185,7 +183,7 @@ def test_dropdown_selection_populates_voice_and_recommendation_payloads():
 
 def test_multiple_exclusions_survive_unchanged_step4_confirmation():
     """
-    Verifies that multiple exclusions (e.g. from conversation or personas)
+    Verifies that multiple exclusions (e.g. from conversation)
     survive unchanged Step 4 confirmation without being overwritten by single-select value.
     """
     js = """
@@ -197,7 +195,7 @@ def test_multiple_exclusions_survive_unchanged_step4_confirmation():
     window.chatState.intake_depth = 'get_to_know_me';
     window.renderStep4();
 
-    // User confirms Step 4 WITHOUT modifying or changing the dropdown
+    // User confirms Step 4 WITHOUT modifying or changing the exclusion control
     window.confirmStep4();
 
     const voicePayload = window.buildVoiceTurnPayload('continue conversation', 'voice');
@@ -225,8 +223,8 @@ def test_multiple_exclusions_survive_unchanged_step4_confirmation():
 
 def test_absent_exclusion_survives_unchanged_step4_confirmation():
     """
-    Verifies that an exclusion absent from the dropdown options (e.g. 'Romance')
-    survives unchanged Step 4 confirmation without being cleared by the default dropdown value.
+    Verifies that an exclusion absent from the exclusion control options (e.g. 'Romance')
+    survives unchanged Step 4 confirmation without being cleared by the default exclusion control value.
     """
     js = """
     window.syncContextToState({
@@ -237,7 +235,7 @@ def test_absent_exclusion_survives_unchanged_step4_confirmation():
     window.chatState.intake_depth = 'get_to_know_me';
     window.renderStep4();
 
-    // User confirms Step 4 WITHOUT modifying or changing the dropdown
+    // User confirms Step 4 WITHOUT modifying or changing the exclusion control
     window.confirmStep4();
 
     const voicePayload = window.buildVoiceTurnPayload('find romance-free film', 'text');
@@ -263,9 +261,9 @@ def test_absent_exclusion_survives_unchanged_step4_confirmation():
     assert out["chat_exclude_genres"] == ["Romance"]
 
 
-def test_explicitly_changing_or_clearing_dropdown_updates_payloads():
+def test_explicitly_changing_or_clearing_buttons_updates_payloads():
     """
-    Verifies that explicitly changing or clearing the dropdown in Step 4
+    Verifies that explicitly changing or clearing the exclusion control in Step 4
     updates both voice and recommendation payloads correctly through the confirmation path.
     """
     js = """
@@ -278,21 +276,20 @@ def test_explicitly_changing_or_clearing_dropdown_updates_payloads():
     window.chatState.intake_depth = 'get_to_know_me';
     window.renderStep4();
 
-    // Explicitly change dropdown to 'Crime'
-    const selectEl = document.getElementById('chat-exclude-genre');
-    selectEl.value = 'Crime';
-    selectEl.onchange();
+    // Explicitly change exclusion control to 'Crime'
+    window.toggleExcludedGenre('Horror');
+    window.toggleExcludedGenre('Sci-Fi');
+    window.toggleExcludedGenre('Crime');
     window.confirmStep4();
 
     const voicePayload1 = window.buildVoiceTurnPayload('update to crime', 'text');
     await window.triggerPipelineExecution();
     const recommendSignals1 = lastFetchCall ? lastFetchCall.body.tonight_signals : null;
 
-    // 2. Now explicitly clear the dropdown to '' (Nothing to rule out)
+    // 2. Now explicitly clear the exclusion control to '' (Nothing to rule out)
     window.chatState.step = 4;
     window.renderStep4();
-    selectEl.value = '';
-    selectEl.onchange();
+    window.toggleExcludedGenre('Crime');
     window.confirmStep4();
 
     const voicePayload2 = window.buildVoiceTurnPayload('update to cleared', 'text');
@@ -327,11 +324,11 @@ def test_explicitly_changing_or_clearing_dropdown_updates_payloads():
     assert out["effective_exclusions_2"] == []
 
 
-def test_empty_exclude_genres_does_not_shadow_dropdown_selection():
+def test_empty_exclude_genres_does_not_shadow_legacy_scalar():
     """
     Direct reproduction test of the bug:
     In unpatched code, chatState.exclude_genres was initialized to [] (which is truthy in JS),
-    and chatState.exclude_genre was set by the dropdown.
+    and chatState.exclude_genre was set by the exclusion control.
     Verifies that setting chatState.exclude_genre directly is never shadowed by an empty array.
     """
     js = """
@@ -357,54 +354,3 @@ def test_empty_exclude_genres_does_not_shadow_dropdown_selection():
     assert len(recommend_exclude) == 1
     assert recommend_exclude[0]["value"] == ["Crime"]
     assert out["effective_exclusions"] == ["Crime"]
-
-
-def test_persona_loading_and_reset_behavior():
-    """
-    Verifies persona loading sets exclusions, and loading another persona without exclusions
-    resets them cleanly.
-    """
-    js = """
-    // 1. Persona with exclusion
-    const personaWithExclusion = {
-      country: 'UK',
-      service_access: ['Netflix'],
-      allow_rent_buy: false,
-      intake_depth: 'deep',
-      tonight_signals: [
-        { name: 'exclude_genre', value: ['Horror'] }
-      ]
-    };
-    window.applyPersona(personaWithExclusion, 'Persona With Horror Excluded');
-
-    const voicePayload1 = window.buildVoiceTurnPayload('test', 'text');
-    await window.triggerPipelineExecution();
-    const signals1 = lastFetchCall ? lastFetchCall.body.tonight_signals : null;
-
-    // 2. Persona without exclusion
-    const personaWithoutExclusion = {
-      country: 'UK',
-      service_access: ['Netflix'],
-      allow_rent_buy: false,
-      intake_depth: 'quick',
-      tonight_signals: []
-    };
-    window.applyPersona(personaWithoutExclusion, 'Persona Neutral');
-
-    const voicePayload2 = window.buildVoiceTurnPayload('test', 'text');
-    await window.triggerPipelineExecution();
-    const signals2 = lastFetchCall ? lastFetchCall.body.tonight_signals : null;
-
-    console.log(JSON.stringify({
-      persona1_recommend_signals: signals1,
-      persona2_recommend_signals: signals2
-    }));
-    """
-    out = _run_js_in_node(js)
-
-    p1_exclude = [s for s in out["persona1_recommend_signals"] if s["name"] == "exclude-genre"]
-    assert len(p1_exclude) == 1
-    assert p1_exclude[0]["value"] == ["Horror"]
-
-    p2_exclude = [s for s in out["persona2_recommend_signals"] if s["name"] == "exclude-genre"]
-    assert len(p2_exclude) == 0

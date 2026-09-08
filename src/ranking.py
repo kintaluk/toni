@@ -649,7 +649,8 @@ Requirements:
 
 def _rank_movies_live(
     context: UserContext,
-    force_live_evidence: bool = True
+    force_live_evidence: bool = True,
+    defer_reviews: bool = False,
 ) -> RecommendationResponse:
     """Executes the live TONI pipeline:
     1. Candidate Discovery: Gemini Flash generates 15-20 candidates up front.
@@ -867,6 +868,19 @@ def _rank_movies_live(
 
     def process_candidate_full(item):
         metadata, avail_res = item
+        if defer_reviews:
+            profile = FilmProfile(
+                story_and_writing=3, pacing_and_structure=3, performances=3,
+                craft_and_execution=3, accessibility_and_demandingness=3,
+                tone_and_emotional_character=metadata.genres,
+            )
+            return Recommendation(
+                metadata=metadata, availability=avail_res, profile=profile,
+                evidence_state=EvidenceState.MAINLY_OFFICIAL_FACTUAL,
+                personal_fit_score=calculate_personal_fit_score(profile, metadata, context),
+                role=OutputRole.RANKED_ADDITIONAL, review_status="pending",
+                concise_reason="Selected using your preferences, film details and available services.",
+            )
         reviews = []
         now = time.monotonic()
         time_left = max(0.0, pipeline_deadline - now)
@@ -1001,6 +1015,14 @@ def _rank_movies_live(
             )
         )
 
+    if defer_reviews:
+        # The first phase uses facts only. Never present temporary scores as criticism.
+        for rec in scored_candidates:
+            rec.review_status = "pending"
+            rec.evidence_sources = []
+            rec.stretch_signal = None
+            rec.concise_reason = "Selected using your preferences, film details and available services."
+
     # 5. Presentation Roles (Best Fit, Strong Alternative, Worth a Stretch, Ranked Additional)
     warm_requested = bool(flat_user_tones.intersection({"warm", "gentle", "light", "feel-good", "soothing"}))
     if warm_requested:
@@ -1033,7 +1055,7 @@ def _rank_movies_live(
         final_recs.append(strong_alt)
 
     # Worth a Stretch (only assigned if strong_alt exists, maintaining canonical role sequence)
-    if strong_alt:
+    if strong_alt and not defer_reviews:
         stretch_rec = None
         used = {r.metadata.title for r in final_recs}
         for r in scored_candidates:
@@ -1284,7 +1306,8 @@ def _rank_movies_seed(context: UserContext, force_live_evidence: bool = True) ->
 def rank_movies(
     context: UserContext,
     force_live_evidence: bool = True,
-    use_live_pipeline: Optional[bool] = None
+    use_live_pipeline: Optional[bool] = None,
+    defer_reviews: bool = False,
 ) -> RecommendationResponse:
     """Ties the entire TONI pipeline together:
 
@@ -1311,5 +1334,5 @@ def rank_movies(
         is_live = has_live_keys and force_live_evidence
 
     if is_live:
-        return _rank_movies_live(context, force_live_evidence=force_live_evidence)
+        return _rank_movies_live(context, force_live_evidence=force_live_evidence, defer_reviews=defer_reviews)
     return _rank_movies_seed(context, force_live_evidence=force_live_evidence)

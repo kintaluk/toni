@@ -36,8 +36,6 @@ BLOCKED_DOMAINS = [
     "rottentomatoes.com",       # Aggregator
     "metacritic.com",           # Aggregator
     "nytimes.com",              # Hard paywall
-    "variety.com",              # Hard paywall & scrape-blocking
-    "deadline.com",             # Industry news / scrape-blocking
     "boxofficemojo.com",        # Box office statistics
     "ticketmaster",             # Ticket listings
     "fandango.com",             # Ticket listings
@@ -45,6 +43,11 @@ BLOCKED_DOMAINS = [
     "trakt.tv",                 # Tracking aggregator
     "rogerebert.com/festivals", # Filter festival diaries/schedules (keep main reviews)
 ]
+
+REVIEW_DOMAINS = (
+    "rogerebert.com", "empireonline.com", "theguardian.com", "bfi.org.uk",
+    "variety.com", "hollywoodreporter.com", "indiewire.com", "slantmagazine.com",
+)
 
 
 def build_objective(title: str, year: int, director: str) -> str:
@@ -58,27 +61,35 @@ def build_objective(title: str, year: int, director: str) -> str:
         "or showtime listings, and general news coverage about the film's box "
         "office or production. Prioritise sources giving a substantive, "
         "opinionated critical assessment of the film's quality, whether positive "
-        "or negative, rather than a neutral plot description."
+        "or negative, rather than a neutral plot description. Prioritise "
+        + ", ".join(REVIEW_DOMAINS) + ". Match the film title, year and director."
     )
 
 
-def build_queries(title: str, year: int, director: str) -> List[str]:
+def build_queries(title: str, year: int, director: str, expanded: bool = False) -> List[str]:
     """Generate the precise query variations for Parallel Search."""
-    return [
+    queries = [
         f"{title} {year} movie review",
         f"{title} film critic review",
         f"{title} {director} review reception",
     ]
+    if expanded:
+        queries += [f'"{title}" {year} review site:{domain}' for domain in REVIEW_DOMAINS]
+    return queries
 
 
 def filter_search_results(results: List[Any]) -> List[str]:
     """Filter search result URLs to exclude aggregators, ticket listings, and blocked domains."""
     valid_urls = []
     for r in results:
-        url = r.url
+        url = r.get("url", "") if isinstance(r, dict) else r.url
         try:
             parsed = urllib.parse.urlparse(url)
             netloc = parsed.netloc.lower()
+            if parsed.scheme not in ("https", "http") or not netloc:
+                continue
+            if any(part in parsed.path.lower() for part in ("interview", "trailer", "synopsis", "showtimes")):
+                continue
             
             is_blocked = False
             for blocked in BLOCKED_DOMAINS:
@@ -103,7 +114,8 @@ def filter_search_results(results: List[Any]) -> List[str]:
             # Fallback to simple substring check on url if parsing fails
             if any(blocked in url.lower() for blocked in BLOCKED_DOMAINS):
                 continue
-        valid_urls.append(url)
+        if url not in valid_urls:
+            valid_urls.append(url)
     return valid_urls
 
 
@@ -240,7 +252,9 @@ def get_film_evidence(
     year: int,
     director: str,
     force_live: bool = False,
-    timeout: Optional[float] = None
+    timeout: Optional[float] = None,
+    expanded: bool = False,
+    attempted_urls: Optional[set] = None,
 ) -> List[Dict[str, Any]]:
     """Retrieve extracted review contents for a film.
 
@@ -250,7 +264,10 @@ def get_film_evidence(
     if not force_live:
         cached = load_from_cache(title, year)
         if cached:
-            return cached
+            eligible = set(filter_search_results(cached))
+            cached = [row for row in cached if row.get("url") in eligible]
+            if cached:
+                return cached
 
     # 2. Check for PARALLEL_API_KEY
     api_key = _parallel_api_key()
@@ -287,8 +304,8 @@ def get_film_evidence(
             try:
                 response = client.search(
                     objective=build_objective(title, year, director),
-                    search_queries=build_queries(title, year, director),
-                    timeout=min(remaining_for_search, 3.5)
+                    search_queries=build_queries(title, year, director, expanded=expanded),
+                    timeout=min(remaining_for_search, 7.0 if expanded else 4.0)
                 )
                 break
             except Exception as se:
@@ -303,7 +320,19 @@ def get_film_evidence(
 
         # 4. Filter URLs
         valid_urls = filter_search_results(response.results)
-        target_urls = valid_urls[:3]  # Limit to top 3 to optimize credits & performance
+        if expanded and attempted_urls:
+            valid_urls = [url for url in valid_urls if url not in attempted_urls]
+        # Diversify publications before spending extraction capacity on duplicates.
+        def preferred(url):
+            host = urllib.parse.urlparse(url).netloc.lower().removeprefix("www.")
+            return 0 if any(host == d or host.endswith("." + d) for d in REVIEW_DOMAINS) else 1
+        valid_urls.sort(key=preferred)
+        distinct, duplicates, hosts = [], [], set()
+        for url in valid_urls:
+            host = urllib.parse.urlparse(url).netloc.lower().removeprefix("www.")
+            (duplicates if host in hosts else distinct).append(url)
+            hosts.add(host)
+        target_urls = (distinct + duplicates)[:6 if expanded else 3]
 
         if not target_urls:
             log_trace(title, year, search_id, None, time.time() - t0, 0, 0, ["No valid URLs survived filtering."])
@@ -316,6 +345,8 @@ def get_film_evidence(
             log_trace(title, year, search_id, None, time.time() - t0, len(target_urls), 0, errors_list)
             return []
 
+        if attempted_urls is not None:
+            attempted_urls.update(target_urls)
         extract_response = client.extract(
             urls=target_urls,
             session_id=session_id,

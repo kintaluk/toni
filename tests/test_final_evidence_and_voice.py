@@ -85,3 +85,51 @@ def test_channel_edit_updates_the_open_voice_session():
       console.log(JSON.stringify({services:message?.context.service_access}));
     ''')
     assert result['services']==['Netflix','Sky Go']
+
+
+def test_unfinished_transcript_keeps_late_words_and_interrupted_input(monkeypatch):
+    from test_live_extraction_concurrency import MockWebSocket, MockResponse, MockServerContent
+    monkeypatch.setenv('GEMINI_API_KEY', 'mock-test-key')
+    monkeypatch.delenv('TONI_MOCK_GEMINI_LIVE', raising=False)
+
+    async def run():
+        upstream = asyncio.Queue()
+        extracted = []
+        committed = asyncio.Event()
+
+        class Session:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            async def receive(self):
+                while True:
+                    yield await upstream.get()
+
+        async def extract(**kwargs):
+            extracted.append(kwargs['user_input'])
+            committed.set()
+            return kwargs['current_context'], False, 'test'
+
+        monkeypatch.setattr(api, 'get_gemini_client', lambda: SimpleNamespace(
+            aio=SimpleNamespace(live=SimpleNamespace(connect=lambda **kw: Session()))))
+        monkeypatch.setattr(api, 'extract_voice_context_async', extract)
+        ws = MockWebSocket([{'type':'init','context':{'country':'UK','service_access':['Netflix']}}])
+        task = asyncio.create_task(api.websocket_voice_live(ws))
+        try:
+            async with asyncio.timeout(3):
+                while not any(m.get('type') == 'init_ack' for m in ws.sent_messages):
+                    await asyncio.sleep(.01)
+                first = MockServerContent(input_transcription='Hi TONI. ', turn_complete=True)
+                first.input_transcription.finished = False
+                await upstream.put(MockResponse(first))
+                await asyncio.sleep(.05)
+                assert not extracted
+                late = MockServerContent(interrupted=True, input_transcription='No horror, and under 90 minutes.')
+                late.input_transcription.finished = True
+                await upstream.put(MockResponse(late))
+                await committed.wait()
+                assert extracted == ['Hi TONI. No horror, and under 90 minutes.']
+                assert all(m['turn_id'] == 1 for m in ws.sent_messages if m.get('role') == 'user')
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    asyncio.run(run())

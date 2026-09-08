@@ -11,7 +11,7 @@
   <link rel="alternate icon" href="static/assets/TONI_Favicon.b2a70f4f.ico">
   <link rel="apple-touch-icon" href="static/assets/TONI_Apple_Touch_Icon_180px_Deep_Ink.a1ed45de.png">
   <link rel="stylesheet" href="static/assets/TONI_Design_Tokens.4dc3ef46.css" onerror="this.href='assets/TONI_Design_Tokens.4dc3ef46.css'">
-  <link rel="stylesheet" href="static/assets/toni.bundle.aaa33bbb.css" onerror="this.href='assets/toni.bundle.aaa33bbb.css'">
+  <link rel="stylesheet" href="static/assets/toni.bundle.e7edc255.css" onerror="this.href='assets/toni.bundle.e7edc255.css'">
   
   <!-- Typography: Newsreader (Editorial Serif) & Plus Jakarta Sans (Modern Interface) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -157,22 +157,6 @@
   <!-- MAIN SCROLLABLE CONTAINER -->
   <main class="flex-1 overflow-y-auto" id="main-scroll-container">
     <div class="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-
-      <!-- DEMO PERSONAS DRAWER (IF ?debug=true) -->
-      <section id="personas-section" class="mb-6 hidden">
-        <details class="group bg-white/50 rounded-[4px] border border-ink/15 p-3.5 transition-all">
-          <summary class="cursor-pointer flex items-center justify-between font-medium text-xs text-ink/70 hover:text-ink select-none">
-            <span class="flex items-center gap-2 font-semibold text-xs text-ink">
-              <svg class="w-3.5 h-3.5 text-ink" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-              Quick Test Personas
-            </span>
-            <span class="text-[11px] text-ink-subtle group-open:rotate-180 transition-transform">▼</span>
-          </summary>
-          <div class="mt-3 pt-2 border-t border-ink/10 grid grid-cols-1 sm:grid-cols-3 gap-2.5" id="personas-container">
-            <!-- Dynamically loaded from /api/personas -->
-          </div>
-        </details>
-      </section>
 
       <!-- VIEW A: CONVERSATIONAL INTAKE (#intake-view with #toni-chat-thread) -->
       <section id="intake-view" class="space-y-6">
@@ -1398,6 +1382,7 @@
       if (expectedGen !== null && voiceSessionGeneration !== expectedGen) {
         return; // Stale call for an older session; never touch newer session resources
       }
+      pendingVoiceSearchOffer = null;
       if (activeVoiceTurnDeferred) {
         activeVoiceTurnDeferred.resolve();
         activeVoiceTurnDeferred = null;
@@ -2127,6 +2112,8 @@
               }
             }
 
+            if (handleVoiceSearchConfirmation(uText, aText, completedTurnId)) return;
+
             // Validate and release buffered assistant audio if not already released at speech_complete
             releaseTurnAudioBuffer(completedTurnId, aText || msg.assistant_reply);
             if (aText && !turnReleasedAudio.has(completedTurnId)
@@ -2150,8 +2137,6 @@
                 }
               }, (remainingSec * 1000) + 120);
             }
-            // A Live transcript can contain speaker echo or misrecognition.
-            // Only the visible button authorizes a voice-to-search handoff.
           } else if (msg.type === "interrupted") {
             console.info("[TONI Audio] Gemini confirmed speech interruption");
             cancelLocalPlayback();
@@ -2164,7 +2149,8 @@
               activeVoiceTurnDeferred = null;
             }
             voiceTurnInterrupted = true;
-            currentVoiceTurnId = ++latestDialogueTurnId;
+            // Interruption is not a new user turn. Wait for a real transcript ID.
+            currentVoiceTurnId = 0;
           }
         } catch (e) {
           console.warn("WS parse notice:", e);
@@ -2221,10 +2207,6 @@
       await startMicCapture(currentVoiceGen);
     }
 
-    function toggleGeminiLive() {
-      toggleSingleBrainVoice();
-    }
-
     async function handleVoiceUtterance(userUtterance) {
       appendUserMessage(userUtterance);
       updateVoiceUIState("responding");
@@ -2260,12 +2242,12 @@
 
         syncContextToState(data.updated_context, turnId, userUtterance);
         completedDialogueTurnId = Math.max(completedDialogueTurnId, turnId);
+        if (handleVoiceSearchConfirmation(userUtterance, data.assistant_reply, turnId)) return;
         appendToniMessage(data.assistant_reply);
         updateVoiceUIState("default");
 
         syncReadinessUI();
 
-        // HTTP voice fallback has the same button-only search authorization as Live.
       } catch (err) {
         console.error("Voice turn error:", err);
         updateVoiceUIState("default");
@@ -2440,6 +2422,7 @@
     let editEpoch=0;
     let localFieldEdits={};
     function notePreferenceEdit(fields) {
+      pendingVoiceSearchOffer = null;
       confirmedChoicesKey='';
       for(const field of fields) localFieldEdits[field]=++editEpoch;
       syncPersistentResultsAction();
@@ -2454,6 +2437,31 @@
     }
     let pendingIntakePanel = '';
     let confirmedChoicesKey = '';
+    let pendingVoiceSearchOffer = null;
+
+    function handleVoiceSearchConfirmation(userText, assistantText, turnId) {
+      const offer = pendingVoiceSearchOffer;
+      pendingVoiceSearchOffer = null;
+      // Accept only a complete affirmative reply to this session's specific offer.
+      // Mixed replies ("yes, but...") are preference edits and need a fresh offer.
+      const affirmative = /^(?:yes(?: please)?|yeah|yep|sure|go ahead|please do|yes[, ]+go ahead)[.!\s]*$/i.test((userText || '').trim());
+      if (voiceActive && offer && offer.generation === voiceSessionGeneration &&
+          turnId > offer.turnId && affirmative && hasConfirmedSearchAccess() &&
+          completedDialogueTurnId >= latestDialogueTurnId &&
+          offer.key === getSearchPayloadKey()) {
+        retireIntakePanels();
+        confirmedChoicesKey = getSearchPayloadKey();
+        // Context is committed already. Stop all capture/playback before search.
+        teardownVoiceSession();
+        triggerPipelineExecution();
+        return true;
+      }
+      if (voiceActive && hasConfirmedSearchAccess() &&
+          /\bshall I search with these choices\s*\?/i.test(assistantText || '')) {
+        pendingVoiceSearchOffer = {turnId, generation:voiceSessionGeneration, key:getSearchPayloadKey()};
+      }
+      return false;
+    }
     let refinementDraft = {};
     let lastSuccessfulPreferences = null;
     const preferenceFields = ['country','country_confirmed','service_access','allow_rent_buy',
@@ -2502,18 +2510,21 @@
     function syncPersistentResultsAction() {
       const action=document.getElementById('persistent-results-action');
       if(!action) return;
-      const available=currentView==='intake' && choicesAreConfirmed();
+      const available=currentView==='intake' && hasConfirmedSearchAccess();
       if(available) action.classList.remove('hidden');
       else action.classList.add('hidden');
       const button=document.getElementById('find-my-results-btn');
-      if(button) button.disabled=isGenerating || completedDialogueTurnId < latestDialogueTurnId;
+      if(button) {
+        button.disabled=isGenerating || completedDialogueTurnId < latestDialogueTurnId;
+        button.textContent = choicesAreConfirmed() ? 'Find my results →' : 'Review choices →';
+      }
     }
     function renderInlineReadyCTA() { syncReadinessUI(); }
 
     function handleReadyCTAClick() {
       if(isGenerating || searchHandoffActive) return Promise.resolve();
       if(!choicesAreConfirmed()) {
-        if(!requestMissingSearchAccess() && !pendingIntakePanel) renderReadyTurn();
+        if(!requestMissingSearchAccess()) renderReadyTurn();
         return Promise.resolve();
       }
       // Retain deduplication after barrier clears:
@@ -2923,7 +2934,6 @@
       }
     }
 
-    let dropdownExclusionUserModified = false;
 
     function toggleExcludedGenre(genre) {
       notePreferenceEdit(['exclude_genres']);
@@ -2935,7 +2945,6 @@
         effective.push(genre);
       }
       setExcludeGenre(effective);
-      dropdownExclusionUserModified = true;
       renderActiveExclusionChips();
       syncReadinessUI();
     }
@@ -2969,43 +2978,12 @@
           }
         });
       }
-      const selectEl = document.getElementById("chat-exclude-genre");
-      if (selectEl) {
-        const isSingleHorror = effective.length === 1 && effective[0].toLowerCase() === 'horror';
-        const isSingleCrime = effective.length === 1 && effective[0].toLowerCase() === 'crime';
-        const isSingleSciFi = effective.length === 1 && effective[0].toLowerCase() === 'sci-fi';
-        const isSingleComedy = effective.length === 1 && effective[0].toLowerCase() === 'comedy';
-        if (effective.length === 0) selectEl.value = "";
-        else if (isSingleHorror) selectEl.value = "Horror";
-        else if (isSingleCrime) selectEl.value = "Crime";
-        else if (isSingleSciFi) selectEl.value = "Sci-Fi";
-        else if (isSingleComedy) selectEl.value = "Comedy";
-      }
-    }
-
-    function handleDropdownExclusionChange(target) {
-      dropdownExclusionUserModified = true;
-      const val = (target && typeof target === "object" && "value" in target) ? target.value : target;
-      setExcludeGenre(val);
-      renderActiveExclusionChips();
-      const el = document.getElementById("chat-exclude-genre");
-      if (el) {
-        el.dataset = el.dataset || {};
-        el.dataset.userChanged = "true";
-      }
     }
 
     // STEP 4: Pacing & Mood turn
     function renderStep4() {
       pendingIntakePanel='preferences'; confirmedChoicesKey=''; syncPersistentResultsAction();
-      dropdownExclusionUserModified = false;
-      const isDeep = chatState.intake_depth === 'get_to_know_me';
       const effective = getEffectiveExcludedGenres();
-      const isSingleHorror = effective.length === 1 && effective[0] === 'Horror';
-      const isSingleCrime = effective.length === 1 && effective[0] === 'Crime';
-      const isSingleSciFi = effective.length === 1 && effective[0] === 'Sci-Fi';
-      const isSingleComedy = effective.length === 1 && effective[0] === 'Comedy';
-      const isNone = effective.length === 0;
 
       const html = `
         <p class="text-sm sm:text-base font-medium text-ink">
@@ -3072,18 +3050,6 @@
             </div>
           </div>
 
-          ${isDeep ? `
-          <!-- Deep mode: Extra Exclusions dropdown -->
-          <div>
-            <select id="chat-exclude-genre" onchange="handleDropdownExclusionChange(this)" class="bg-bone border border-ink/20 rounded-[4px] px-3 py-1.5 text-xs text-ink font-medium">
-              <option value="" ${isNone ? 'selected' : ''}>Additional dropdown exclusion</option>
-              <option value="Horror" ${isSingleHorror ? 'selected' : ''}>No horror</option>
-              <option value="Crime" ${isSingleCrime ? 'selected' : ''}>No crime</option>
-              <option value="Sci-Fi" ${isSingleSciFi ? 'selected' : ''}>No sci-fi</option>
-              <option value="Comedy" ${isSingleComedy ? 'selected' : ''}>No comedy</option>
-            </select>
-          </div>
-          ` : ''}
 
           <div class="pt-2">
             <button type="button" 
@@ -3095,12 +3061,7 @@
         </div>
       `;
       appendToniMessage(html, "msg-step-4", true);
-      const selectEl = document.getElementById("chat-exclude-genre");
-      if (selectEl) {
-        selectEl.onchange = function() { handleDropdownExclusionChange(this); };
-        selectEl.dataset = selectEl.dataset || {};
-        selectEl.dataset.userChanged = "false";
-      }
+
     }
 
     function setPacing(val, btn) {
@@ -3135,10 +3096,6 @@
 
     function confirmStep4() {
       if (chatState.step > 4) return;
-      const selectEl = document.getElementById("chat-exclude-genre");
-      if (selectEl && (dropdownExclusionUserModified || (selectEl.dataset && selectEl.dataset.userChanged === "true"))) {
-        setExcludeGenre(selectEl.value);
-      }
       retireIntakePanels();
       chatState.step = 5;
       chatState.pacing_explicitly_set = true;
@@ -3466,7 +3423,105 @@
     }
 
     // Pipeline Execution
+    let activeReviewAbortController = null;
+
+    function cancelReviewUpdates() {
+      if (activeReviewAbortController) activeReviewAbortController.abort();
+      activeReviewAbortController = null;
+    }
+
+    function renderReviewPanel(rec) {
+      const status = rec.review_status || 'complete';
+      const complete = status === 'complete' && (rec.evidence_sources || []).length > 0 &&
+        !/baseline|fallback|unavailable/i.test(rec.consensus_rationale || rec.concise_reason || '');
+      const message = status === 'pending' ? 'Checking critic reviews…' :
+        status === 'searching_more' ? (rec.review_failure === 'synthesis' ?
+          'Your films are ready. Review analysis is taking longer; we’re trying again.' :
+          'Your films are ready. We’re checking more review sources.') :
+        status === 'unavailable' ? (rec.review_failure === 'synthesis' ?
+          'Reviews were found, but their analysis couldn’t be completed.' :
+          'Review analysis couldn’t be completed. Your film details are still available.') : '';
+      const sources = (rec.evidence_sources || []).filter(url => /^https?:\/\//i.test(url));
+      const dimensions = [['Story & Writing','story_and_writing'],['Pacing & Structure','pacing_and_structure'],
+        ['Performances','performances'],['Craft & Execution','craft_and_execution'],
+        ['Demandingness','accessibility_and_demandingness']];
+      return `<p role="status" class="text-xs text-ink-muted">${escapeHtml(message)}</p>
+        ${complete && rec.consensus_rationale ? `<p class="mt-2 text-sm font-serif">${escapeHtml(rec.consensus_rationale)}</p>` : ''}
+        ${sources.length ? `<ul class="mt-2 space-y-1 text-xs">${sources.map(url =>
+          `<li><a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer" class="underline">${escapeHtml(extractDomain(url))} ↗</a></li>`).join('')}</ul>` : ''}
+        <div class="mt-3 p-2.5 rounded border border-ink/15 text-xs">
+          Critical evidence state: <strong>${escapeHtml(complete ? formatEvidenceState(rec.evidence_state) :
+            status === 'pending' || status === 'searching_more' ? 'Checking reviews' : 'Not assessed')}</strong>
+        </div>
+        <div class="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 rounded border border-ink/15 text-[11px]">
+          ${dimensions.map(([label,key]) => `<div><span class="text-ink-subtle block">${label}</span><strong>${complete ? formatDimensionScore(rec.profile[key]) : 'Not assessed'}</strong></div>`).join('')}
+          <div><span class="text-ink-subtle block">Tone</span><strong>${complete ? escapeHtml(rec.profile.tone_and_emotional_character.join(', ')) : 'Not assessed'}</strong></div>
+        </div>`;
+    }
+
+    function applyReviewUpdate(data, update, reqId, generation) {
+      if (reqId !== recommendationRequestId || generation !== sessionGeneration ||
+          chatState.lastResults !== data || currentView !== 'results') return;
+      const rec = data.recommendations[update.index];
+      if (!rec || rec.metadata.title !== update.title || rec.metadata.year !== update.year ||
+          !['complete','searching_more','unavailable'].includes(update.review_status)) return;
+      // Explicit field allowlist: enrichment cannot change identity, availability or order.
+      for (const key of ['review_status','review_failure','evidence_sources','profile','evidence_state','consensus_rationale']) {
+        if (Object.prototype.hasOwnProperty.call(update, key)) rec[key] = update[key];
+      }
+      const panel = document.getElementById('review-panel-' + update.index);
+      if (panel) panel.innerHTML = renderReviewPanel(rec);
+      const progress = document.getElementById("review-progress-" + update.index);
+      if (progress) progress.textContent = update.review_status === "searching_more" ? (update.review_failure === "synthesis" ? "Review analysis is taking longer; we’re trying again." : "Your films are ready. We’re checking more review sources.") : update.review_status === "complete" ? "Critic reviews added." : "Review analysis couldn’t be completed.";
+    }
+
+    async function enrichDisplayedReviews(data, reqId, generation) {
+      if (!(data.recommendations || []).some(rec => rec.review_status === 'pending')) return;
+      cancelReviewUpdates();
+      const controller = new AbortController();
+      activeReviewAbortController = controller;
+      const timeout = setTimeout(() => controller.abort(), 65000);
+      try {
+        const response = await fetch('/api/reviews', {
+          method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal,
+          body:JSON.stringify({films:data.recommendations.map(rec => rec.metadata)})
+        });
+        if (!response.ok || !response.body) throw new Error('Review stream unavailable');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        try {
+          while (true) {
+            const {value,done} = await reader.read();
+            buffer += decoder.decode(value, {stream:!done});
+            const lines = buffer.split('\n'); buffer = lines.pop();
+            for (const line of lines) if (line.trim()) applyReviewUpdate(data, JSON.parse(line), reqId, generation);
+            if (done) {
+              if (buffer.trim()) applyReviewUpdate(data, JSON.parse(buffer), reqId, generation);
+              break;
+            }
+          }
+        } finally { reader.releaseLock(); }
+      } catch (err) {
+        if (err.name !== 'AbortError') console.warn('Review update interrupted:', err.message);
+      } finally {
+        clearTimeout(timeout);
+        if (activeReviewAbortController === controller) activeReviewAbortController = null;
+        data.recommendations.forEach((rec,index) => {
+          if (['pending','searching_more'].includes(rec.review_status)) {
+            applyReviewUpdate(data, {index,title:rec.metadata.title,year:rec.metadata.year,
+              review_status:'unavailable',review_failure:rec.review_failure || 'retrieval'}, reqId, generation);
+            // Retained results may be restored after a failed refinement. Do not
+            // leave them claiming that a cancelled review request is still active.
+            rec.review_status = 'unavailable';
+            rec.review_failure ||= 'retrieval';
+          }
+        });
+      }
+    }
+
     async function triggerPipelineExecution() {
+      cancelReviewUpdates();
       // 1. Establish ownership BEFORE waiting for dialogue
       const reqSessionGen = sessionGeneration;
       const reqId = ++recommendationRequestId;
@@ -3529,7 +3584,7 @@
 
       try {
         const queryParams = new URLSearchParams(window.location.search);
-        let url = "/api/recommend?live=true";
+        let url = "/api/recommend?live=true&defer_reviews=true";
         if (queryParams.has("live")) url = `/api/recommend?live=${queryParams.get("live")}`;
         if (queryParams.has("force_live_evidence")) url += `&force_live_evidence=${queryParams.get("force_live_evidence")}`;
 
@@ -3565,6 +3620,7 @@
           if (reqSessionGen !== sessionGeneration || reqId !== recommendationRequestId) return;
           renderDedicatedResultsPage(data);
           isGenerating = false;
+          enrichDisplayedReviews(data, reqId, reqSessionGen);
         }, 400);
 
       } catch (err) {
@@ -3680,7 +3736,7 @@
       const additional = recs.slice(3);
 
       // Render Top 3 Watchcards
-      top3.forEach((rec) => {
+      top3.forEach((rec, index) => {
         const isBestFit = rec.role === "best_fit";
         const cardWrap = document.createElement("div");
         cardWrap.className = "chat-message-anim";
@@ -3691,7 +3747,7 @@
         } else if (rec.role === "strong_alternative") {
           roleBadge = `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-ink text-bone">Strong alternative</span>`;
         } else {
-          roleBadge = `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-transparent text-ink border border-ink/20">Worth a stretch</span>`;
+          roleBadge = `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-transparent text-ink border border-ink/20">${rec.role === "worth_a_stretch" ? "Worth a stretch" : "Another option"}</span>`;
         }
 
         const posterUrl = rec.metadata.poster_url || rec.metadata.artwork;
@@ -3714,27 +3770,6 @@
         const services = rec.availability.matched_services.length 
           ? rec.availability.matched_services.join(", ") 
           : "Available to rent or buy";
-
-        const sources = rec.evidence_sources || [];
-        const hasReviewProfile=sources.length>0 && !/baseline|fallback|unavailable/i.test(rec.consensus_rationale || rec.concise_reason || '');
-        const dimensionScore=value=>hasReviewProfile ? formatDimensionScore(value) : 'Not assessed';
-        const sourcesHtml = sources.length 
-          ? `
-            <div class="mt-4 pt-3 border-t border-ink/10">
-              <span class="text-xs font-semibold text-ink-muted block mb-1.5 font-sans">Critical reviews &amp; evidence:</span>
-              <ul class="space-y-1 text-xs font-sans">
-                ${sources.slice(0, 3).map(url => `
-                  <li class="truncate">
-                    <a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer" class="text-ink hover:text-lime-dark hover:underline inline-flex items-center gap-1 font-medium">
-                      <span class="text-lime-dark font-bold">↗</span>
-                      <span>${escapeHtml(extractDomain(url))}</span>
-                      <span class="text-ink-subtle text-[11px] truncate">(${escapeHtml(url)})</span>
-                    </a>
-                  </li>
-                `).join("")}
-              </ul>
-            </div>
-          ` : "";
 
         const stretchCallout = rec.stretch_signal 
           ? `
@@ -3793,10 +3828,11 @@
                   </p>
                 </div>
                 ${stretchCallout}
-                ${sourcesHtml}
+
               </div>
             </div>
 
+            <p class="mt-3 text-xs text-ink-muted" id="review-progress-${index}" role="status">${rec.review_status === "pending" ? "Checking critic reviews…" : ""}</p>
             <!-- Editorial Dimension Breakdown -->
             <details class="mt-5 pt-3 border-t border-ink/10 group/fits">
               <summary class="cursor-pointer text-xs font-semibold text-ink-muted hover:text-ink flex items-center justify-between select-none py-1">
@@ -3805,20 +3841,7 @@
                 </span>
                 <span class="text-[11px] text-ink-subtle group-open/fits:rotate-180 transition-transform">▼</span>
               </summary>
-              <div class="mt-3 pt-2 text-xs text-ink-muted space-y-3 font-sans">
-                <div class="flex items-center justify-between p-2.5 rounded-[4px] bg-bone/70 border border-ink/15">
-                  <span class="font-medium text-ink">Critical evidence state:</span>
-                  <span class="font-semibold text-ink">${escapeHtml(formatEvidenceState(rec.evidence_state))}</span>
-                </div>
-                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] p-2.5 rounded-[4px] bg-bone/70 border border-ink/15">
-                  <div><span class="text-ink-subtle block">Story &amp; Writing</span><span class="font-bold text-ink">${dimensionScore(rec.profile.story_and_writing)}</span></div>
-                  <div><span class="text-ink-subtle block">Pacing &amp; Structure</span><span class="font-bold text-ink">${dimensionScore(rec.profile.pacing_and_structure)}</span></div>
-                  <div><span class="text-ink-subtle block">Performances</span><span class="font-bold text-ink">${dimensionScore(rec.profile.performances)}</span></div>
-                  <div><span class="text-ink-subtle block">Craft &amp; Execution</span><span class="font-bold text-ink">${dimensionScore(rec.profile.craft_and_execution)}</span></div>
-                  <div><span class="text-ink-subtle block">Demandingness</span><span class="font-bold text-ink">${dimensionScore(rec.profile.accessibility_and_demandingness)}</span></div>
-                  <div><span class="text-ink-subtle block">Tone Adjectives</span><span class="font-medium text-ink truncate block">${escapeHtml(rec.profile.tone_and_emotional_character.join(', '))}</span></div>
-                </div>
-              </div>
+              <div id="review-panel-${index}" class="mt-3">${renderReviewPanel(rec)}</div>
             </details>
           </article>
         `;
@@ -3864,10 +3887,11 @@
             </summary>
             <div class="p-5 border-t border-ink/10 bg-white/40 space-y-3">
               <p class="text-xs font-serif text-ink italic">“${escapeHtml(rec.concise_reason)}”</p>
+              <div id="review-panel-${idx + 3}">${renderReviewPanel(rec)}</div>
               <div class="text-[11px] text-ink-muted flex items-center gap-4">
                 <span>Director: <strong>${escapeHtml(rec.metadata.director)}</strong></span>
                 <span>Runtime: <strong>${rec.metadata.runtime_minutes} mins</strong></span>
-                <span>Evidence: <strong>${escapeHtml(formatEvidenceState(rec.evidence_state))}</strong></span>
+
               </div>
             </div>
           `;
@@ -3960,6 +3984,7 @@
 
     // Restart Conversation
     function restartConversation() {
+      cancelReviewUpdates();
       voiceUserRecords.clear(); committedVoiceTurns.clear();
       dialoguePreferenceSnapshots.clear(); editEpoch=0; localFieldEdits={};
       pendingIntakePanel=''; confirmedChoicesKey=''; refinementDraft={}; lastSuccessfulPreferences=null;
@@ -4038,7 +4063,6 @@
       chatState.demandingness = 3.0;
       chatState.demandingness_explicitly_set = false;
       setExcludeGenre("");
-      dropdownExclusionUserModified = false;
       chatState.max_runtime = null;
       chatState.min_release_year = RECENT_RELEASE_YEAR;
       chatState.preferred_genres=[]; chatState.reference_films=[]; chatState.tonight_signals=[];
@@ -4059,74 +4083,6 @@
       renderStep1();
     }
 
-    // Personas loader (?debug=true)
-    async function loadPersonas() {
-      try {
-        const res = await fetch("/api/personas");
-        const data = await res.json();
-        const container = document.getElementById("personas-container");
-        if (!container) return;
-        container.innerHTML = "";
-
-        data.personas.forEach(p => {
-          const card = document.createElement("div");
-          card.className = "p-2.5 rounded border border-ink/15 bg-white text-left hover:border-lime transition flex flex-col justify-between";
-          card.innerHTML = `
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <span class="font-bold text-xs text-ink font-serif">${p.name}</span>
-                <span class="text-[10px] px-1.5 py-0.2 rounded bg-bone text-ink font-medium">${p.context.country}</span>
-              </div>
-              <p class="text-[10px] text-ink-muted mb-1 font-serif line-clamp-2">${p.description}</p>
-            </div>
-            <button type="button" class="mt-1 text-left text-[11px] font-semibold text-ink underline hover:text-lime-dark">
-              Load Persona →
-            </button>
-          `;
-          card.querySelector("button").onclick = () => {
-            applyPersona(p.context, p.name);
-          };
-          container.appendChild(card);
-        });
-      } catch (e) {
-        console.error("Personas fetch error", e);
-      }
-    }
-
-    function applyPersona(ctx, name) {
-      restartConversation();
-      appendUserMessage(`Load persona: ${name}`);
-      chatState.country = ctx.country;
-      chatState.country_confirmed=true;
-      syncContextToState(ctx);
-      chatState.service_access = [...ctx.service_access];
-      chatState.allow_rent_buy = ctx.allow_rent_buy;
-      chatState.intake_depth = ctx.intake_depth;
-
-      const pSig = (ctx.tonight_signals || []).find(s => s.name === "pacing");
-      if (pSig) chatState.pacing = pSig.value;
-
-      const tSig = (ctx.tonight_signals || []).find(s => s.name === "tone");
-      if (tSig) chatState.tone = tSig.value;
-
-      const rSig = (ctx.tonight_signals || []).find(s => s.name === "max_runtime" || s.name === "max-runtime");
-      if (rSig) chatState.max_runtime = parseInt(rSig.value, 10);
-
-      const gSig = (ctx.tonight_signals || []).find(s => s.name === "exclude_genre" || s.name === "exclude-genre" || s.name === "exclude_genres");
-      if (gSig) {
-        setExcludeGenre(gSig.value);
-      } else {
-        setExcludeGenre("");
-      }
-
-      const personaGeneration=sessionGeneration;
-      setTimeout(() => {
-        if(personaGeneration!==sessionGeneration) return;
-        appendToniMessage(`Loaded persona <strong>${escapeHtml(name)}</strong> (${escapeHtml(ctx.country)}, ${escapeHtml(ctx.service_access.join(', '))}). Ready to find what fits!`, null, true);
-        renderReadyTurn();
-      }, 300);
-    }
-
     // Expose helpers on window for direct access and testing
     window.chatState = chatState;
     window.setExcludeGenre = setExcludeGenre;
@@ -4137,10 +4093,8 @@
     window.refineMoreLike = refineMoreLike;
     window.buildVoiceTurnPayload = buildVoiceTurnPayload;
     window.syncContextToState = syncContextToState;
-    window.applyPersona = applyPersona;
     window.renderStep4 = renderStep4;
     window.confirmStep4 = confirmStep4;
-    window.handleDropdownExclusionChange = handleDropdownExclusionChange;
     window.triggerPipelineExecution = triggerPipelineExecution;
     window.teardownVoiceSession = teardownVoiceSession;
     window.toggleSingleBrainVoice = toggleSingleBrainVoice;
@@ -4171,7 +4125,6 @@
     window.getPendingMicSetups = () => pendingMicSetups;
     window.getActiveAudioSourceNodes = () => activeAudioSourceNodes;
     window.enqueuePlaybackChunk = enqueuePlaybackChunk;
-    window.triggerPipelineExecution = triggerPipelineExecution;
     window.restartConversation = restartConversation;
     window.returnToChat = returnToChat;
     window.switchToView = switchToView;
@@ -4192,9 +4145,6 @@
     window.clearAllServicesInChat = clearAllServicesInChat;
     window.selectMarket = selectMarket;
     window.setPacing = setPacing;
-    window.buildVoiceTurnPayload = buildVoiceTurnPayload;
-    window.syncContextToState = syncContextToState;
-    window.chatState = chatState;
     window.getHandoffState = () => ({
       searchHandoffActive,
       inFlightHandoffPromise: Boolean(inFlightHandoffPromise),
@@ -4225,12 +4175,6 @@
     // Init
     window.addEventListener("DOMContentLoaded", () => {
       renderStep1();
-      const urlParams = new URLSearchParams(window.location.search);
-      if (urlParams.get("debug") === "true") {
-        const personasSection = document.getElementById("personas-section");
-        if (personasSection) personasSection.classList.remove("hidden");
-        loadPersonas();
-      }
     });
   </script>
 </body>

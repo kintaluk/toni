@@ -40,6 +40,8 @@ def test_domain_filtering():
         MockResult("https://en.wikipedia.org/wiki/Babylon_(film)"),
         MockResult("https://www.rottentomatoes.com/m/babylon_2022"),
         MockResult("https://www.avclub.com/babylon-review"),
+        MockResult("https://variety.com/2024/film/babylon-director-interview"),
+        MockResult("https://www.rogerebert.com/trailers/babylon"),
     ]
 
     filtered = filter_search_results(results)

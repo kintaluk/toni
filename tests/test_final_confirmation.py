@@ -20,7 +20,7 @@ def test_single_action_requires_confirmation_and_reset_clears_all_preferences():
         refs:chatState.reference_films,signals:chatState.tonight_signals,
         resetVisible:!document.getElementById('persistent-results-action').classList.contains('hidden')}));
     ''')
-    assert result==dict(initial=False,before=False,after=True,calls=1,genres=[],refs=[],signals=[],resetVisible=False)
+    assert result==dict(initial=False,before=True,after=True,calls=1,genres=[],refs=[],signals=[],resetVisible=False)
 
 
 def test_first_message_is_extracted_and_cannot_auto_search():

@@ -47,13 +47,9 @@ def test_providers_endpoint():
     assert res_invalid.status_code == 400
 
 
-def test_personas_endpoint():
-    """Verify /api/personas returns preconfigured demo personas."""
-    response = client.get("/api/personas")
-    assert response.status_code == 200
-    data = response.json()
-    assert "personas" in data
-    assert len(data["personas"]) >= 3
+def test_removed_persona_endpoint():
+    assert client.get("/api/personas").status_code == 404
+    assert "/api/personas" not in client.get("/openapi.json").json()["paths"]
 
 
 def test_recommend_endpoint_persona_a():
