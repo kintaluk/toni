@@ -79,7 +79,12 @@ def test_http_voice_fallback_readiness_cannot_start_search():
     assert result == dict(requests=0,view='intake',timer=None)
 
 
-@pytest.mark.parametrize('reply,expected', [('Yes please',1),('Not yet',0),('Yes, but no horror',0),('Shall I search with these choices?',0)])
+@pytest.mark.parametrize('reply,expected', [
+    ('Yes please',1), ('Yes, please. Yes.',1), ('Yes, please.',1),
+    ('Yes. Yes, go ahead!',1), ('Okay, please do.',1),
+    ('Not yet',0), ('Yes, but no horror',0), ('Yes. No, wait.',0),
+    ('Yes, please. Change it to horror.',0), ('Shall I search with these choices?',0),
+])
 @pytest.mark.parametrize('offer', [
     'Shall I search with these choices?',
     'Shall I search with these choices then?',
@@ -121,6 +126,32 @@ def test_yes_to_an_unrelated_question_or_after_preference_edit_does_not_search()
       console.log(JSON.stringify({unrelated,changed,requests:mockFetchCalls.filter(c=>c.url.includes('/api/recommend')).length}));
     ''')
     assert result == dict(unrelated=False, changed=False, requests=0)
+
+
+def test_repeated_spoken_yes_skips_confirm_choices_and_keeps_saved_preferences():
+    result = _run_voice_journey_js(SETUP + r'''
+      const ctx={country:'UK',country_confirmed:true,
+        service_access:['Netflix','Prime Video','Disney+','Sky Go'],allow_rent_buy:false,
+        min_release_year:2023,
+        tonight_signals:[{name:'tone',value:'comedy',signal_type:'soft_session_preference'}]};
+      socket.simulateMessage({type:'transcript',role:'user',turn_id:1,text:'I feel like a bit of comedy.'});
+      socket.simulateMessage({type:'turn_complete',turn_id:1,user_text:'I feel like a bit of comedy.',
+        assistant_reply:'Shall I search with these choices?',updated_context:ctx});
+      socket.simulateMessage({type:'transcript',role:'user',turn_id:2,text:'Yes, please.'});
+      socket.simulateMessage({type:'transcript',role:'user',turn_id:2,text:' Yes.'});
+      socket.simulateMessage({type:'turn_complete',turn_id:2,user_text:'Yes, please. Yes.',
+        assistant_reply:"I'm tuning in to your tastes. Tell me any streaming services, time limits, or genres you'd like to include or avoid tonight.",
+        updated_context:ctx});
+      await new Promise(resolve=>setTimeout(resolve,450));
+      const searches=mockFetchCalls.filter(c=>c.url.includes('/api/recommend'));
+      const payload=searches.length ? JSON.parse(searches[0].opts.body) : {};
+      console.log(JSON.stringify({requests:searches.length,voice:voiceActive,view:currentView,
+        services:payload.service_access,rent:payload.allow_rent_buy,year:payload.min_release_year,
+        tone:(payload.tonight_signals||[]).find(s=>s.name==='tone')?.value}));
+    ''')
+    assert result == dict(requests=1,voice=False,view='results',
+                         services=['Netflix','Prime Video','Disney+','Sky Go'],
+                         rent=False,year=2023,tone='comedy')
 
 
 @pytest.mark.parametrize('question', [

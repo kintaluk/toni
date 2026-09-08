@@ -2444,7 +2444,10 @@
       pendingVoiceSearchOffer = null;
       // Accept only a complete affirmative reply to this session's specific offer.
       // Mixed replies ("yes, but...") are preference edits and need a fresh offer.
-      const affirmative = /^(?:yes(?: please)?|yeah|yep|sure|go ahead|please do|yes[, ]+go ahead)[.!\s]*$/i.test((userText || '').trim());
+      // Speech transcription adds punctuation and may repeat a confirmation.
+      // Every word must still belong to an affirmative phrase.
+      const reply = (userText || '').replace(/[,.;!]+/g, ' ').replace(/\s+/g, ' ').trim();
+      const affirmative = /^(?:(?:yes|yeah|yep|sure|okay|ok|go ahead|please do)(?: please)?(?: |$))+$/i.test(reply);
       if (voiceActive && offer && offer.generation === voiceSessionGeneration &&
           turnId > offer.turnId && affirmative && hasConfirmedSearchAccess() &&
           completedDialogueTurnId >= latestDialogueTurnId &&

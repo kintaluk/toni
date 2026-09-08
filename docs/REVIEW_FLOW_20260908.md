@@ -28,7 +28,9 @@ aborts the old stream; request, session and film identities reject stale updates
 
 Voice confirmation belongs to the current question and saved preferences. A
 complete affirmative reply starts a single visual search only after context
-commit. Preference edits invalidate the offer. Negative, mixed, unrelated or
+commit. Punctuation and repeated affirmations such as “Yes, please. Yes.” are
+accepted without requiring a Confirm choices click. Preference edits invalidate
+the offer. Negative, mixed, unrelated or
 echoed question transcripts cannot authorize search. The transition tears down
 capture and playback. Natural search-question variants, including “Shall I search
 with these choices then?” and an acknowledgement before the final permission
