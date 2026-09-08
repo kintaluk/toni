@@ -31,7 +31,9 @@ complete affirmative reply starts a single visual search only after context
 commit. Preference edits invalidate the offer. Negative, mixed, unrelated or
 echoed question transcripts cannot authorize search. The transition tears down
 capture and playback. Natural search-question variants, including “Shall I search
-with these choices then?”, are covered by the confirmation tests. Turn detection
+with these choices then?” and an acknowledgement before the final permission
+question, are covered by the confirmation tests. Ambiguous alternatives and a
+later unrelated question do not authorize search. Turn detection
 now allows 1.2 seconds of silence with low
 end-of-speech sensitivity; explicitly unfinished transcripts get a short grace
 period. Interruption events also process any input text they contain.
@@ -57,7 +59,7 @@ and exposed repeated client setup as a further cause of synthesis failure. After
 connection reuse was implemented, all seven films received fresh Gemini synthesis
 in 3.20 seconds using the previously retrieved review cache (zero failures).
 These are individual local integration measurements, not production guarantees.
-The final regression run passed 248 tests; four opt-in live Gemini extraction
+The regression suite includes voice-question variants and consent guards; four opt-in live Gemini extraction
 tests were skipped. Source-manifest verification passed, and the served HTML
 contains neither the persona panel nor the old exclusion dropdown.
 Physical microphone/speaker and rendered-browser checks remain separate manual

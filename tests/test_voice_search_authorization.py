@@ -80,7 +80,13 @@ def test_http_voice_fallback_readiness_cannot_start_search():
 
 
 @pytest.mark.parametrize('reply,expected', [('Yes please',1),('Not yet',0),('Yes, but no horror',0),('Shall I search with these choices?',0)])
-@pytest.mark.parametrize('offer', ['Shall I search with these choices?', 'Shall I search with these choices then?', 'Would you like me to search now?'])
+@pytest.mark.parametrize('offer', [
+    'Shall I search with these choices?',
+    'Shall I search with these choices then?',
+    'Would you like me to search now?',
+    'Great preferences! Shall I search with these choices for you now?',
+    'All set. Would you like me to search for films using your preferences?',
+])
 def test_only_complete_confirmation_of_current_offer_starts_one_visual_search(reply, expected, offer):
     import json
     result = _run_voice_journey_js(SETUP + 'const answer=' + json.dumps(reply) + '; const offer=' + json.dumps(offer) + ';' + r'''
@@ -115,3 +121,22 @@ def test_yes_to_an_unrelated_question_or_after_preference_edit_does_not_search()
       console.log(JSON.stringify({unrelated,changed,requests:mockFetchCalls.filter(c=>c.url.includes('/api/recommend')).length}));
     ''')
     assert result == dict(unrelated=False, changed=False, requests=0)
+
+
+@pytest.mark.parametrize('question', [
+    'Shall I search or change your preferences?',
+    'Shall I not search yet?',
+    'Shall I search? Do you like comedy?',
+    'I can search for films. Do you like comedy?',
+])
+def test_ambiguous_or_superseded_search_question_cannot_authorize_search(question):
+    import json
+    result = _run_voice_journey_js(SETUP + 'const question=' + json.dumps(question) + ';' + r'''
+      chatState.country_confirmed=true; chatState.service_access=['Netflix'];
+      completedDialogueTurnId=latestDialogueTurnId=1;
+      handleVoiceSearchConfirmation('Comedy',question,1);
+      completedDialogueTurnId=latestDialogueTurnId=2;
+      const searched=handleVoiceSearchConfirmation('Yes','Okay.',2);
+      console.log(JSON.stringify({searched,requests:mockFetchCalls.filter(c=>c.url.includes('/api/recommend')).length}));
+    ''')
+    assert result == dict(searched=False, requests=0)

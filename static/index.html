@@ -2456,9 +2456,11 @@
         triggerPipelineExecution();
         return true;
       }
-      const searchQuestion = /^(?:(?:shall|should|can) I|would you like me to) (?:search|start (?:the )?search)(?: (?:with|using) (?:these|those|your) (?:choices|preferences))?(?: (?:now|then|for you))?\s*\?$/i;
+      // Match the final permission question, allowing a short acknowledgement
+      // before it and natural descriptions of the search after the verb.
+      const searchQuestion = /(?:^|[.!]\s+)((?:(?:shall|should|can|may) I|would you like me to|do you want me to) (?:search\b|(?:start|run|begin) (?:the |a )?search\b)[^.!?]*\?)\s*$/i.exec((assistantText || '').trim());
       if (voiceActive && hasConfirmedSearchAccess() &&
-          searchQuestion.test((assistantText || '').trim())) {
+          searchQuestion && !/\b(?:or|but|instead|not|don't)\b/i.test(searchQuestion[1])) {
         pendingVoiceSearchOffer = {turnId, generation:voiceSessionGeneration, key:getSearchPayloadKey()};
       }
       return false;
