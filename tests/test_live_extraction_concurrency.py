@@ -937,7 +937,7 @@ vm.runInThisContext(appScript);
 }})();
 """
 
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+    with tempfile.NamedTemporaryFile("w", suffix=".cjs", delete=False, encoding="utf-8") as f:
         f.write(harness)
         tmp_path = Path(f.name)
 

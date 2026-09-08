@@ -277,3 +277,49 @@ def test_live_tmdb_branch(monkeypatch):
     assert "Google Play" in res_rent.matched_services
     assert "Netflix" not in res_rent.matched_services
 
+
+def test_watchmode_429_cooldown_falls_back_to_tmdb(monkeypatch):
+    import time
+    from src import availability
+    monkeypatch.setenv("TONI_USE_MOCK_AVAILABILITY", "false")
+    monkeypatch.setenv("WATCHMODE_API_KEY", "dummy_wm_key")
+    monkeypatch.setenv("TMDB_API_KEY", "dummy_tmdb_key")
+    
+    # Reset cooldown before test
+    availability._WATCHMODE_COOLDOWN_UNTIL = 0.0
+
+    call_count = {"watchmode": 0, "tmdb": 0}
+
+    def mock_make_request(url, headers=None, timeout=3.0):
+        if "watchmode.com" in url:
+            call_count["watchmode"] += 1
+            return 429, {"error": "Too Many Requests"}
+        elif "themoviedb.org" in url or "api.themoviedb.org" in url:
+            call_count["tmdb"] += 1
+            if "search/movie" in url:
+                return 200, {"results": [{"title": "Film A", "release_date": "2024-01-01", "id": 101}]}
+            elif "watch/providers" in url:
+                return 200, {"results": {"GB": {"flatrate": [{"provider_name": "Netflix"}]}}}
+        return 404, {}
+
+    monkeypatch.setattr("src.availability.make_request", mock_make_request)
+
+    ctx = UserContext(
+        country="UK",
+        service_access=["Netflix"],
+        allow_rent_buy=False,
+        intake_depth=IntakeDepth.JUST_GIVE_ME_SOMETHING,
+    )
+
+    # First call encounters 429 from Watchmode and falls back to TMDB
+    res1 = get_film_availability("Film A", 2024, ctx)
+    assert res1.status == AvailabilityStatus.AVAILABLE
+    assert res1.provider == "TMDB"
+    assert call_count["watchmode"] == 1
+
+    # Second call should skip Watchmode due to active 429 cooldown and go straight to TMDB
+    res2 = get_film_availability("Film A", 2024, ctx)
+    assert res2.status == AvailabilityStatus.AVAILABLE
+    assert res2.provider == "TMDB"
+    assert call_count["watchmode"] == 1  # Did NOT increment because cooldown skipped it!
+

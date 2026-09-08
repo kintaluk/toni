@@ -1088,13 +1088,13 @@
       // 3. Conversational intake characteristic check
       // Allows:
       // a) Brief transitions
-      const isBriefTransition = /find\s+what\s+fits|let['’]?s\s+see|finding\s+movies/i.test(lower);
+      const isBriefTransition = /find\s+what\s+fits|let['’]?s\s+see|finding\s+(?:movies|films)|searching(?:\s+(?:for|with|now))?|looking\s+for\s+(?:films|movies|options)|all\s+set|ready\s+to\s+search|pulling\s+up|bringing\s+up|starting\s+(?:the\s+)?search/i.test(lower);
       // b) Probing questions clarifying taste, boundaries, runtime, services
       const isIntakeQuestion = clean.includes("?") || /\b(?:tell\s+me|what|which|how|do\s+you|let\s+me\s+know|any|pace|service|genre|mood)\b/i.test(lower);
       // c) Natural greetings and assistant presence
       const isGreetingOrPresence = /\b(?:hello|hi|hey|i['’]m\s+(?:here|toni|right\s+here)|welcome|greetings)\b/i.test(clean);
       // d) Conversational acknowledgements of viewer input
-      const isConversationalAck = /\b(?:got\s+it|understood|sounds\s+good|sure\s+thing|right\s+away|no\s+problem|i\s+can\s+help\s+with\s+that)\b/i.test(clean);
+      const isConversationalAck = /\b(?:got\s+it|understood|sounds\s+good|sure\s+thing|right\s+away|no\s+problem|i\s+can\s+help\s+with\s+that|perfect|great|noted|okay|ok|will\s+do)\b/i.test(clean);
 
       if (!isIntakeQuestion && !isBriefTransition && !isGreetingOrPresence && !isConversationalAck) {
         return { valid: false, reason: "uncertain_intake_structure" };
@@ -2478,7 +2478,7 @@
       }
       // Match the final permission question, allowing a short acknowledgement
       // before it and natural descriptions of the search after the verb.
-      const searchQuestion = /(?:^|[.!]\s+)((?:(?:shall|should|can|may) I|would you like me to|do you want me to) (?:search\b|(?:start|run|begin) (?:the |a )?search\b)[^.!?]*\?)\s*$/i.exec((assistantText || '').trim());
+      const searchQuestion = /(?:^|[.!]\s+)((?:(?:shall|should|can|may) I|would you like me to|do you want me to) (?:search\b|(?:start|run|begin) (?:the |a )?search\b|(?:look for|find)\s+(?:films|movies|options|what fits)\b|(?:bring up|show)\s+(?:the\s+)?(?:shortlist|results|films|movies)\b)[^.!?]*\?)\s*$/i.exec((assistantText || '').trim());
       if (hasConfirmedSearchAccess() &&
           searchQuestion && !/\b(?:or|but|instead|not|don't)\b/i.test(searchQuestion[1])) {
         pendingVoiceSearchOffer = {turnId, generation:sessionGeneration, key:getSearchPayloadKey()};

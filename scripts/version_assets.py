@@ -24,7 +24,10 @@ OWNED_ASSETS = [
 def compute_file_hash(path: Path) -> str:
     """Compute 8-character SHA-256 hash of file content."""
     sha = hashlib.sha256()
-    sha.update(path.read_bytes())
+    data = path.read_bytes()
+    if path.suffix.lower() in (".css", ".svg", ".json", ".html", ".txt", ".js"):
+        data = data.replace(b"\r\n", b"\n")
+    sha.update(data)
     return sha.hexdigest()[:8]
 
 def version_assets(repo_root: Path = None) -> dict[str, str]:
@@ -54,8 +57,11 @@ def version_assets(repo_root: Path = None) -> dict[str, str]:
         versioned_file = assets_dir / versioned_filename
 
         # Write or touch versioned file with exact identical bytes
-        if not versioned_file.exists() or versioned_file.read_bytes() != canonical_file.read_bytes():
-            versioned_file.write_bytes(canonical_file.read_bytes())
+        content = canonical_file.read_bytes()
+        if canonical_file.suffix.lower() in (".css", ".svg", ".json", ".html", ".txt", ".js"):
+            content = content.replace(b"\r\n", b"\n")
+        if not versioned_file.exists() or versioned_file.read_bytes() != content:
+            versioned_file.write_bytes(content)
 
         # Cleanup obsolete hashes owned strictly by this process
         hash_pattern = re.compile(rf"^{re.escape(stem)}\.([a-f0-9]{{8}})\.{re.escape(ext)}$")

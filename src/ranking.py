@@ -736,7 +736,7 @@ def _rank_movies_live(
             print(f"[!] Error checking availability for {meta.title}: {e}", file=sys.stderr)
             return meta, "unverified", None
 
-    avail_timeout = min(3.0, max(0.0, remaining(pipeline_deadline) - 2.0))
+    avail_timeout = min(8.0 if defer_reviews else 3.0, max(0.0, remaining(pipeline_deadline) - 2.0))
     avail_executor = UPSTREAM_EXECUTOR
     completed_titles = set()
     try:

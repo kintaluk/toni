@@ -168,16 +168,22 @@ def _safe_make_request(url: str, headers: dict = None, timeout: float = 3.0) -> 
         raise
 
 
-# --- WATCHMODE CLIENT ---
+_WATCHMODE_COOLDOWN_UNTIL = 0.0
 
 def watchmode_search(title: str, year: int, timeout: float = 3.0) -> Optional[str]:
     """Search Watchmode for a movie and return its title_id, raising ProviderAPIError on 5xx/network error."""
+    global _WATCHMODE_COOLDOWN_UNTIL
     if not _watchmode_api_key():
         return None
+    if time.monotonic() < _WATCHMODE_COOLDOWN_UNTIL:
+        raise ProviderAPIError("Watchmode cooldown active due to recent 429 rate limit")
     safe_title = urllib.parse.quote(title)
     url = f"https://api.watchmode.com/v1/search/?apiKey={_watchmode_api_key()}&search_field=name&search_value={safe_title}&types=movie"
     code, res = _safe_make_request(url, timeout=timeout)
-    if code >= 500 or code == 429:
+    if code == 429:
+        _WATCHMODE_COOLDOWN_UNTIL = time.monotonic() + 60.0
+        raise ProviderAPIError(f"Watchmode search failed with HTTP {code}: {res.get('error', '')}")
+    if code >= 500:
         raise ProviderAPIError(f"Watchmode search failed with HTTP {code}: {res.get('error', '')}")
     if code != 200 or "error" in res:
         return None
@@ -191,11 +197,17 @@ def watchmode_search(title: str, year: int, timeout: float = 3.0) -> Optional[st
 
 def watchmode_get_sources(title_id: str, timeout: float = 3.0) -> List[Dict[str, Any]]:
     """Retrieve sources for a specific Watchmode title_id, raising ProviderAPIError on 5xx/network error."""
+    global _WATCHMODE_COOLDOWN_UNTIL
     if not _watchmode_api_key() or not title_id:
         return []
+    if time.monotonic() < _WATCHMODE_COOLDOWN_UNTIL:
+        raise ProviderAPIError("Watchmode cooldown active due to recent 429 rate limit")
     url = f"https://api.watchmode.com/v1/title/{title_id}/sources/?apiKey={_watchmode_api_key()}"
     code, res = _safe_make_request(url, timeout=timeout)
-    if code >= 500 or code == 429:
+    if code == 429:
+        _WATCHMODE_COOLDOWN_UNTIL = time.monotonic() + 60.0
+        raise ProviderAPIError(f"Watchmode sources failed with HTTP {code}: {res.get('error', '') if isinstance(res, dict) else ''}")
+    if code >= 500:
         raise ProviderAPIError(f"Watchmode sources failed with HTTP {code}: {res.get('error', '') if isinstance(res, dict) else ''}")
     if code != 200:
         return []
